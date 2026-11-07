@@ -36,6 +36,16 @@ try:
         finally:
             loop.close()
 
+    # Register the cleanup task and its daily beat schedule. Done after
+    # celery_app exists so the cleanup module can import it; deferred import
+    # avoids a circular dependency.
+    try:
+        from app.tasks.cleanup import schedule_beat  # noqa: WPS433
+
+        schedule_beat(celery_app)
+    except Exception:
+        logger.exception("Failed to schedule cleanup beat task")
+
 except ImportError:
     celery_app = None
     logger.debug("Celery not available, background tasks disabled")

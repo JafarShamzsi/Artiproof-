@@ -1,25 +1,38 @@
 """
 Demo data seeder — populates DB with sample data for hackathon presentations.
+
+Disabled in production: only runs when ENVIRONMENT != "production". Demo credentials
+are read from DEMO_EMAIL / DEMO_PASSWORD env vars (see app.config) and the password
+is hashed at runtime instead of being checked into source.
 """
 
 import uuid
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from passlib.hash import bcrypt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.models.source_check import SourceCheck, ClaimAnalysis, AIDetectionResult, CitationCheck
 from app.models.researcher import ResearcherProfile, PublicationAnalysis, ScrapedPublication, CitationEdge, CoAuthorRelation
 from app.models.report import Report
 
-router = APIRouter(prefix="/api/seed", tags=["seed"])
+router = APIRouter(prefix="/api/seed", tags=["Seed (dev only)"])
+
+
+def _ensure_seeding_allowed() -> None:
+    if settings.ENVIRONMENT.lower() == "production":
+        raise HTTPException(status_code=403, detail="Seed endpoint disabled in production")
 
 
 @router.post("/demo")
 async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     """Seed the database with demo data for hackathon presentation."""
+    _ensure_seeding_allowed()
+
     from sqlalchemy import select
 
     now = datetime.now(timezone.utc)
@@ -30,8 +43,8 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     if not existing.scalar_one_or_none():
         db.add(User(
             id=user_id,
-            email="demo@example.invalid",
-            hashed_password="$2b$12$pb/UyJFbYIHybgVig8dNMerXToC4npnV0RAjvqVXVxaNchviZlVXu",  # demo1234
+            email=settings.DEMO_EMAIL,
+            hashed_password=bcrypt.hash(settings.DEMO_PASSWORD),
             full_name="Demo Researcher",
             institution="ArtiProof Demo",
             role="researcher",

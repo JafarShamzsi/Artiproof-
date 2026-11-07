@@ -9,7 +9,7 @@ from app.models.user import User
 from app.schemas.dashboard import DashboardStats, DashboardOverview, TrendResponse, TrendPoint, RecentActivityItem
 from app.utils.auth import get_current_user
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
 @router.get("/stats", response_model=DashboardStats)
@@ -20,31 +20,34 @@ async def get_stats(
     """User's overall stats."""
     user_id = current_user.id
 
-    # Total source checks
     sc_count_q = await db.execute(
-        select(func.count(SourceCheck.id)).where(SourceCheck.user_id == user_id)
+        select(func.count(SourceCheck.id)).where(
+            SourceCheck.user_id == user_id, SourceCheck.deleted_at.is_(None)
+        )
     )
     total_source_checks = sc_count_q.scalar() or 0
 
-    # Average credibility score
     avg_q = await db.execute(
         select(func.avg(SourceCheck.overall_credibility_score)).where(
             SourceCheck.user_id == user_id,
+            SourceCheck.deleted_at.is_(None),
             SourceCheck.overall_credibility_score.isnot(None),
         )
     )
     avg_credibility = avg_q.scalar() or 0.0
 
-    # Total researcher analyses
     ra_count_q = await db.execute(
-        select(func.count(ResearcherProfile.id)).where(ResearcherProfile.user_id == user_id)
+        select(func.count(ResearcherProfile.id)).where(
+            ResearcherProfile.user_id == user_id,
+            ResearcherProfile.deleted_at.is_(None),
+        )
     )
     total_researcher = ra_count_q.scalar() or 0
 
-    # Recent alerts = source checks with low credibility or researchers with low integrity
     alerts_q = await db.execute(
         select(func.count(SourceCheck.id)).where(
             SourceCheck.user_id == user_id,
+            SourceCheck.deleted_at.is_(None),
             SourceCheck.overall_credibility_score < 40,
         )
     )
@@ -66,19 +69,20 @@ async def get_recent_activity(
     """Recent source checks and researcher analyses."""
     user_id = current_user.id
 
-    # Recent source checks
     sc_q = await db.execute(
         select(SourceCheck)
-        .where(SourceCheck.user_id == user_id)
+        .where(SourceCheck.user_id == user_id, SourceCheck.deleted_at.is_(None))
         .order_by(SourceCheck.created_at.desc())
         .limit(5)
     )
     source_checks = sc_q.scalars().all()
 
-    # Recent researcher analyses
     ra_q = await db.execute(
         select(ResearcherProfile)
-        .where(ResearcherProfile.user_id == user_id)
+        .where(
+            ResearcherProfile.user_id == user_id,
+            ResearcherProfile.deleted_at.is_(None),
+        )
         .order_by(ResearcherProfile.created_at.desc())
         .limit(5)
     )
@@ -126,6 +130,7 @@ async def get_trends(
         )
         .where(
             SourceCheck.user_id == user_id,
+            SourceCheck.deleted_at.is_(None),
             SourceCheck.overall_credibility_score.isnot(None),
         )
         .group_by(cast(SourceCheck.created_at, Date))

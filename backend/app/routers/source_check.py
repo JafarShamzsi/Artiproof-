@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sse_starlette.sse import EventSourceResponse
 
+from app.constants import MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MIN_FILE_SIZE_BYTES
 from app.database import get_db
 from app.models.source_check import SourceCheck, ClaimAnalysis, AIDetectionResult, CitationCheck
 from app.models.user import User
@@ -25,7 +27,7 @@ from app.services.source_verification.orchestrator import SourceVerificationOrch
 from app.utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/source-check", tags=["source-check"])
+router = APIRouter(prefix="/api/source-check", tags=["Source Verification"])
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "pdfs")
 
@@ -100,15 +102,22 @@ async def upload_pdf_source_check(
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
-    # Save uploaded PDF
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large (max {MAX_FILE_SIZE_MB}MB)",
+        )
+    if len(contents) < MIN_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="File is empty or too small to be a PDF")
+    # Magic-byte check — reject anything not actually a PDF, regardless of extension
+    if not contents.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="File is not a valid PDF")
+
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     file_id = uuid.uuid4().hex[:12]
     safe_name = f"{file_id}_{file.filename.replace(' ', '_')}"
     pdf_path = os.path.join(UPLOAD_DIR, safe_name)
-
-    contents = await file.read()
-    if len(contents) > 50 * 1024 * 1024:  # 50MB limit
-        raise HTTPException(status_code=400, detail="File too large (max 50MB)")
 
     with open(pdf_path, "wb") as f:
         f.write(contents)
@@ -135,13 +144,15 @@ async def list_source_checks(
     """List user's past source checks (paginated)."""
     user_id = current_user.id
     total_q = await db.execute(
-        select(func.count(SourceCheck.id)).where(SourceCheck.user_id == user_id)
+        select(func.count(SourceCheck.id)).where(
+            SourceCheck.user_id == user_id, SourceCheck.deleted_at.is_(None)
+        )
     )
     total = total_q.scalar() or 0
 
     result = await db.execute(
         select(SourceCheck)
-        .where(SourceCheck.user_id == user_id)
+        .where(SourceCheck.user_id == user_id, SourceCheck.deleted_at.is_(None))
         .order_by(SourceCheck.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -161,12 +172,27 @@ async def list_source_checks(
 
 
 @router.get("/{check_id}", response_model=SourceCheckResponse)
-async def get_source_check(check_id: str, db: AsyncSession = Depends(get_db)):
-    """Get full source check results with claims, AI detection, citations."""
-    result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
+async def get_source_check(
+    check_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get full source check results with claims, AI detection, citations.
+
+    Requires authentication; only the user who created the check may read it.
+    Public sharing happens via the share-token endpoint in the reports router,
+    which intentionally does not require auth.
+    """
+    result = await db.execute(
+        select(SourceCheck).where(
+            SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)
+        )
+    )
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
+    if check.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this check")
 
     claims_q = await db.execute(
         select(ClaimAnalysis).where(ClaimAnalysis.source_check_id == check_id).order_by(ClaimAnalysis.created_at)
@@ -182,8 +208,19 @@ async def get_source_check(check_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{check_id}/stream")
 async def stream_source_check(check_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """SSE endpoint — runs the pipeline and streams progress events."""
-    result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
+    """SSE endpoint — runs the pipeline and streams progress events.
+
+    TODO(security, phase 5): this endpoint is currently unauthenticated because the
+    frontend uses the browser ``EventSource`` API, which cannot send Authorization
+    headers. Once the frontend migrates to ``@microsoft/fetch-event-source`` (or we
+    accept a signed query-param token), require ownership here — anyone with a
+    check ID can currently force a pipeline run for that check.
+    """
+    result = await db.execute(
+        select(SourceCheck).where(
+            SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)
+        )
+    )
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
@@ -206,52 +243,91 @@ async def stream_source_check(check_id: str, request: Request, db: AsyncSession 
 
 
 @router.get("/{check_id}/pdf/original")
-async def get_original_pdf(check_id: str, db: AsyncSession = Depends(get_db)):
+async def get_original_pdf(
+    check_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Serve the original uploaded PDF."""
-    result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
+    result = await db.execute(
+        select(SourceCheck).where(
+            SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)
+        )
+    )
     check = result.scalar_one_or_none()
     if not check or not check.original_pdf_path:
         raise HTTPException(status_code=404, detail="Original PDF not found")
+    if check.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this check")
     if not os.path.exists(check.original_pdf_path):
         raise HTTPException(status_code=404, detail="PDF file missing from disk")
     return FileResponse(check.original_pdf_path, media_type="application/pdf")
 
 
 @router.get("/{check_id}/pdf/annotated")
-async def get_annotated_pdf(check_id: str, db: AsyncSession = Depends(get_db)):
+async def get_annotated_pdf(
+    check_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Serve the annotated PDF with highlights."""
-    result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
+    result = await db.execute(
+        select(SourceCheck).where(
+            SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)
+        )
+    )
     check = result.scalar_one_or_none()
     if not check or not check.annotated_pdf_path:
         raise HTTPException(status_code=404, detail="Annotated PDF not found")
+    if check.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this check")
     if not os.path.exists(check.annotated_pdf_path):
         raise HTTPException(status_code=404, detail="Annotated PDF file missing from disk")
     return FileResponse(check.annotated_pdf_path, media_type="application/pdf")
 
 
 @router.get("/{check_id}/position-map")
-async def get_position_map(check_id: str, db: AsyncSession = Depends(get_db)):
+async def get_position_map(
+    check_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Return the JSON mapping of findings to PDF coordinates."""
-    result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
+    result = await db.execute(
+        select(SourceCheck).where(
+            SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)
+        )
+    )
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
+    if check.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this check")
     return JSONResponse(content=check.text_position_map or {"claims": {}, "ai_detections": {}, "citations": {}})
 
 
 @router.delete("/{check_id}", status_code=204)
-async def delete_source_check(check_id: str, db: AsyncSession = Depends(get_db)):
-    """Delete a source check and all related data."""
-    result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
+async def delete_source_check(
+    check_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Soft-delete a source check.
+
+    The row is marked with ``deleted_at`` rather than being removed so it can
+    be restored. PDF files are intentionally retained for the same reason; a
+    separate janitor job is responsible for hard-deleting old soft-deleted
+    rows and their files.
+    """
+    result = await db.execute(
+        select(SourceCheck).where(
+            SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)
+        )
+    )
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
-    # Clean up PDF files
-    for path in [check.original_pdf_path, check.annotated_pdf_path]:
-        if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-    await db.delete(check)
+    if check.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this check")
+    check.deleted_at = datetime.now(timezone.utc)
     await db.commit()

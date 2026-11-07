@@ -24,7 +24,7 @@ from app.services.report_engine.html_template import (
 from app.services.report_engine.pdf_generator import html_to_pdf, save_pdf
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/reports", tags=["reports"])
+router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
 
 def _report_response(r: Report) -> ReportResponse:
@@ -159,11 +159,16 @@ async def list_reports(
 ):
     """List user's reports."""
     user_id = current_user.id
-    total_q = await db.execute(select(func.count(Report.id)).where(Report.user_id == user_id))
+    total_q = await db.execute(
+        select(func.count(Report.id)).where(
+            Report.user_id == user_id, Report.deleted_at.is_(None)
+        )
+    )
     total = total_q.scalar() or 0
 
     result = await db.execute(
-        select(Report).where(Report.user_id == user_id)
+        select(Report)
+        .where(Report.user_id == user_id, Report.deleted_at.is_(None))
         .order_by(Report.created_at.desc())
         .offset((page - 1) * page_size).limit(page_size)
     )
@@ -177,7 +182,11 @@ async def list_reports(
 @router.get("/shared/{share_token}", response_model=ReportResponse)
 async def get_shared_report(share_token: str, db: AsyncSession = Depends(get_db)):
     """Public report access (no auth required)."""
-    result = await db.execute(select(Report).where(Report.share_token == share_token))
+    result = await db.execute(
+        select(Report).where(
+            Report.share_token == share_token, Report.deleted_at.is_(None)
+        )
+    )
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -187,7 +196,9 @@ async def get_shared_report(share_token: str, db: AsyncSession = Depends(get_db)
 @router.get("/{report_id}", response_model=ReportResponse)
 async def get_report(report_id: str, db: AsyncSession = Depends(get_db)):
     """Get report details."""
-    result = await db.execute(select(Report).where(Report.id == report_id))
+    result = await db.execute(
+        select(Report).where(Report.id == report_id, Report.deleted_at.is_(None))
+    )
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -270,7 +281,9 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> bytes:
 async def download_report(report_id: str, db: AsyncSession = Depends(get_db)):
     """Download PDF report. Regenerates on the fly if the cached file is missing —
     Local generated reports may not yet have a cached artifact."""
-    result = await db.execute(select(Report).where(Report.id == report_id))
+    result = await db.execute(
+        select(Report).where(Report.id == report_id, Report.deleted_at.is_(None))
+    )
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")

@@ -1,10 +1,17 @@
 import json
 import logging
+import re
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy import select, func
 from sse_starlette.sse import EventSourceResponse
+
+
+# ORCID format: 16 digits in 4 hyphenated groups, last digit may be X (mod-11 checksum)
+ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
 
 from app.database import get_db
 from app.models.researcher import ResearcherProfile, PublicationAnalysis
@@ -21,7 +28,7 @@ from app.services.academic_integrity.orchestrator import AcademicIntegrityOrches
 from app.utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/researcher", tags=["researcher"])
+router = APIRouter(prefix="/api/researcher", tags=["Researcher Integrity"])
 
 
 def _profile_to_response(profile: ResearcherProfile, publications=None) -> ResearcherProfileResponse:
@@ -72,6 +79,12 @@ async def analyze_researcher(
     if not any([data.researcher_name, data.scopus_id, data.google_scholar_id, data.orcid]):
         raise HTTPException(status_code=400, detail="Provide at least one identifier")
 
+    if data.orcid and not ORCID_PATTERN.match(data.orcid.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid ORCID format. Expected: 0000-0000-0000-0000 (final digit may be X)",
+        )
+
     profile = ResearcherProfile(
         user_id=user_id,
         researcher_name=data.researcher_name or "Unknown",
@@ -97,13 +110,15 @@ async def list_researcher_analyses(
     """List user's past researcher analyses (paginated)."""
     user_id = current_user.id
     total_q = await db.execute(
-        select(func.count(ResearcherProfile.id)).where(ResearcherProfile.user_id == user_id)
+        select(func.count(ResearcherProfile.id)).where(
+            ResearcherProfile.user_id == user_id, ResearcherProfile.deleted_at.is_(None)
+        )
     )
     total = total_q.scalar() or 0
 
     result = await db.execute(
         select(ResearcherProfile)
-        .where(ResearcherProfile.user_id == user_id)
+        .where(ResearcherProfile.user_id == user_id, ResearcherProfile.deleted_at.is_(None))
         .order_by(ResearcherProfile.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -129,14 +144,25 @@ async def list_researcher_analyses(
 
 
 @router.get("/{profile_id}", response_model=ResearcherProfileResponse)
-async def get_researcher_profile(profile_id: str, db: AsyncSession = Depends(get_db)):
-    """Get full researcher profile with publications and integrity analysis."""
+async def get_researcher_profile(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get full researcher profile with publications and integrity analysis.
+
+    Requires authentication; only the user who created the profile may read it.
+    """
     result = await db.execute(
-        select(ResearcherProfile).where(ResearcherProfile.id == profile_id)
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id, ResearcherProfile.deleted_at.is_(None)
+        )
     )
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
+    if profile.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this profile")
 
     # Load publications
     pubs_q = await db.execute(
@@ -151,9 +177,18 @@ async def get_researcher_profile(profile_id: str, db: AsyncSession = Depends(get
 
 @router.get("/{profile_id}/stream")
 async def stream_researcher_analysis(profile_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """SSE endpoint — runs scraping first, then integrity analysis."""
+    """SSE endpoint — runs scraping first, then integrity analysis.
+
+    TODO(security, phase 5): this endpoint is currently unauthenticated because the
+    frontend uses the browser ``EventSource`` API, which cannot send Authorization
+    headers. Once the frontend migrates to ``@microsoft/fetch-event-source`` (or we
+    accept a signed query-param token), require ownership here — anyone with a
+    profile ID can currently force the scrape + analysis pipeline.
+    """
     result = await db.execute(
-        select(ResearcherProfile).where(ResearcherProfile.id == profile_id)
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id, ResearcherProfile.deleted_at.is_(None)
+        )
     )
     profile = result.scalar_one_or_none()
     if not profile:
@@ -200,8 +235,20 @@ async def get_publications(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Paginated list of analyzed publications."""
+    profile_q = await db.execute(
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id, ResearcherProfile.deleted_at.is_(None)
+        )
+    )
+    profile = profile_q.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Researcher profile not found")
+    if profile.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this profile")
+
     total_q = await db.execute(
         select(func.count(PublicationAnalysis.id))
         .where(PublicationAnalysis.researcher_profile_id == profile_id)
@@ -235,14 +282,22 @@ async def get_publications(
 
 
 @router.get("/{profile_id}/citation-graph", response_model=CitationGraphResponse)
-async def get_citation_graph(profile_id: str, db: AsyncSession = Depends(get_db)):
+async def get_citation_graph(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Citation network data for visualization."""
     result = await db.execute(
-        select(ResearcherProfile).where(ResearcherProfile.id == profile_id)
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id, ResearcherProfile.deleted_at.is_(None)
+        )
     )
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if profile.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this profile")
 
     # Graph data is stored in citation_ring_flags
     ring_flags = profile.citation_ring_flags or {}
@@ -252,3 +307,24 @@ async def get_citation_graph(profile_id: str, db: AsyncSession = Depends(get_db)
         nodes=graph.get("nodes", []),
         edges=graph.get("edges", []),
     )
+
+
+@router.delete("/{profile_id}", status_code=204)
+async def delete_researcher_profile(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Soft-delete a researcher profile. The row is retained for restore."""
+    result = await db.execute(
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id, ResearcherProfile.deleted_at.is_(None)
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Researcher profile not found")
+    if profile.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this profile")
+    profile.deleted_at = datetime.now(timezone.utc)
+    await db.commit()

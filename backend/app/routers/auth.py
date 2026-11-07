@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from passlib.hash import bcrypt
@@ -20,8 +20,9 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.utils.auth import create_access_token, get_current_user
+from app.utils.rate_limit import limiter
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
 def _user_to_response(user: User) -> UserResponse:
@@ -29,19 +30,22 @@ def _user_to_response(user: User) -> UserResponse:
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def register(request: Request, data: UserRegister, db: AsyncSession = Depends(get_db)):
     """Create a new user account and return a JWT so the client can authenticate immediately."""
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
+    # New users always start as researchers — admin is privileged and only assignable
+    # by an existing admin via a separate admin tool. Ignore role from the public payload.
     user = User(
         id=str(uuid.uuid4()),
         email=data.email,
         hashed_password=bcrypt.hash(data.password),
         full_name=data.full_name,
         institution=data.institution,
-        role=data.role,
+        role="researcher" if data.role == "admin" else data.role,
         updated_at=datetime.now(timezone.utc),
     )
     db.add(user)
@@ -53,7 +57,8 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(get_db)):
     """Authenticate and return a JWT."""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
@@ -66,7 +71,8 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/google", response_model=TokenResponse)
-async def google_login(data: GoogleLogin, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def google_login(request: Request, data: GoogleLogin, db: AsyncSession = Depends(get_db)):
     """Verify a Google ID token, then create or return the matching platform user."""
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google sign-in is not configured")
@@ -116,12 +122,15 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if data.full_name is not None:
-        current_user.full_name = data.full_name
-    if data.institution is not None:
-        current_user.institution = data.institution
-    if data.role is not None:
-        current_user.role = data.role
+    # Users may update profile fields but never their own role — role changes are
+    # privileged and must go through an admin tool.
+    update_data = data.model_dump(exclude_unset=True)
+    update_data.pop("role", None)
+
+    if "full_name" in update_data:
+        current_user.full_name = update_data["full_name"]
+    if "institution" in update_data:
+        current_user.institution = update_data["institution"]
 
     current_user.updated_at = datetime.now(timezone.utc)
     await db.commit()
