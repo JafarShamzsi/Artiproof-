@@ -25,7 +25,12 @@ export function FadeIn({
   className?: string;
 }) {
   const reduce = useReducedMotion();
-  const offset = reduce ? {} : offsetMap[direction];
+  // Initial state is invariant across server and client to avoid
+  // hydration mismatch — `useReducedMotion()` returns null on SSR and
+  // the real preference on the client, so branching `initial` on it
+  // makes server and client diverge. Reduced-motion users instead get
+  // duration: 0 — the element renders at the destination instantly.
+  const offset = offsetMap[direction];
 
   return (
     <motion.div

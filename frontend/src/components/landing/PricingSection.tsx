@@ -287,13 +287,11 @@ function FaqAccordion({ items }: { items: readonly FaqItem[] }) {
                 <motion.div
                   id={id}
                   key="content"
-                  initial={
-                    reduce ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }
-                  }
+                  // Initial / exit are invariant; reduced-motion is
+                  // expressed via duration:0 so SSR and client agree.
+                  initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
-                  exit={
-                    reduce ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }
-                  }
+                  exit={{ opacity: 0, height: 0 }}
                   transition={{
                     duration: reduce ? 0 : 0.22,
                     ease: [0.16, 1, 0.3, 1],

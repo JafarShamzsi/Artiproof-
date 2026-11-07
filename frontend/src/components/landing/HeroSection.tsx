@@ -37,7 +37,10 @@ function HeadlineWords({
                 >
                   <motion.span
                     className="inline-block"
-                    initial={{ y: reduce ? 0 : "110%" }}
+                    // Always `initial: y "110%"` so server and client
+                    // markup match. Reduced-motion users get duration: 0
+                    // — instant snap, no hydration mismatch.
+                    initial={{ y: "110%" }}
                     animate={{ y: 0 }}
                     transition={{
                       duration: reduce ? 0 : 0.55,
@@ -81,7 +84,10 @@ export function HeroSection() {
   const reduce = useReducedMotion();
 
   const fade = (delay: number) => ({
-    initial: { opacity: 0, y: reduce ? 0 : 20 },
+    // Initial state is invariant so SSR markup matches first client
+    // render. Reduced-motion users get duration: 0 — content snaps in
+    // place without an animation pass and without hydration mismatch.
+    initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
     transition: {
       duration: reduce ? 0 : 0.5,

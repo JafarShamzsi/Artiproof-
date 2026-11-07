@@ -90,13 +90,18 @@ export function Navbar() {
 
   return (
     <motion.header
-      initial={prefersReducedMotion ? false : { y: -20, opacity: 0 }}
+      // Invariant `initial` so SSR markup matches first client render.
+      // `useReducedMotion()` returns null during SSR and the real value
+      // on the client, so branching `initial` on it causes hydration
+      // mismatch. Instead we keep the entry transform and zero out the
+      // duration when motion is reduced — instantaneous snap, no flash.
+      initial={{ y: -20, opacity: 0 }}
       animate={{
         y: hidden ? "-100%" : 0,
         opacity: 1,
       }}
       transition={{
-        duration: 0.3,
+        duration: prefersReducedMotion ? 0 : 0.3,
         ease: [0.16, 1, 0.3, 1],
       }}
       className={cn(
