@@ -9,13 +9,6 @@ import { InteractiveHoverButton } from "./shared/InteractiveHoverButton";
 const headlineWords = ["Research"];
 const headlineLine2Words = ["Integrity", "Platform"];
 
-const orbitingDots = [
-  { size: 8, radius: 140, duration: 8, delay: 0, color: "bg-emerald-400" },
-  { size: 6, radius: 160, duration: 12, delay: 2, color: "bg-emerald-400" },
-  { size: 10, radius: 120, duration: 10, delay: 4, color: "bg-emerald-300" },
-  { size: 5, radius: 170, duration: 14, delay: 1, color: "bg-emerald-300" },
-] as const;
-
 export function HeroSection() {
   const prefersReducedMotion = useReducedMotion();
 
@@ -120,13 +113,9 @@ export function HeroSection() {
             </motion.p>
           </div>
 
-          {/* Right — 3D Globe */}
+          {/* Right — Animated Globe */}
           <div className="flex items-center justify-center">
-            {prefersReducedMotion ? (
-              <GlobePlaceholder reducedMotion />
-            ) : (
-              <HeroGlobe />
-            )}
+            <HeroGlobe />
           </div>
         </div>
       </div>
@@ -134,120 +123,3 @@ export function HeroSection() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Globe Placeholder (will be replaced with R3F globe)               */
-/* ------------------------------------------------------------------ */
-
-function GlobePlaceholder({ reducedMotion }: { reducedMotion: boolean }) {
-  return (
-    <div className="relative aspect-square w-48 md:w-80">
-      {/* Glow background */}
-      <div className="absolute inset-0 rounded-full bg-emerald-500/20 blur-2xl" />
-
-      {/* Main circle with gradient border */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative h-48 w-48 rounded-full md:h-80 md:w-80">
-          {/* Outer gradient ring */}
-          <div className="absolute inset-0 rounded-full bg-emerald-500/30 p-px">
-            <div className="h-full w-full rounded-full bg-zinc-950" />
-          </div>
-
-          {/* Inner subtle gradient */}
-          <div className="absolute inset-2 rounded-full bg-emerald-500/5" />
-
-          {/* Grid lines hint */}
-          <div className="absolute inset-4 rounded-full border border-zinc-800/50" />
-          <div className="absolute inset-8 rounded-full border border-zinc-800/30" />
-          <div className="absolute inset-12 rounded-full border border-zinc-800/20" />
-
-          {/* Center dot */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="h-2 w-2 rounded-full bg-emerald-400/60" />
-          </div>
-        </div>
-      </div>
-
-      {/* Orbiting dots */}
-      {orbitingDots.map((dot, index) => (
-        <OrbitingDot key={index} {...dot} reducedMotion={reducedMotion} />
-      ))}
-    </div>
-  );
-}
-
-function OrbitingDot({
-  size,
-  radius,
-  duration,
-  delay,
-  color,
-  reducedMotion,
-}: {
-  size: number;
-  radius: number;
-  duration: number;
-  delay: number;
-  color: string;
-  reducedMotion: boolean;
-}) {
-  if (reducedMotion) {
-    // Static positioned dot when reduced motion is preferred
-    const angle = delay * 45; // spread them out
-    const rad = (angle * Math.PI) / 180;
-    const x = Math.cos(rad) * (radius * 0.4);
-    const y = Math.sin(rad) * (radius * 0.4);
-
-    return (
-      <div
-        className="absolute left-1/2 top-1/2"
-        style={{
-          transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
-        }}
-      >
-        <div
-          className={cn("rounded-full opacity-60", color)}
-          style={{ width: size, height: size }}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="absolute inset-0">
-      <motion.div
-        className="absolute left-1/2 top-1/2"
-        animate={{
-          rotate: 360,
-        }}
-        transition={{
-          duration,
-          delay,
-          repeat: Infinity,
-          ease: "linear",
-        }}
-        style={{
-          width: radius * 2,
-          height: radius * 2,
-          marginLeft: -radius,
-          marginTop: -radius,
-        }}
-      >
-        <div
-          className={cn("absolute rounded-full shadow-lg", color)}
-          style={{
-            width: size,
-            height: size,
-            top: 0,
-            left: "50%",
-            transform: "translateX(-50%)",
-            boxShadow: `0 0 ${size * 2}px currentColor`,
-          }}
-        >
-          <div
-            className={cn("h-full w-full rounded-full opacity-60", color)}
-          />
-        </div>
-      </motion.div>
-    </div>
-  );
-}
