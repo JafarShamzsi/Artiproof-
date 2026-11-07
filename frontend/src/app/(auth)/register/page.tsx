@@ -132,8 +132,12 @@ export default function RegisterPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={8}
+              aria-describedby="password-hint"
               className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
             />
+            <p id="password-hint" className="text-xs text-zinc-500">
+              Minimum 8 characters. Use a passphrase or password manager.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="institution" className="text-zinc-300">Institution / University</Label>

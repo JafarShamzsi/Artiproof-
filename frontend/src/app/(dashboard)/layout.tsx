@@ -54,7 +54,7 @@ function SidebarContent({
         )}
       </div>
 
-      <nav className="flex-1 space-y-1 p-3">
+      <nav aria-label="Main navigation" className="flex-1 space-y-1 p-3">
         {sidebarLinks.map((link) => {
           const isActive =
             pathname === link.href ||
@@ -70,8 +70,12 @@ function SidebarContent({
                   : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
               )}
             >
-              <link.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span className="flex-1">{link.label}</span>}
+              <link.icon aria-hidden="true" className="h-5 w-5 shrink-0" />
+              {collapsed ? (
+                <span className="sr-only">{link.label}</span>
+              ) : (
+                <span className="flex-1">{link.label}</span>
+              )}
             </Link>
           );
         })}
@@ -108,10 +112,14 @@ export default function DashboardLayout({
       >
         <SidebarContent collapsed={collapsed} pathname={pathname} />
         <button
+          type="button"
           onClick={() => setCollapsed(!collapsed)}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
           className="flex items-center justify-center border-t border-zinc-800 py-3 text-zinc-500 hover:text-zinc-300"
         >
           <ChevronLeft
+            aria-hidden="true"
             className={cn(
               "h-4 w-4 transition-transform",
               collapsed && "rotate-180"
@@ -127,8 +135,11 @@ export default function DashboardLayout({
           <div className="flex items-center gap-3">
             {/* Mobile Menu */}
             <Sheet>
-              <SheetTrigger className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:hidden">
-                <Menu className="h-5 w-5" />
+              <SheetTrigger
+                aria-label="Open navigation menu"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
+              >
+                <Menu aria-hidden="true" className="h-5 w-5" />
               </SheetTrigger>
               <SheetContent
                 side="left"
@@ -141,7 +152,10 @@ export default function DashboardLayout({
 
           <div className="flex items-center gap-3">
             <DropdownMenu>
-              <DropdownMenuTrigger className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-zinc-800">
+              <DropdownMenuTrigger
+                aria-label="Open account menu"
+                className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-zinc-800"
+              >
                 <Avatar className="h-9 w-9">
                   <AvatarFallback className="bg-zinc-800 text-sm text-zinc-300">
                     {initials}
@@ -178,7 +192,14 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          aria-label="Dashboard content"
+          className="flex-1 overflow-y-auto p-6"
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

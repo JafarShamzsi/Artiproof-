@@ -16,16 +16,12 @@ import {
   Clock,
 } from "lucide-react";
 
-interface ProgressEvent {
-  step: string;
-  status: string;
-  detail: string;
-  progress: number;
-}
-
 import { apiFetch, backendUrl } from "@/lib/api";
 import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreLabel } from "@/components/ui/score-explanation";
+import { EmptyState } from "@/components/ui/empty-state";
+import type { ProgressEvent, ResearcherListItem } from "@/types/api";
+import { scoreColor } from "@/lib/colors";
 
 export default function ResearcherAnalysisPage() {
   const router = useRouter();
@@ -34,14 +30,25 @@ export default function ResearcherAnalysisPage() {
   const [scholarId, setScholarId] = useState("");
   const [orcid, setOrcid] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const [progress, setProgress] = useState(0);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Close any in-flight SSE on unmount so we don't leak the connection
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+    };
+  }, []);
 
   const hasInput = name || scopusId || scholarId || orcid;
 
   const handleSubmit = useCallback(async () => {
     if (!hasInput) return;
     setLoading(true);
+    setError(null);
     setEvents([]);
     setProgress(0);
 
@@ -57,6 +64,8 @@ export default function ResearcherAnalysisPage() {
       });
 
       if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        setError(err.detail || "Failed to start analysis");
         setLoading(false);
         return;
       }
@@ -64,42 +73,47 @@ export default function ResearcherAnalysisPage() {
       const data = await res.json();
       const profileId = data.id;
 
-      // Start SSE stream
+      // Start SSE stream — close any prior stream first
+      eventSourceRef.current?.close();
       const es = new EventSource(backendUrl(`/api/researcher/${profileId}/stream`));
+      eventSourceRef.current = es;
 
       es.onmessage = (e) => {
         try {
-          const event: ProgressEvent = JSON.parse(e.data);
+          const event = JSON.parse(e.data) as ProgressEvent;
           setEvents((prev) => [...prev, event]);
           setProgress(event.progress);
 
           if (event.status === "completed" || event.status === "failed") {
             es.close();
+            eventSourceRef.current = null;
             setLoading(false);
             if (event.status === "completed") {
               router.push(`/researcher/${profileId}`);
             }
           }
         } catch {
-          // ignore
+          // Malformed event — ignore
         }
       };
 
       es.onerror = () => {
         es.close();
+        eventSourceRef.current = null;
         setLoading(false);
         if (profileId) {
           router.push(`/researcher/${profileId}`);
         }
       };
-    } catch {
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start analysis");
       setLoading(false);
     }
   }, [name, scopusId, scholarId, orcid, hasInput, router]);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Analyze Researcher</h1>
+      <h1 className="font-display text-2xl font-bold text-white">Analyze Researcher</h1>
 
       <Card className="border-zinc-800 bg-zinc-900/50">
         <CardHeader>
@@ -110,8 +124,9 @@ export default function ResearcherAnalysisPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label className="text-zinc-400">Researcher Name</Label>
+            <Label htmlFor="researcher-name" className="text-zinc-400">Researcher Name</Label>
             <Input
+              id="researcher-name"
               placeholder="e.g. John Smith"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -123,8 +138,9 @@ export default function ResearcherAnalysisPage() {
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <Label className="text-zinc-400">Scopus ID</Label>
+              <Label htmlFor="researcher-scopus" className="text-zinc-400">Scopus ID</Label>
               <Input
+                id="researcher-scopus"
                 placeholder="e.g. 57203100718"
                 value={scopusId}
                 onChange={(e) => setScopusId(e.target.value)}
@@ -133,8 +149,9 @@ export default function ResearcherAnalysisPage() {
               />
             </div>
             <div>
-              <Label className="text-zinc-400">Google Scholar ID</Label>
+              <Label htmlFor="researcher-scholar" className="text-zinc-400">Google Scholar ID</Label>
               <Input
+                id="researcher-scholar"
                 placeholder="e.g. xJaxiEEAAAAJ"
                 value={scholarId}
                 onChange={(e) => setScholarId(e.target.value)}
@@ -143,8 +160,9 @@ export default function ResearcherAnalysisPage() {
               />
             </div>
             <div>
-              <Label className="text-zinc-400">ORCID</Label>
+              <Label htmlFor="researcher-orcid" className="text-zinc-400">ORCID</Label>
               <Input
+                id="researcher-orcid"
                 placeholder="e.g. 0000-0002-1234-5678"
                 value={orcid}
                 onChange={(e) => setOrcid(e.target.value)}
@@ -165,14 +183,36 @@ export default function ResearcherAnalysisPage() {
               <><Search className="mr-2 h-4 w-4" /> Analyze Researcher</>
             )}
           </Button>
+
+          {error && (
+            <div
+              role="alert"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Live region for screen readers — announces each pipeline step */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {events.length > 0 ? events[events.length - 1].detail : ""}
+      </div>
 
       {/* Progress */}
       {loading && events.length > 0 && (
         <Card className="border-zinc-800 bg-zinc-900/50">
           <CardContent className="py-6">
-            <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div
+              role="progressbar"
+              aria-label="Researcher analysis progress"
+              aria-valuenow={Math.round(progress * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+            >
               <div
                 className="h-full rounded-full bg-purple-500 transition-all duration-300"
                 style={{ width: `${progress * 100}%` }}
@@ -205,15 +245,24 @@ export default function ResearcherAnalysisPage() {
 }
 
 function PastAnalyses() {
-  const [analyses, setAnalyses] = useState<any[]>([]);
+  const [analyses, setAnalyses] = useState<ResearcherListItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    apiFetch("/api/researcher/")
-      .then((r) => r.ok ? r.json() : { items: [] })
-      .then((data) => setAnalyses(data.items || []))
-      .catch(() => {})
-      .finally(() => setLoaded(true));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const r = await apiFetch("/api/researcher/", { signal: controller.signal });
+        if (!r.ok) return;
+        const data = await r.json();
+        setAnalyses(data.items || []);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+      } finally {
+        setLoaded(true);
+      }
+    })();
+    return () => controller.abort();
   }, []);
 
   return (
@@ -225,13 +274,14 @@ function PastAnalyses() {
         {!loaded ? (
           <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-zinc-500" /></div>
         ) : analyses.length === 0 ? (
-          <div className="flex flex-col items-center py-8">
-            <Users className="mb-3 h-10 w-10 text-zinc-600" />
-            <p className="text-sm text-zinc-500">No researcher analyses yet.</p>
-          </div>
+          <EmptyState
+            icon={<Users className="h-5 w-5" />}
+            title="No researcher analyses yet"
+            description="Search for a researcher above by name, ORCID, or Scopus ID. Results appear here."
+          />
         ) : (
           <div className="space-y-3">
-            {analyses.map((a: any) => (
+            {analyses.map((a) => (
               <a
                 key={a.id}
                 href={`/researcher/${a.id}`}
@@ -256,11 +306,7 @@ function PastAnalyses() {
                       <ScoreLabel
                         explanation={explainIntegrity({ score: a.integrity_score })}
                       />
-                      <span className={`text-lg font-bold ${
-                        a.integrity_score >= 70 ? "text-emerald-400"
-                        : a.integrity_score >= 40 ? "text-amber-400"
-                        : "text-red-400"
-                      }`}>
+                      <span className={`text-lg font-bold ${scoreColor(a.integrity_score)}`}>
                         {Math.round(a.integrity_score)}
                       </span>
                     </div>

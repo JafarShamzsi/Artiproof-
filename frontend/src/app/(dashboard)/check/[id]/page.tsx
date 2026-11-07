@@ -29,6 +29,12 @@ const PdfViewer = lazy(() => import("@/components/pdf-viewer"));
 import { apiFetch, backendUrl } from "@/lib/api";
 import { useReportActions } from "@/lib/useReportActions";
 import { explainCredibility } from "@/lib/scoreExplanation";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
+import {
+  aiProbColor,
+  scoreColor,
+  scoreSolidBorderColor,
+} from "@/lib/colors";
 import {
   ScoreExplanationCard,
   ScoreExplanationCompact,
@@ -43,9 +49,13 @@ interface ClaimData {
   confidence: number;
   explanation: string;
   true_version: string | null;
-  sources: any[] | null;
-  origin_trace: any | null;
-  position_in_text: any | null;
+  sources: Array<{ name?: string; url?: string }> | null;
+  origin_trace: {
+    origin_platform?: string;
+    first_seen?: string;
+    [k: string]: unknown;
+  } | null;
+  position_in_text: { start: number; end: number } | null;
 }
 
 interface AIDetection {
@@ -67,6 +77,30 @@ interface CitationData {
   suggested_alternative: string | null;
 }
 
+interface ScoreBreakdownData {
+  base: number;
+  deductions: Array<{
+    reason: string;
+    impact: number;
+    detail?: Record<string, unknown>;
+  }>;
+  warnings?: string[];
+  final: number;
+  confidence?: number;
+  formula_version?: string;
+}
+
+interface ModelMetadataData {
+  model_provider?: string;
+  model_name?: string;
+  apis_used?: string[];
+  fallback_used?: boolean;
+  processing_warnings?: Array<Record<string, unknown>>;
+  timestamp?: string;
+  formula_version?: string;
+  context?: Record<string, unknown>;
+}
+
 interface SourceCheckData {
   id: string;
   input_type: string;
@@ -83,6 +117,8 @@ interface SourceCheckData {
   claims: ClaimData[];
   ai_detections: AIDetection[];
   citations: CitationData[];
+  score_breakdown?: ScoreBreakdownData | null;
+  model_metadata?: ModelMetadataData | null;
 }
 
 interface PositionMap {
@@ -103,18 +139,6 @@ const VERDICT_CONFIG: Record<
   partially_true: { icon: AlertTriangle, color: "text-yellow-400", bg: "bg-yellow-500/20", label: "Partially True" },
   unverified: { icon: HelpCircle, color: "text-zinc-400", bg: "bg-zinc-500/20", label: "Unverified" },
 };
-
-function scoreColor(score: number) {
-  if (score >= 70) return "text-emerald-400 border-emerald-500";
-  if (score >= 40) return "text-amber-400 border-amber-500";
-  return "text-red-400 border-red-500";
-}
-
-function aiProbColor(prob: number) {
-  if (prob >= 0.7) return "bg-red-500";
-  if (prob >= 0.4) return "bg-amber-500";
-  return "bg-emerald-500";
-}
 
 // ── Page Component ──
 
@@ -225,18 +249,38 @@ function SplitView({
     <div className="flex h-[calc(100vh-7rem)] flex-col gap-4 lg:flex-row">
       {/* Left Panel — Report. Full width on mobile, 40% on lg+ */}
       <div className="w-full shrink-0 overflow-y-auto pr-2 lg:w-[40%]">
+        <Breadcrumb
+          className="mb-3"
+          items={[
+            { label: "Dashboard", href: "/dashboard" },
+            { label: "Source Checks", href: "/check" },
+            { label: "Result" },
+          ]}
+        />
         <div className="mb-4 flex items-center gap-3">
-          <Link href="/check" className="text-zinc-400 hover:text-white">
+          <Link
+            href="/check"
+            aria-label="Back to source checks"
+            className="text-zinc-400 hover:text-white"
+          >
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h1 className="text-xl font-bold text-white">Source Check</h1>
+          <h1 className="font-display text-xl font-bold text-white">Source Check</h1>
         </div>
 
         {/* Score */}
         <Card className="mb-4 border-zinc-800 bg-zinc-900/50">
           <CardContent className="flex flex-col gap-3 py-4">
             <div className="flex items-center gap-4">
-              <div className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-3 ${scoreColor(score)}`}>
+              <div
+                role="meter"
+                aria-label="Credibility score"
+                aria-valuenow={Math.round(score)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuetext={`${Math.round(score)} out of 100`}
+                className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-3 ${scoreColor(score)} ${scoreSolidBorderColor(score)}`}
+              >
                 <span className="text-xl font-bold">{Math.round(score)}</span>
               </div>
               <div className="min-w-0 flex-1">
@@ -465,7 +509,15 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
       <Card className="border-zinc-800 bg-zinc-900/50">
         <CardContent className="py-8">
           <div className="flex flex-col items-center gap-6 md:flex-row">
-            <div className={`flex h-28 w-28 shrink-0 flex-col items-center justify-center rounded-full border-4 ${scoreColor(score)}`}>
+            <div
+              role="meter"
+              aria-label="Credibility score"
+              aria-valuenow={Math.round(score)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuetext={`${Math.round(score)} out of 100`}
+              className={`flex h-28 w-28 shrink-0 flex-col items-center justify-center rounded-full border-4 ${scoreColor(score)} ${scoreSolidBorderColor(score)}`}
+            >
               <span className="text-3xl font-bold">{Math.round(score)}</span>
               <span className="text-xs opacity-70">/ 100</span>
             </div>
@@ -484,6 +536,12 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
             </div>
           </div>
           <ScoreExplanationCard explanation={explanation} className="mt-6" />
+          {data.score_breakdown && (
+            <ScoreBreakdownPanel breakdown={data.score_breakdown} className="mt-6" />
+          )}
+          {data.model_metadata && (
+            <CoverageIndicators metadata={data.model_metadata} className="mt-3" />
+          )}
         </CardContent>
       </Card>
 
@@ -546,6 +604,10 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
                 <p className="flex-1 text-sm text-zinc-400 line-clamp-2">{d.paragraph_text}</p>
               </div>
             ))}
+            <p className="border-t border-zinc-800 pt-3 text-[11px] leading-relaxed text-zinc-500">
+              AI detection is probabilistic and should be treated as one signal
+              among many — not as proof of authorship.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -559,7 +621,22 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
           <CardContent className="space-y-3">
             {data.citations.map((cit) => (
               <div key={cit.id} className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-800/30 px-4 py-3">
-                {cit.is_retracted ? <XCircle className="h-4 w-4 text-red-400" /> : !cit.is_accessible ? <AlertTriangle className="h-4 w-4 text-amber-400" /> : <CheckCircle className="h-4 w-4 text-emerald-400" />}
+                {cit.is_retracted ? (
+                  <>
+                    <XCircle aria-hidden="true" className="h-4 w-4 text-red-400" />
+                    <span className="sr-only">Retracted citation:</span>
+                  </>
+                ) : !cit.is_accessible ? (
+                  <>
+                    <AlertTriangle aria-hidden="true" className="h-4 w-4 text-amber-400" />
+                    <span className="sr-only">Inaccessible citation:</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle aria-hidden="true" className="h-4 w-4 text-emerald-400" />
+                    <span className="sr-only">Verified citation:</span>
+                  </>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-white">{cit.original_citation}</p>
                   {cit.citation_url && (
@@ -579,6 +656,114 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
             ))}
           </CardContent>
         </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Score breakdown / coverage helpers ───
+
+function ScoreBreakdownPanel({
+  breakdown,
+  className = "",
+}: {
+  breakdown: ScoreBreakdownData;
+  className?: string;
+}) {
+  if (!breakdown.deductions || breakdown.deductions.length === 0) {
+    return null;
+  }
+  return (
+    <div className={`rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 ${className}`}>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+        Score breakdown
+      </h4>
+      <div className="mt-3 space-y-1.5">
+        <div className="flex justify-between text-xs text-zinc-500">
+          <span>Starting score</span>
+          <span>{breakdown.base.toFixed(0)}</span>
+        </div>
+        {breakdown.deductions.map((d, i) => (
+          <div key={i} className="flex justify-between text-xs">
+            <span className="text-zinc-300">
+              {d.reason.replace(/_/g, " ")}
+            </span>
+            <span className="text-red-400">
+              {d.impact > 0 ? "+" : ""}
+              {d.impact.toFixed(1)}
+            </span>
+          </div>
+        ))}
+        <div className="flex justify-between border-t border-zinc-800 pt-1.5 text-xs font-medium">
+          <span className="text-white">Final</span>
+          <span className="text-white">{breakdown.final.toFixed(1)}</span>
+        </div>
+        {typeof breakdown.confidence === "number" && (
+          <div className="flex justify-between pt-1 text-xs">
+            <span className="text-zinc-500">Confidence</span>
+            <span className="text-zinc-300">
+              {Math.round(breakdown.confidence * 100)}%
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CoverageIndicators({
+  metadata,
+  className = "",
+}: {
+  metadata: ModelMetadataData;
+  className?: string;
+}) {
+  const ctx = metadata.context || {};
+  const truncated = Boolean(
+    metadata.processing_warnings?.some(
+      (w) => w["type"] === "text_truncated",
+    ),
+  );
+  const paragraphsCapped = Boolean(
+    metadata.processing_warnings?.some(
+      (w) => w["type"] === "paragraphs_capped",
+    ),
+  );
+  const claimsExtracted = typeof ctx.claims_extracted === "number" ? ctx.claims_extracted : null;
+  const paragraphs = typeof ctx.paragraphs_analyzed === "number" ? ctx.paragraphs_analyzed : null;
+  const textLength = typeof ctx.text_length === "number" ? ctx.text_length : null;
+
+  // Hide entirely if we have nothing useful to show
+  if (!truncated && !paragraphsCapped && claimsExtracted == null && paragraphs == null) {
+    return null;
+  }
+
+  return (
+    <div className={`flex flex-wrap gap-2 ${className}`}>
+      {truncated && textLength != null && (
+        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+          First 15,000 of {textLength.toLocaleString()} chars analyzed
+        </span>
+      )}
+      {paragraphsCapped && (
+        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+          AI detection capped at 20 paragraphs
+        </span>
+      )}
+      {claimsExtracted != null && (
+        <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">
+          {claimsExtracted} claim{claimsExtracted === 1 ? "" : "s"} extracted
+        </span>
+      )}
+      {paragraphs != null && paragraphs > 0 && (
+        <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">
+          {paragraphs} paragraph{paragraphs === 1 ? "" : "s"} analyzed
+        </span>
+      )}
+      {metadata.fallback_used && (
+        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+          Heuristic fallback used
+        </span>
       )}
     </div>
   );

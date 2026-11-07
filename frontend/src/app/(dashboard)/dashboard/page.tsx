@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiFetch } from "@/lib/api";
+import { scoreColor } from "@/lib/colors";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface Stats {
   total_source_checks: number;
@@ -40,37 +42,68 @@ interface TrendPoint {
   count: number;
 }
 
-function scoreColor(s: number): string {
-  if (s >= 70) return "text-emerald-400";
-  if (s >= 40) return "text-amber-400";
-  return "text-red-400";
-}
-
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setError(null);
+    setLoading(true);
+    try {
+      // Surface failures instead of swallowing them — partial dashboard
+      // data with no indication is worse than a clear error.
+      const [statsRes, activityRes, trendsRes] = await Promise.all([
+        apiFetch("/api/dashboard/stats", { signal }),
+        apiFetch("/api/dashboard/recent-activity", { signal }),
+        apiFetch("/api/dashboard/trends", { signal }),
+      ]);
+      if (!statsRes.ok || !activityRes.ok || !trendsRes.ok) {
+        throw new Error("Dashboard request failed");
+      }
+      const [s, a, t] = await Promise.all([
+        statsRes.json(),
+        activityRes.json(),
+        trendsRes.json(),
+      ]);
+      setStats(s);
+      setActivity(a || []);
+      setTrends(t?.data || []);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      setError(e instanceof Error ? e.message : "Failed to load dashboard");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    Promise.all([
-      apiFetch("/api/dashboard/stats").then((r) => r.ok ? r.json() : null),
-      apiFetch("/api/dashboard/recent-activity").then((r) => r.ok ? r.json() : []),
-      apiFetch("/api/dashboard/trends").then((r) => r.ok ? r.json() : { data: [] }),
-    ])
-      .then(([s, a, t]) => {
-        setStats(s);
-        setActivity(a || []);
-        setTrends(t?.data || []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <AlertTriangle className="h-10 w-10 text-amber-400" />
+        <p className="mt-4 max-w-sm text-sm text-zinc-300">{error}</p>
+        <Button
+          onClick={() => load()}
+          className="mt-4 bg-emerald-500 text-white hover:bg-emerald-600"
+        >
+          Try again
+        </Button>
       </div>
     );
   }
@@ -170,15 +203,30 @@ export default function DashboardPage() {
                   className="block rounded-lg border border-zinc-800 px-3 py-2 transition hover:border-zinc-700"
                 >
                   <div className="flex items-start gap-2">
-                    <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                      item.status === "completed" ? "bg-emerald-400"
-                      : item.status === "failed" ? "bg-red-400"
-                      : "bg-blue-400"
-                    }`} />
+                    <div
+                      aria-hidden="true"
+                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                        item.status === "completed" ? "bg-emerald-400"
+                        : item.status === "failed" ? "bg-red-400"
+                        : "bg-blue-400"
+                      }`}
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium text-zinc-300">{item.title}</p>
                       <div className="flex items-center gap-2">
                         <p className="text-[10px] text-zinc-500">{timeAgo(item.created_at)}</p>
+                        {/* Text label so the status is conveyed without relying on dot color */}
+                        <span className="sr-only">Status: {item.status}</span>
+                        <span
+                          className={`text-[10px] uppercase tracking-wide ${
+                            item.status === "completed" ? "text-emerald-400"
+                            : item.status === "failed" ? "text-red-400"
+                            : "text-blue-400"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {item.status}
+                        </span>
                         {item.score !== null && (
                           <span className={`text-[10px] font-bold ${scoreColor(item.score)}`}>
                             {item.score.toFixed(0)}
@@ -190,10 +238,13 @@ export default function DashboardPage() {
                 </Link>
               ))
             ) : (
-              <div className="flex flex-col items-center py-6">
-                <Shield className="mb-2 h-8 w-8 text-zinc-600" />
-                <p className="text-xs text-zinc-500">No activity yet</p>
-              </div>
+              <EmptyState
+                icon={<Shield className="h-5 w-5" />}
+                title="No activity yet"
+                description="Run a source check or analyze a researcher to see activity here."
+                action={{ label: "Start a check", href: "/check" }}
+                className="py-8"
+              />
             )}
           </CardContent>
         </Card>

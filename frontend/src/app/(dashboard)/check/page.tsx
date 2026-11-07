@@ -24,13 +24,9 @@ import {
 import { apiFetch, backendUrl } from "@/lib/api";
 import { explainCredibility } from "@/lib/scoreExplanation";
 import { ScoreLabel } from "@/components/ui/score-explanation";
-
-interface ProgressEvent {
-  step: string;
-  status: string;
-  detail: string;
-  progress: number;
-}
+import { EmptyState } from "@/components/ui/empty-state";
+import type { ProgressEvent, SourceCheckListItem } from "@/types/api";
+import { scoreColor } from "@/lib/colors";
 
 export default function CheckSourcePage() {
   const router = useRouter();
@@ -38,41 +34,59 @@ export default function CheckSourcePage() {
   const [inputValue, setInputValue] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Hold the active EventSource so unmount can close it.
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Clean up any in-flight SSE stream when this component unmounts.
+  // Without this the connection keeps streaming events into a detached
+  // setEvents and eventually leaks memory + holds an HTTP connection open.
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+    };
+  }, []);
 
   const startSSE = useCallback((checkId: string) => {
+    // If a previous run is still streaming, close it first
+    eventSourceRef.current?.close();
     const es = new EventSource(backendUrl(`/api/source-check/${checkId}/stream`));
+    eventSourceRef.current = es;
 
     es.onmessage = (e) => {
       try {
-        const event: ProgressEvent = JSON.parse(e.data);
+        const event = JSON.parse(e.data) as ProgressEvent;
         setEvents((prev) => [...prev, event]);
         setProgress(event.progress);
 
         if (event.status === "completed" || event.status === "failed") {
           es.close();
+          eventSourceRef.current = null;
           setLoading(false);
           if (event.status === "completed") {
             router.push(`/check/${checkId}`);
           }
         }
       } catch {
-        // ignore
+        // Malformed event — ignore
       }
     };
 
     es.onerror = () => {
       es.close();
+      eventSourceRef.current = null;
       setLoading(false);
       router.push(`/check/${checkId}`);
     };
   }, [router]);
 
   const handleSubmit = useCallback(async () => {
+    setError(null);
     if (activeTab === "document") {
-      // PDF upload flow
       if (!selectedFile) return;
       setLoading(true);
       setEvents([]);
@@ -89,18 +103,18 @@ export default function CheckSourcePage() {
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: "Upload failed" }));
-          setEvents([{ step: "error", status: "failed", detail: err.detail || "Upload failed", progress: 0 }]);
+          setError(err.detail || `Upload failed (HTTP ${res.status})`);
           setLoading(false);
           return;
         }
 
         const data = await res.json();
         startSSE(data.id);
-      } catch {
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Upload failed");
         setLoading(false);
       }
     } else {
-      // URL or text flow
       if (!inputValue.trim()) return;
       setLoading(true);
       setEvents([]);
@@ -116,13 +130,16 @@ export default function CheckSourcePage() {
         });
 
         if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+          setError(err.detail || "Failed to start analysis");
           setLoading(false);
           return;
         }
 
         const data = await res.json();
         startSSE(data.id);
-      } catch {
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to start analysis");
         setLoading(false);
       }
     }
@@ -133,7 +150,7 @@ export default function CheckSourcePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Check Source</h1>
+      <h1 className="font-display text-2xl font-bold text-white">Check Source</h1>
 
       <Card className="border-zinc-800 bg-zinc-900/50">
         <CardHeader>
@@ -223,20 +240,22 @@ export default function CheckSourcePage() {
                       setSelectedFile(null);
                       if (fileInputRef.current) fileInputRef.current.value = "";
                     }}
+                    aria-label="Remove selected file"
                     className="h-8 w-8 p-0 text-zinc-400 hover:text-white"
                     disabled={loading}
                   >
-                    <X className="h-4 w-4" />
+                    <X aria-hidden="true" className="h-4 w-4" />
                   </Button>
                 </div>
               ) : (
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 py-12 transition hover:border-emerald-500/50"
+                  aria-label="Upload PDF file"
+                  className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 py-12 transition hover:border-emerald-500/50 focus-visible:border-emerald-500/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
                   disabled={loading}
                 >
-                  <Upload className="mb-3 h-8 w-8 text-zinc-500" />
+                  <Upload aria-hidden="true" className="mb-3 h-8 w-8 text-zinc-500" />
                   <p className="text-sm text-zinc-400">
                     Click to select a PDF file
                   </p>
@@ -263,14 +282,36 @@ export default function CheckSourcePage() {
               </>
             )}
           </Button>
+
+          {error && (
+            <div
+              role="alert"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Live region for screen readers — announces each pipeline step */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {events.length > 0 ? events[events.length - 1].detail : ""}
+      </div>
 
       {/* Progress */}
       {loading && events.length > 0 && (
         <Card className="border-zinc-800 bg-zinc-900/50">
           <CardContent className="py-6">
-            <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div
+              role="progressbar"
+              aria-label="Analysis progress"
+              aria-valuenow={Math.round(progress * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+            >
               <div
                 className="h-full rounded-full bg-emerald-500 transition-all duration-300"
                 style={{ width: `${progress * 100}%` }}
@@ -303,23 +344,30 @@ export default function CheckSourcePage() {
 }
 
 function PastChecks() {
-  const [checks, setChecks] = useState<any[]>([]);
+  const [checks, setChecks] = useState<SourceCheckListItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch("/api/source-check/")
-      .then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((data) => setChecks(data.items || []))
-      .catch(() => {})
-      .finally(() => setLoaded(true));
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const r = await apiFetch("/api/source-check/", { signal: controller.signal });
+        if (!r.ok) {
+          setLoadError(`Failed to load past checks (HTTP ${r.status})`);
+          return;
+        }
+        const data = await r.json();
+        setChecks(data.items || []);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setLoadError(e instanceof Error ? e.message : "Failed to load past checks");
+      } finally {
+        setLoaded(true);
+      }
+    })();
+    return () => controller.abort();
   }, []);
-
-  const verdictColor = (score: number | null) => {
-    if (score === null) return "text-zinc-400";
-    if (score >= 70) return "text-emerald-400";
-    if (score >= 40) return "text-amber-400";
-    return "text-red-400";
-  };
 
   return (
     <Card className="border-zinc-800 bg-zinc-900/50">
@@ -333,14 +381,20 @@ function PastChecks() {
           <div className="flex justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
           </div>
-        ) : checks.length === 0 ? (
-          <div className="flex flex-col items-center py-8">
-            <Shield className="mb-3 h-10 w-10 text-zinc-600" />
-            <p className="text-sm text-zinc-500">No source checks yet.</p>
+        ) : loadError ? (
+          <div className="flex flex-col items-center py-8 text-sm text-red-300">
+            <AlertTriangle className="mb-3 h-10 w-10" />
+            {loadError}
           </div>
+        ) : checks.length === 0 ? (
+          <EmptyState
+            icon={<Shield className="h-5 w-5" />}
+            title="No source checks yet"
+            description="Run your first source check above. Results will appear here."
+          />
         ) : (
           <div className="space-y-3">
-            {checks.map((check: any) => (
+            {checks.map((check) => (
               <a
                 key={check.id}
                 href={`/check/${check.id}`}
@@ -375,7 +429,7 @@ function PastChecks() {
                         })}
                       />
                       <span
-                        className={`text-lg font-bold ${verdictColor(check.overall_credibility_score)}`}
+                        className={`text-lg font-bold ${scoreColor(check.overall_credibility_score)}`}
                       >
                         {Math.round(check.overall_credibility_score)}
                       </span>

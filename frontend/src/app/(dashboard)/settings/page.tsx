@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { User, Bell, Save, Loader2, Eye } from "lucide-react";
+import { User, Save, Loader2, Eye } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiFetch } from "@/lib/api";
 
@@ -36,23 +36,29 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    apiFetch("/api/auth/me")
-      .then((r) => (r.ok ? (r.json() as Promise<ProfileResponse>) : null))
-      .then((profile) => {
-        if (cancelled || !profile) return;
+    // AbortController so a navigation away cancels the in-flight fetch
+    // *and* prevents the catch from misclassifying the abort as an error.
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await apiFetch("/api/auth/me", { signal: controller.signal });
+        if (!res.ok) {
+          setError(`Failed to load profile (HTTP ${res.status})`);
+          return;
+        }
+        const profile = (await res.json()) as ProfileResponse;
         setFullName(profile.full_name || "");
         setInstitution(profile.institution || "");
         setRole((profile.role as UserRole) || "researcher");
         setEmail(profile.email);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoadingProfile(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setError("Failed to load profile");
+      } finally {
+        setLoadingProfile(false);
+      }
+    })();
+    return () => controller.abort();
   }, []);
 
   async function handleSave() {
@@ -75,7 +81,8 @@ export default function SettingsPage() {
       }
 
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      // 2s is too short to actually read on a quick save; 4s is generous
+      setTimeout(() => setSaved(false), 4000);
     } catch {
       setError("Network error — please try again");
     } finally {
@@ -98,8 +105,14 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {loadingProfile ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
+            <div className="space-y-4" aria-busy="true" aria-label="Loading profile">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <SkeletonField />
+                <SkeletonField />
+              </div>
+              <SkeletonField />
+              <SkeletonField />
+              <div className="h-9 w-32 animate-pulse rounded-md bg-zinc-800/60" />
             </div>
           ) : (
             <>
@@ -110,16 +123,18 @@ export default function SettingsPage() {
               )}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label className="text-zinc-300">Full Name</Label>
+                  <Label htmlFor="settings-full-name" className="text-zinc-300">Full Name</Label>
                   <Input
+                    id="settings-full-name"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     className="border-zinc-700 bg-zinc-800/50 text-white"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-zinc-300">Email</Label>
+                  <Label htmlFor="settings-email" className="text-zinc-300">Email</Label>
                   <Input
+                    id="settings-email"
                     value={email || session?.user?.email || ""}
                     disabled
                     className="border-zinc-700 bg-zinc-800/50 text-zinc-500"
@@ -127,8 +142,9 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-zinc-300">Institution / University</Label>
+                <Label htmlFor="settings-institution" className="text-zinc-300">Institution / University</Label>
                 <Input
+                  id="settings-institution"
                   value={institution}
                   onChange={(e) => setInstitution(e.target.value)}
                   placeholder="e.g. ADA University"
@@ -136,8 +152,9 @@ export default function SettingsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-zinc-300">Role</Label>
+                <Label htmlFor="settings-role" className="text-zinc-300">Role</Label>
                 <select
+                  id="settings-role"
                   value={role}
                   onChange={(e) => setRole(e.target.value as UserRole)}
                   className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white"
@@ -195,29 +212,17 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-zinc-800 bg-zinc-900/50">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-white">
-            <Bell className="h-5 w-5 text-zinc-400" /> Notification Preferences
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {[
-            { label: "Email me when a source check completes", checked: true },
-            { label: "Email me when a researcher analysis completes", checked: true },
-            { label: "Weekly digest of activity", checked: false },
-          ].map((pref) => (
-            <label key={pref.label} className="flex items-center gap-3 text-sm text-zinc-300">
-              <input
-                type="checkbox"
-                defaultChecked={pref.checked}
-                className="h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-500"
-              />
-              {pref.label}
-            </label>
-          ))}
-        </CardContent>
-      </Card>
+      {/* Notification preferences removed — checkboxes were non-functional.
+          TODO: restore once the backend has a notification-prefs API. */}
+    </div>
+  );
+}
+
+function SkeletonField() {
+  return (
+    <div className="space-y-2">
+      <div className="h-4 w-24 animate-pulse rounded bg-zinc-800/60" />
+      <div className="h-9 w-full animate-pulse rounded-md bg-zinc-800/60" />
     </div>
   );
 }

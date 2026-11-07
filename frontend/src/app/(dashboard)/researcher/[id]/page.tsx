@@ -26,6 +26,8 @@ import { apiFetch } from "@/lib/api";
 import { useReportActions } from "@/lib/useReportActions";
 import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreExplanationCard } from "@/components/ui/score-explanation";
+import { scoreColor, scoreSolidBorderColor } from "@/lib/colors";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 interface Publication {
   id: string;
@@ -67,24 +69,26 @@ interface ProfileData {
   adjusted_citation_count: number | null;
   integrity_score: number | null;
   self_citation_rate: number | null;
-  citation_ring_flags: any;
+  citation_ring_flags: {
+    rings?: Array<{
+      members: Array<{ id: string; name: string; citations_to_target: number }>;
+      total_mutual_citations: number;
+      confidence: number;
+    }>;
+    suspicious_pairs?: Array<{
+      author_id: string;
+      author_name: string;
+      citation_count: number;
+      papers_cited: string[];
+    }>;
+    flags?: string[];
+    graph?: { nodes: GraphNode[]; edges: GraphEdge[] };
+  } | null;
   topic_relevance_score: number | null;
   analysis_status: string;
   last_analyzed_at: string | null;
   created_at: string;
   publications: Publication[];
-}
-
-function scoreColor(s: number) {
-  if (s >= 70) return "text-emerald-400 border-emerald-500";
-  if (s >= 40) return "text-amber-400 border-amber-500";
-  return "text-red-400 border-red-500";
-}
-
-function scoreTextColor(s: number) {
-  if (s >= 70) return "text-emerald-400";
-  if (s >= 40) return "text-amber-400";
-  return "text-red-400";
 }
 
 export default function ResearcherResultPage({
@@ -153,6 +157,8 @@ export default function ResearcherResultPage({
   );
 }
 
+const PUB_PAGE_SIZE = 20;
+
 function ResearcherProfileView({
   data,
   integrity,
@@ -167,6 +173,7 @@ function ResearcherProfileView({
   const { share, download, busy, copied, error } = useReportActions({
     researcherProfileId: data.id,
   });
+  const [pubPage, setPubPage] = useState(0);
   const explanation = explainIntegrity({
     score: integrity,
     selfCitationRate: data.self_citation_rate,
@@ -175,15 +182,34 @@ function ResearcherProfileView({
     publicationsCount: data.publications.length,
   });
 
+  const totalPubs = data.publications.length;
+  const lastPage = Math.max(0, Math.ceil(totalPubs / PUB_PAGE_SIZE) - 1);
+  const pageStart = pubPage * PUB_PAGE_SIZE;
+  const paginatedPublications = data.publications.slice(
+    pageStart,
+    pageStart + PUB_PAGE_SIZE,
+  );
+
   return (
     <div className="space-y-6">
+      <Breadcrumb
+        items={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Researchers", href: "/researcher" },
+          { label: "Result" },
+        ]}
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/researcher" className="text-zinc-400 hover:text-white">
+          <Link
+            href="/researcher"
+            aria-label="Back to researcher analyses"
+            className="text-zinc-400 hover:text-white"
+          >
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h1 className="text-2xl font-bold text-white">Researcher Analysis</h1>
+          <h1 className="font-display text-2xl font-bold text-white">Researcher Analysis</h1>
         </div>
         <div className="flex gap-2">
           <Button
@@ -310,7 +336,15 @@ function ResearcherProfileView({
             <CardTitle className="text-sm text-zinc-400">Integrity Score</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col items-center">
-            <div className={`flex h-20 w-20 items-center justify-center rounded-full border-4 ${scoreColor(integrity)}`}>
+            <div
+              role="meter"
+              aria-label="Integrity score"
+              aria-valuenow={Math.round(integrity)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuetext={`${Math.round(integrity)} out of 100`}
+              className={`flex h-20 w-20 items-center justify-center rounded-full border-4 ${scoreColor(integrity)} ${scoreSolidBorderColor(integrity)}`}
+            >
               <span className="text-2xl font-bold">{Math.round(integrity)}</span>
             </div>
             <div className="mt-3 space-y-1 text-center">
@@ -387,7 +421,7 @@ function ResearcherProfileView({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.publications.slice(0, 50).map((pub) => (
+                  {paginatedPublications.map((pub) => (
                     <tr key={pub.id} className="border-b border-zinc-800/50">
                       <td className="max-w-[300px] truncate py-2 pr-4 text-white">
                         {pub.doi ? (
@@ -427,6 +461,29 @@ function ResearcherProfileView({
                 </tbody>
               </table>
             </div>
+            {totalPubs > PUB_PAGE_SIZE && (
+              <div className="mt-4 flex items-center justify-between border-t border-zinc-800 pt-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setPubPage((p) => Math.max(0, p - 1))}
+                  disabled={pubPage === 0}
+                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-zinc-300 transition hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <span className="text-zinc-500">
+                  {pageStart + 1}–{Math.min(pageStart + PUB_PAGE_SIZE, totalPubs)} of {totalPubs}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPubPage((p) => Math.min(lastPage, p + 1))}
+                  disabled={pubPage >= lastPage}
+                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-zinc-300 transition hover:border-zinc-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -492,6 +549,8 @@ function CitationGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label={`Citation network: ${nodes.length} authors, ${edges.length} citation relationships`}
         className="w-full"
         style={{ minHeight: 300, maxHeight: 450 }}
       >
@@ -524,16 +583,36 @@ function CitationGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[
             (e) => e.source === node.id && e.weight >= 5
           );
 
+          const ariaLabel = isTarget
+            ? `Target researcher: ${node.name}`
+            : `${node.name}, ${node.citation_count} citation${node.citation_count === 1 ? "" : "s"} to target${
+                isSuspicious ? ", flagged as suspicious" : ""
+              }`;
+
+          // SVG focus rings: Safari ignores tabIndex on <g>, so put it on
+          // the <circle> itself. Use focus-visible to widen the stroke as a
+          // visible focus indicator (replacing the default outline that would
+          // sit awkwardly on a circular shape).
           return (
             <g key={node.id}>
               <circle
                 cx={pos.x}
                 cy={pos.y}
                 r={radius}
+                role="button"
+                tabIndex={0}
+                aria-label={ariaLabel}
                 fill={isTarget ? colors.target : isSuspicious ? colors.suspicious : colors.citer}
                 fillOpacity={highContrast ? 1 : isTarget ? 1 : 0.7}
                 stroke={isTarget ? colors.targetStroke : isSuspicious ? colors.suspiciousStroke : colors.citerStroke}
                 strokeWidth={isTarget ? 3 : highContrast ? 2 : 1.5}
+                className="cursor-pointer outline-none focus-visible:[stroke:#fbbf24] focus-visible:[stroke-width:4]"
+                onKeyDown={(e) => {
+                  // Reserved for future: open node detail on Enter / Space.
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                  }
+                }}
               />
               {/* Label */}
               <text
@@ -563,7 +642,9 @@ function CitationGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[
           <circle cx={0} cy={18} r={5} fill={colors.citer} />
           <text x={12} y={22} fill={colors.label} fontSize={9}>Citing Author</text>
           <circle cx={0} cy={36} r={5} fill={colors.suspicious} />
-          <text x={12} y={40} fill={colors.label} fontSize={9}>Suspicious (5+ cites)</text>
+          <text x={12} y={40} fill={colors.label} fontSize={9}>
+            Flagged — unusually frequent citations
+          </text>
         </g>
       </svg>
     </div>
