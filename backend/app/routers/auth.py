@@ -14,7 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.constants import DEFAULT_NOTIFICATION_PREFERENCES, SUPPORTED_LOCALES
+from app.constants import (
+    DEFAULT_ANALYSIS_PREFERENCES,
+    DEFAULT_NOTIFICATION_PREFERENCES,
+    SUPPORTED_LOCALES,
+)
 from app.database import get_db
 from app.models.report import Report
 from app.models.researcher import ResearcherProfile, PublicationAnalysis
@@ -28,9 +32,14 @@ from app.models.user import User
 from app.schemas.auth import (
     AccountDeactivateRequest,
     AccountDeleteRequest,
+    AnalysisPreferences,
     ChangePasswordRequest,
+    ConnectionItem,
     GoogleLogin,
+    GoogleLinkRequest,
     LocaleUpdate,
+    LoginChallengeResponse,
+    LoginTwoFactorRequest,
     NotificationPreferences,
     UserRegister,
     UserLogin,
@@ -44,6 +53,7 @@ from app.utils.auth import (
     get_current_user_allow_deactivated,
 )
 from app.utils.rate_limit import limiter
+from app.routers.security import _verify_totp_or_backup, issue_login_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -76,14 +86,18 @@ async def register(request: Request, data: UserRegister, db: AsyncSession = Depe
     await db.commit()
     await db.refresh(user)
 
-    token = create_access_token(user.id, user.email)
+    token, _ = await issue_login_token(db, user, request)
     return TokenResponse(access_token=token, user=_user_to_response(user))
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 @limiter.limit("5/minute")
 async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Authenticate and return a JWT.
+    """Authenticate and return a JWT, OR a 2FA challenge token.
+
+    When the account has TOTP enabled the response is a LoginChallengeResponse
+    (challenge_token: short-lived, single-use) and the frontend must POST it
+    back to /api/auth/login/2fa with a code to receive the access token.
 
     Deactivated accounts are allowed to log in so the user can land on
     Settings and self-reactivate. Deleted accounts return 401 — they look
@@ -98,7 +112,59 @@ async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(ge
     if user.deleted_at is not None:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    token = create_access_token(user.id, user.email)
+    if user.totp_enabled:
+        # Issue a 2FA challenge token. We're reusing AuthToken with a fresh
+        # `kind` so we don't need a separate table; TTL is short (10 min) and
+        # single-use just like password-reset tokens.
+        from app.models.auth_token import AuthToken
+        from datetime import timedelta as _td
+
+        challenge = AuthToken(
+            user_id=user.id,
+            kind="2fa_challenge",
+            expires_at=datetime.now(timezone.utc) + _td(minutes=10),
+        )
+        db.add(challenge)
+        await db.commit()
+        await db.refresh(challenge)
+        return LoginChallengeResponse(challenge_token=challenge.id)
+
+    token, _ = await issue_login_token(db, user, request)
+    return TokenResponse(access_token=token, user=_user_to_response(user))
+
+
+@router.post("/login/2fa", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def login_two_factor(
+    request: Request,
+    data: LoginTwoFactorRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Step 2 of the 2FA login flow. Consumes the challenge token + a 6-digit
+    TOTP or 8-char backup code, returns the actual access token."""
+    from app.models.auth_token import AuthToken
+
+    challenge = await db.get(AuthToken, data.challenge_token)
+    now = datetime.now(timezone.utc)
+    if (
+        challenge is None
+        or challenge.kind != "2fa_challenge"
+        or challenge.used_at is not None
+        or challenge.expires_at < now
+    ):
+        raise HTTPException(status_code=401, detail="Invalid or expired challenge")
+
+    user = await db.get(User, challenge.user_id)
+    if user is None or user.deleted_at is not None or not user.totp_enabled:
+        raise HTTPException(status_code=401, detail="Invalid or expired challenge")
+
+    if not _verify_totp_or_backup(user, data.code):
+        raise HTTPException(status_code=401, detail="Invalid 2FA code")
+
+    challenge.used_at = now
+    await db.commit()
+
+    token, _ = await issue_login_token(db, user, request)
     return TokenResponse(access_token=token, user=_user_to_response(user))
 
 
@@ -123,6 +189,7 @@ async def google_login(request: Request, data: GoogleLogin, db: AsyncSession = D
     if not email or email_verified is not True:
         raise HTTPException(status_code=401, detail="Google email is not verified")
 
+    google_sub = id_info.get("sub")
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
@@ -139,7 +206,33 @@ async def google_login(request: Request, data: GoogleLogin, db: AsyncSession = D
         await db.commit()
         await db.refresh(user)
 
-    token = create_access_token(user.id, user.email)
+    # Record / refresh the linked provider so the Settings UI can show "linked".
+    if google_sub:
+        linked = dict(user.linked_providers or {})
+        linked["google"] = {
+            "sub": google_sub,
+            "email": email,
+            "linked_at": (linked.get("google") or {}).get("linked_at")
+            or datetime.now(timezone.utc).isoformat(),
+        }
+        user.linked_providers = linked
+        await db.commit()
+
+    if user.totp_enabled:
+        from app.models.auth_token import AuthToken
+        from datetime import timedelta as _td
+
+        challenge = AuthToken(
+            user_id=user.id,
+            kind="2fa_challenge",
+            expires_at=datetime.now(timezone.utc) + _td(minutes=10),
+        )
+        db.add(challenge)
+        await db.commit()
+        await db.refresh(challenge)
+        return LoginChallengeResponse(challenge_token=challenge.id)
+
+    token, _ = await issue_login_token(db, user, request)
     return TokenResponse(access_token=token, user=_user_to_response(user))
 
 
@@ -528,3 +621,137 @@ async def delete_account(
         r.deleted_at = now
 
     await db.commit()
+
+
+# ─── Connected accounts ────────────────────────────────────────────────────
+
+
+@router.get("/me/connections", response_model=list[ConnectionItem])
+async def list_connections(current_user: User = Depends(get_current_user)):
+    """Return the status of every supported provider, linked or not.
+
+    Today only Google is supported. Frontend renders a row per provider
+    so adding a new one means adding it to this list and to /connections/<p>.
+    """
+    linked = current_user.linked_providers or {}
+    g = linked.get("google") if isinstance(linked, dict) else None
+    items = [
+        ConnectionItem(
+            provider="google",
+            linked=bool(g),
+            email=(g or {}).get("email"),
+            linked_at=(
+                datetime.fromisoformat((g or {}).get("linked_at"))
+                if g and (g or {}).get("linked_at")
+                else None
+            ),
+        )
+    ]
+    return items
+
+
+@router.post("/me/connections/google", response_model=ConnectionItem)
+async def link_google_account(
+    data: GoogleLinkRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Link the current user to a Google identity. Verifies the ID token
+    against GOOGLE_CLIENT_ID. Refuses if the Google account is already
+    linked to a different ArtiProof user."""
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+    try:
+        id_info = google_id_token.verify_oauth2_token(
+            data.id_token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
+        )
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    google_sub = id_info.get("sub")
+    google_email = id_info.get("email")
+    if not google_sub:
+        raise HTTPException(status_code=400, detail="Google token missing 'sub' claim")
+
+    # Check no other user already has this google sub linked.
+    other_q = await db.execute(
+        select(User).where(User.id != current_user.id)
+    )
+    for u in other_q.scalars().all():
+        existing = (u.linked_providers or {}).get("google") if u.linked_providers else None
+        if existing and existing.get("sub") == google_sub:
+            raise HTTPException(
+                status_code=409,
+                detail="That Google account is already linked to a different ArtiProof user.",
+            )
+
+    linked = dict(current_user.linked_providers or {})
+    linked["google"] = {
+        "sub": google_sub,
+        "email": google_email,
+        "linked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    current_user.linked_providers = linked
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return ConnectionItem(
+        provider="google",
+        linked=True,
+        email=google_email,
+        linked_at=datetime.now(timezone.utc),
+    )
+
+
+@router.delete("/me/connections/{provider}", status_code=204)
+async def unlink_connection(
+    provider: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Unlink a provider. Refuses when it would lock the user out — i.e.
+    when there's no password and no other linked provider remaining."""
+    if provider != "google":
+        raise HTTPException(status_code=404, detail="Unknown provider")
+
+    linked = dict(current_user.linked_providers or {})
+    if "google" not in linked:
+        raise HTTPException(status_code=404, detail="Google is not linked")
+
+    other_providers = [k for k in linked.keys() if k != provider]
+    has_password = bool(current_user.hashed_password)
+    if not has_password and not other_providers:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Set a password before unlinking — otherwise you'll lose "
+                "the ability to sign in."
+            ),
+        )
+
+    linked.pop("google", None)
+    current_user.linked_providers = linked or None
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+# ─── Default analysis preferences ──────────────────────────────────────────
+
+
+@router.get("/me/analysis-preferences", response_model=AnalysisPreferences)
+async def get_analysis_preferences(current_user: User = Depends(get_current_user)):
+    stored = current_user.analysis_preferences or {}
+    merged = {**DEFAULT_ANALYSIS_PREFERENCES, **stored}
+    return AnalysisPreferences(**merged)
+
+
+@router.put("/me/analysis-preferences", response_model=AnalysisPreferences)
+async def update_analysis_preferences(
+    data: AnalysisPreferences,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.analysis_preferences = data.model_dump()
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return data
