@@ -211,7 +211,7 @@ export function PricingSection() {
                 <a
                   href={plan.ctaHref}
                   className={cn(
-                    "mt-7 inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50",
+                    "mt-7 inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-all active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50",
                     plan.popular
                       ? "bg-emerald-500 text-white hover:bg-emerald-600"
                       : "border border-zinc-700 text-zinc-200 hover:bg-zinc-800",

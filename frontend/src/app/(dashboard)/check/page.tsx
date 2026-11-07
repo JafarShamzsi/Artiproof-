@@ -25,6 +25,7 @@ import { apiFetch, backendUrl } from "@/lib/api";
 import { explainCredibility } from "@/lib/scoreExplanation";
 import { ScoreLabel } from "@/components/ui/score-explanation";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import type { ProgressEvent, SourceCheckListItem } from "@/types/api";
 import { scoreColor } from "@/lib/colors";
 
@@ -378,9 +379,7 @@ function PastChecks() {
       </CardHeader>
       <CardContent>
         {!loaded ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
-          </div>
+          <ListSkeleton rows={3} />
         ) : loadError ? (
           <div className="flex flex-col items-center py-8 text-sm text-red-300">
             <AlertTriangle className="mb-3 h-10 w-10" />

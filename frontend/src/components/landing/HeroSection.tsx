@@ -42,7 +42,7 @@ export function HeroSection() {
   });
 
   return (
-    <section className="relative flex min-h-screen items-center overflow-hidden">
+    <section className="relative flex min-h-[100dvh] items-center overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-900/40" />
 
       <div className="relative mx-auto w-full max-w-7xl px-6 py-20">
@@ -79,7 +79,7 @@ export function HeroSection() {
             >
               <Link
                 href="/register"
-                className="cta-glow group inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                className="cta-glow group inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:bg-emerald-600 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
               >
                 Start free analysis
                 <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />

@@ -20,6 +20,7 @@ import { apiFetch, backendUrl } from "@/lib/api";
 import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreLabel } from "@/components/ui/score-explanation";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import type { ProgressEvent, ResearcherListItem } from "@/types/api";
 import { scoreColor } from "@/lib/colors";
 
@@ -272,7 +273,7 @@ function PastAnalyses() {
       </CardHeader>
       <CardContent>
         {!loaded ? (
-          <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-zinc-500" /></div>
+          <ListSkeleton rows={3} />
         ) : analyses.length === 0 ? (
           <EmptyState
             icon={<Users className="h-5 w-5" />}

@@ -128,6 +128,17 @@
   html {
     @apply font-sans;
   }
+
+  /* Standardize Lucide icon stroke weight site-wide. The default 2.0 is a
+     little punchy for our Nature-paper voice; 1.5 reads more refined.
+     CSS attribute presentation has lower specificity than the SVG attribute
+     value Lucide writes, so we explicitly target the .lucide class so this
+     wins over the inline default. Per-instance overrides via the
+     `strokeWidth` prop still work because React inlines them as attributes
+     after this rule cascades. */
+  .lucide {
+    stroke-width: 1.5;
+  }
 }
 
 /*

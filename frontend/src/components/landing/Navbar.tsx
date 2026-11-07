@@ -82,7 +82,7 @@ export function Navbar() {
           </Link>
           <Link
             href="/register"
-            className="inline-flex h-9 items-center rounded-lg bg-emerald-500 px-4 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-colors hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+            className="inline-flex h-9 items-center rounded-lg bg-emerald-500 px-4 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
           >
             Get Started Free
           </Link>

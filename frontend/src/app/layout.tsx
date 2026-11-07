@@ -54,7 +54,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${inter.variable} ${jakarta.variable} min-h-screen bg-zinc-950 font-sans text-zinc-50 antialiased`}
+        className={`${inter.variable} ${jakarta.variable} min-h-[100dvh] bg-zinc-950 font-sans text-zinc-50 antialiased`}
       >
         {/* Skip-to-content — only visible when keyboard-focused.
             Targets #main-content rendered by each route's layout. */}

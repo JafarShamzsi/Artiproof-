@@ -16,7 +16,7 @@ export function CTASection() {
         <div className="mt-10 flex flex-col items-center gap-3">
           <Link
             href="/register"
-            className="cta-glow group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-7 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-colors hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+            className="cta-glow group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-7 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
           >
             Start free analysis
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />

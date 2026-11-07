@@ -102,7 +102,7 @@ export default function DashboardLayout({
     : "U";
 
   return (
-    <div className="flex h-screen bg-zinc-950">
+    <div className="flex h-[100dvh] bg-zinc-950">
       {/* Desktop Sidebar */}
       <aside
         className={cn(
