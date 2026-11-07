@@ -1,13 +1,27 @@
 import uuid
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
+
 from app.models.base import Base
+from app.models.enums import AnalysisStatus
+from app.models.mixins import SoftDeleteMixin, TimestampMixin
+
+# Postgres enum types are created in migration 0002. See note in source_check.py.
+analysis_status_enum = PGEnum(
+    AnalysisStatus,
+    name="analysis_status",
+    values_callable=lambda x: [e.value for e in x],
+    create_type=False,
+)
 
 
-class ResearcherProfile(Base):
+class ResearcherProfile(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "researcher_profiles"
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    # user_id intentionally nullable: profiles can exist without an owning user
+    # (e.g. researchers analyzed by name only)
     user_id = sa.Column(sa.String, sa.ForeignKey("users.id"), nullable=True, index=True)
     researcher_name = sa.Column(sa.String, nullable=False)
     scopus_id = sa.Column(sa.String, nullable=True)
@@ -27,15 +41,37 @@ class ResearcherProfile(Base):
     self_citation_rate = sa.Column(sa.Float, nullable=True)
     citation_ring_flags = sa.Column(sa.JSON, nullable=True)
     topic_relevance_score = sa.Column(sa.Float, nullable=True)
-    analysis_status = sa.Column(sa.String, nullable=False, server_default="pending")
-    scrape_status = sa.Column(sa.String, nullable=False, server_default="pending")
+    analysis_status = sa.Column(
+        analysis_status_enum, nullable=False, server_default=AnalysisStatus.pending.value, index=True
+    )
+    scrape_status = sa.Column(
+        analysis_status_enum, nullable=False, server_default=AnalysisStatus.pending.value, index=True
+    )
     scrape_error = sa.Column(sa.Text, nullable=True)
     last_scraped_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     last_analyzed_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
-    created_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now())
+    # Transparent integrity scoring breakdown
+    integrity_breakdown = sa.Column(sa.JSON, nullable=True)
+    model_metadata = sa.Column(sa.JSON, nullable=True)
+
+    __table_args__ = (
+        sa.Index("ix_researcher_profiles_user_status", "user_id", "analysis_status"),
+        sa.CheckConstraint(
+            "integrity_score IS NULL OR (integrity_score >= 0 AND integrity_score <= 100)",
+            name="integrity_score_range",
+        ),
+        sa.CheckConstraint(
+            "adjusted_h_index IS NULL OR adjusted_h_index >= 0",
+            name="adjusted_h_index_non_negative",
+        ),
+        sa.CheckConstraint(
+            "self_citation_rate IS NULL OR (self_citation_rate >= 0 AND self_citation_rate <= 1)",
+            name="self_citation_rate_range",
+        ),
+    )
 
 
-class PublicationAnalysis(Base):
+class PublicationAnalysis(Base, TimestampMixin):
     __tablename__ = "publication_analyses"
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -49,10 +85,9 @@ class PublicationAnalysis(Base):
     topic_match_score = sa.Column(sa.Float, nullable=True)
     is_self_cited_heavily = sa.Column(sa.Boolean, nullable=False, server_default="false")
     flags = sa.Column(sa.JSON, nullable=True)
-    created_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now())
 
 
-class ScrapedPublication(Base):
+class ScrapedPublication(Base, TimestampMixin):
     __tablename__ = "scraped_publications"
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -75,10 +110,9 @@ class ScrapedPublication(Base):
     data_source = sa.Column(sa.String, nullable=False)
     raw_data = sa.Column(sa.JSON, nullable=True)
     scraped_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now())
-    created_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now())
 
 
-class CitationEdge(Base):
+class CitationEdge(Base, TimestampMixin):
     __tablename__ = "citation_edges"
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -93,10 +127,9 @@ class CitationEdge(Base):
     is_self_citation = sa.Column(sa.Boolean, server_default="false")
     is_coauthor_citation = sa.Column(sa.Boolean, server_default="false")
     is_ring_suspected = sa.Column(sa.Boolean, server_default="false")
-    created_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now())
 
 
-class CoAuthorRelation(Base):
+class CoAuthorRelation(Base, TimestampMixin):
     __tablename__ = "coauthor_relations"
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -109,4 +142,3 @@ class CoAuthorRelation(Base):
     shared_publication_ids = sa.Column(sa.JSON, nullable=True)
     mutual_citation_count = sa.Column(sa.Integer, server_default="0")
     suspicion_score = sa.Column(sa.Float, server_default="0.0")
-    created_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.func.now())
