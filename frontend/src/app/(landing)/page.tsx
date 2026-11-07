@@ -5,8 +5,6 @@ import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
 import { ScannerPreview } from "@/components/landing/ScannerPreview";
 import { FeaturesSection } from "@/components/landing/FeaturesSection";
 import { AudienceSection } from "@/components/landing/AudienceSection";
-import { DISARMSection } from "@/components/landing/DISARMSection";
-import { EducationSection } from "@/components/landing/EducationSection";
 import { PricingSection } from "@/components/landing/PricingSection";
 import { CTASection } from "@/components/landing/CTASection";
 import { Footer } from "@/components/landing/Footer";
@@ -26,8 +24,6 @@ export default function LandingPage() {
         <ScannerPreview />
         <FeaturesSection />
         <AudienceSection />
-        <DISARMSection />
-        <EducationSection />
         <PricingSection />
         <CTASection />
       </main>

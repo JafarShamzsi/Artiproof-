@@ -18,8 +18,7 @@ import {
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "How It Works", href: "#how-it-works" },
-  { label: "Scanner", href: "#scanner" },
-  { label: "Education", href: "#education" },
+  { label: "Demo", href: "#scanner" },
   { label: "Pricing", href: "#pricing" },
 ] as const;
 
@@ -54,7 +53,7 @@ export function Navbar() {
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <Shield className="size-5 text-emerald-400" />
-          <span className="text-lg font-bold text-white">CivicGuards</span>
+          <span className="text-lg font-bold text-white">ArtiProof</span>
         </Link>
 
         {/* Desktop Navigation */}
@@ -100,7 +99,7 @@ export function Navbar() {
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2 text-white">
                   <Shield className="size-5 text-emerald-400" />
-                  CivicGuards
+                  ArtiProof
                 </SheetTitle>
               </SheetHeader>
 

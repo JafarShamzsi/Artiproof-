@@ -51,7 +51,7 @@ export default function LoginPage() {
         </div>
         <CardTitle className="text-2xl text-white">Welcome back</CardTitle>
         <CardDescription className="text-zinc-400">
-          Sign in to your CivicGuards account
+          Sign in to your ArtiProof account
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>

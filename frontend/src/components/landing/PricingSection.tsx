@@ -26,55 +26,53 @@ interface PricingPlan {
 
 const plans: PricingPlan[] = [
   {
-    name: "Free",
+    name: "Free — Researchers",
     monthlyPrice: "$0",
     yearlyPrice: "$0",
-    features: [
-      { text: "10 scans per day", included: true },
-      { text: "Basic threat score", included: true },
-      { text: "Education hub access", included: true },
-      { text: "Community participation", included: true },
-      { text: "Detailed engine results", included: false },
-      { text: "DISARM classification", included: false },
-      { text: "Export reports", included: false },
-      { text: "API access", included: false },
-    ],
-    cta: "Get Started",
-  },
-  {
-    name: "Pro",
-    monthlyPrice: "$12",
-    yearlyPrice: "$8",
     popular: true,
     features: [
-      { text: "Unlimited scans", included: true },
-      { text: "Full engine results", included: true },
-      { text: "DISARM classification", included: true },
-      { text: "Analytics dashboard", included: true },
-      { text: "Export PDF & CSV", included: true },
-      { text: "Bulk scanning", included: true },
-      { text: "Custom alerts", included: true },
-      { text: "Priority processing", included: true },
-      { text: "API access", included: false },
-      { text: "Team management", included: false },
+      { text: "10 source checks per day", included: true },
+      { text: "Claim-by-claim fact checking", included: true },
+      { text: "AI content detection", included: true },
+      { text: "Citation health checks", included: true },
+      { text: "Basic researcher analysis", included: true },
+      { text: "Shareable reports", included: true },
+      { text: "PDF report export", included: false },
+      { text: "Citation graph visualization", included: false },
     ],
-    cta: "Start Pro",
+    cta: "Get Started Free",
   },
   {
-    name: "Enterprise",
+    name: "Pro — Faculty",
+    monthlyPrice: "$19",
+    yearlyPrice: "$12",
+    features: [
+      { text: "Everything in Free", included: true },
+      { text: "Unlimited source checks", included: true },
+      { text: "Full researcher integrity analysis", included: true },
+      { text: "Citation ring detection", included: true },
+      { text: "Citation graph visualization", included: true },
+      { text: "PDF report generation", included: true },
+      { text: "API access", included: true },
+      { text: "Priority processing", included: true },
+    ],
+    cta: "Coming Soon",
+  },
+  {
+    name: "Institution",
     monthlyPrice: "Custom",
     yearlyPrice: "Custom",
     features: [
       { text: "Everything in Pro", included: true },
-      { text: "Unlimited bulk scanning", included: true },
-      { text: "API access", included: true },
-      { text: "Team management", included: true },
-      { text: "Webhook integrations", included: true },
-      { text: "White-label reports", included: true },
+      { text: "Unlimited users", included: true },
+      { text: "Department-wide dashboards", included: true },
+      { text: "Batch analysis", included: true },
+      { text: "Custom branding on reports", included: true },
+      { text: "SSO integration", included: true },
       { text: "Dedicated support", included: true },
-      { text: "Custom SLA", included: true },
+      { text: "On-premise deployment", included: true },
     ],
-    cta: "Contact Sales",
+    cta: "Contact Us",
   },
 ];
 
@@ -95,11 +93,10 @@ export function PricingSection() {
       <div className="relative z-10 mx-auto max-w-7xl px-6">
         <SectionHeading
           eyebrow="PRICING"
-          title="Choose Your Shield"
-          gradient="Shield"
+          title="Choose Your Plan"
+          gradient="Plan"
         />
 
-        {/* Billing Toggle */}
         <div className="mb-12 flex items-center justify-center gap-1">
           <div className="inline-flex rounded-full border border-zinc-800 bg-zinc-900 p-1">
             <button
@@ -122,12 +119,11 @@ export function PricingSection() {
                   : "text-zinc-400 hover:text-zinc-300"
               )}
             >
-              Yearly (Save 30%)
+              Yearly (Save 35%)
             </button>
           </div>
         </div>
 
-        {/* Pricing Cards */}
         <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
           {plans.map((plan, idx) => (
             <ScrollReveal key={plan.name} delay={idx * 0.1}>

@@ -22,13 +22,13 @@ export const authOptions: NextAuthOptions = {
           where: { email: credentials.email },
         });
 
-        if (!user || !user.passwordHash) {
+        if (!user || !user.hashedPassword) {
           throw new Error("Invalid email or password");
         }
 
         const isValid = await bcrypt.compare(
           credentials.password,
-          user.passwordHash
+          user.hashedPassword
         );
 
         if (!isValid) {
@@ -38,8 +38,7 @@ export const authOptions: NextAuthOptions = {
         return {
           id: user.id,
           email: user.email,
-          name: user.name,
-          image: user.image,
+          name: user.fullName,
           role: user.role,
         };
       },
@@ -65,7 +64,7 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-        token.role = (user as { role?: string }).role || "FREE";
+        token.role = (user as { role?: string }).role || "researcher";
       }
       return token;
     },

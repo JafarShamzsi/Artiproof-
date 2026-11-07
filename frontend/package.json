@@ -1,9 +1,10 @@
 {
-  "name": "frontend",
+  "name": "artiproof",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -27,8 +28,10 @@
     "lucide-react": "^0.577.0",
     "next": "16.2.0",
     "next-auth": "^4.24.13",
+    "pdfjs-dist": "^5.6.205",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-pdf": "^10.4.1",
     "shadcn": "^4.1.0",
     "simplex-noise": "^4.0.3",
     "tailwind-merge": "^3.5.0",

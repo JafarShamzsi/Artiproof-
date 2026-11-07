@@ -1,22 +1,41 @@
 # Web framework
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-pydantic==2.10.4
-pydantic-settings==2.7.1
+fastapi>=0.115.6
+uvicorn[standard]>=0.34.0
+pydantic>=2.10.4
+pydantic-settings>=2.7.1
+email-validator>=2.1.0
 
 # Database
-sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-alembic==1.14.1
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30.0
+psycopg2-binary>=2.9.9
+alembic>=1.14.1
 
 # Task queue
-celery[redis]==5.4.0
-redis==5.2.1
+celery[redis]>=5.4.0
+redis>=5.2.1
 
 # AI / LLM clients
-google-generativeai==0.8.4
-httpx==0.28.1
+google-generativeai>=0.8.4
+httpx>=0.28.1
+
+# Web scraping
+beautifulsoup4>=4.13.3
+
+# SSE
+sse-starlette>=2.2.1
+
+# PDF processing & generation
+PyMuPDF>=1.24.0
+weasyprint>=63.0
+
+# Auth
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+
+# Graph analysis (Module 2)
+networkx>=3.2
 
 # Utilities
-python-dotenv==1.0.1
-python-multipart==0.0.20
+python-dotenv>=1.0.1
+python-multipart>=0.0.20

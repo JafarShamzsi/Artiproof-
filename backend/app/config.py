@@ -2,13 +2,37 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/civicguards"
+    # Database
+    DATABASE_URL: str = "postgresql+asyncpg://artiproof:artiproof@localhost:5432/artiproof"
+    DATABASE_URL_SYNC: str = "postgresql://artiproof:artiproof@localhost:5432/artiproof"
+
+    # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
-    GROK_API_KEY: str = ""
-    GEMINI_API_KEY: str = ""
+
+    # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # AI
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+
+    # Google Fact Check
+    GOOGLE_FACTCHECK_API_KEY: str = ""
+
+    # Academic data APIs (optional)
+    SEMANTIC_SCHOLAR_API_KEY: str = ""
+    SCOPUS_API_KEY: str = ""
+
+    # Auth
+    JWT_SECRET: str = "change-me-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_MINUTES: int = 1440
+
+    # App
+    APP_URL: str = "http://localhost:3000"
+    API_URL: str = "http://localhost:8000"
+
+    model_config = {"env_file": None, "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

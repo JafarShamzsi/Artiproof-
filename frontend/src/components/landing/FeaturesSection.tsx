@@ -3,12 +3,12 @@
 import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
 import {
-  Search,
-  GraduationCap,
-  Activity,
+  Shield,
+  Brain,
+  BookOpen,
   Users,
-  LayoutGrid,
-  Code,
+  GitBranch,
+  Heart,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,16 +17,11 @@ import { GlowCard } from "@/components/landing/shared/GlowCard";
 import { ScrollReveal } from "@/components/landing/shared/ScrollReveal";
 import { InteractiveGridPattern } from "@/components/landing/shared/InteractiveGridPattern";
 
-/* ------------------------------------------------------------------ */
-/*  Visual sub-components for each feature card                        */
-/* ------------------------------------------------------------------ */
-
-function ThreatGauge() {
+function CredibilityGauge() {
   const ref = useRef<SVGSVGElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.5 });
 
-  const score = 87;
-  // Arc goes from 180deg to 0deg (left to right semicircle)
+  const score = 85;
   const radius = 40;
   const circumference = Math.PI * radius;
   const progress = (score / 100) * circumference;
@@ -40,7 +35,6 @@ function ThreatGauge() {
         viewBox="0 0 120 70"
         className="overflow-visible"
       >
-        {/* Background arc */}
         <path
           d="M 10 60 A 40 40 0 0 1 110 60"
           fill="none"
@@ -48,11 +42,10 @@ function ThreatGauge() {
           strokeWidth="8"
           strokeLinecap="round"
         />
-        {/* Animated fill arc */}
         <motion.path
           d="M 10 60 A 40 40 0 0 1 110 60"
           fill="none"
-          stroke="url(#gaugeGradient)"
+          stroke="url(#credGaugeGradient)"
           strokeWidth="8"
           strokeLinecap="round"
           strokeDasharray={circumference}
@@ -61,118 +54,112 @@ function ThreatGauge() {
           transition={{ duration: 1.2, ease: "easeOut", delay: 0.3 }}
         />
         <defs>
-          <linearGradient id="gaugeGradient" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#f59e0b" />
-            <stop offset="50%" stopColor="#ef4444" />
-            <stop offset="100%" stopColor="#dc2626" />
+          <linearGradient id="credGaugeGradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#eab308" />
+            <stop offset="100%" stopColor="#22c55e" />
           </linearGradient>
         </defs>
       </svg>
       <motion.span
-        className="mt-1 text-2xl font-bold text-red-400"
+        className="mt-1 text-2xl font-bold text-emerald-400"
         initial={{ opacity: 0 }}
         animate={inView ? { opacity: 1 } : {}}
         transition={{ delay: 0.8 }}
       >
-        {score}%
+        {score}/100
       </motion.span>
-      <span className="text-xs text-zinc-500">Threat Score</span>
+      <span className="text-xs text-zinc-500">Credibility Score</span>
     </div>
   );
 }
 
-function ProgressVisual() {
+function ClaimVerdicts() {
   return (
     <div className="mt-4 space-y-2">
-      <div className="h-2 w-full rounded-full bg-zinc-800">
-        <div className="h-2 w-2/3 rounded-full bg-emerald-500" />
-      </div>
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-500">Progress</span>
-        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
-          Level 5
-        </span>
-      </div>
+      {[
+        { label: "Climate data accurate", verdict: "true", color: "bg-emerald-500" },
+        { label: "Vaccine claim disputed", verdict: "false", color: "bg-red-500" },
+        { label: "Source outdated", verdict: "misleading", color: "bg-yellow-500" },
+      ].map((item) => (
+        <div key={item.label} className="flex items-center gap-2">
+          <div className={cn("h-2 w-2 rounded-full", item.color)} />
+          <span className="text-xs text-zinc-400 flex-1">{item.label}</span>
+          <span className="text-[10px] text-zinc-500 uppercase">{item.verdict}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
-function Sparkline() {
-  return (
-    <div className="mt-4">
-      <svg width="100%" height="40" viewBox="0 0 200 40" preserveAspectRatio="none">
-        <path
-          d="M 0 35 Q 20 30, 40 28 T 80 20 T 120 22 T 160 10 T 200 5"
-          fill="none"
-          stroke="rgb(16, 185, 129)"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <path
-          d="M 0 35 Q 20 30, 40 28 T 80 20 T 120 22 T 160 10 T 200 5 L 200 40 L 0 40 Z"
-          fill="url(#sparklineFill)"
-          opacity="0.15"
-        />
-        <defs>
-          <linearGradient id="sparklineFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(16, 185, 129)" />
-            <stop offset="100%" stopColor="transparent" />
-          </linearGradient>
-        </defs>
-      </svg>
-    </div>
-  );
-}
+function AIDetectionBars() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, amount: 0.5 });
 
-function AvatarStack() {
-  const avatars = [
-    { initials: "AK", color: "bg-emerald-600" },
-    { initials: "JL", color: "bg-emerald-700" },
-    { initials: "SR", color: "bg-emerald-500" },
-    { initials: "MN", color: "bg-violet-600" },
+  const paragraphs = [
+    { label: "P1", prob: 0.12 },
+    { label: "P2", prob: 0.89 },
+    { label: "P3", prob: 0.05 },
+    { label: "P4", prob: 0.95 },
+    { label: "P5", prob: 0.08 },
   ];
 
   return (
-    <div className="mt-4 flex -space-x-2">
-      {avatars.map((a) => (
-        <div
-          key={a.initials}
-          className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-full border-2 border-zinc-900 text-[10px] font-semibold text-white",
-            a.color
-          )}
-        >
-          {a.initials}
+    <div ref={ref} className="mt-4 space-y-1.5">
+      {paragraphs.map((p, i) => (
+        <div key={p.label} className="flex items-center gap-2">
+          <span className="w-6 text-[10px] text-zinc-500">{p.label}</span>
+          <div className="flex-1 h-3 bg-zinc-800 rounded-full overflow-hidden">
+            <motion.div
+              className={cn("h-full rounded-full", p.prob > 0.7 ? "bg-red-500" : "bg-emerald-500")}
+              initial={{ width: 0 }}
+              animate={inView ? { width: `${p.prob * 100}%` } : {}}
+              transition={{ delay: i * 0.1, duration: 0.6 }}
+            />
+          </div>
+          <span className="w-8 text-right text-[10px] text-zinc-500">{Math.round(p.prob * 100)}%</span>
         </div>
       ))}
-      <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-zinc-900 bg-zinc-700 text-[10px] font-medium text-zinc-300">
-        +12
+    </div>
+  );
+}
+
+function CitationNetwork() {
+  return (
+    <div className="mt-4 flex h-24 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50">
+      <div className="relative">
+        {[0, 72, 144, 216, 288].map((angle, i) => {
+          const rad = (angle * Math.PI) / 180;
+          const x = Math.cos(rad) * 30;
+          const y = Math.sin(rad) * 20;
+          return (
+            <div
+              key={i}
+              className={cn(
+                "absolute h-3 w-3 rounded-full",
+                i === 2 ? "bg-red-500" : "bg-emerald-500/60"
+              )}
+              style={{
+                left: `calc(50% + ${x}px - 6px)`,
+                top: `calc(50% + ${y}px - 6px)`,
+              }}
+            />
+          );
+        })}
+        <div className="h-4 w-4 rounded-full bg-emerald-400" />
       </div>
     </div>
   );
 }
 
-function DisarmGrid() {
+function IntegrityGrid() {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.5 });
 
   const colors = [
-    "bg-emerald-500",
-    "bg-emerald-400",
-    "bg-emerald-500",
-    "bg-emerald-400",
-    "bg-emerald-600",
-    "bg-emerald-400",
-    "bg-emerald-600",
-    "bg-emerald-500",
-    "bg-emerald-600",
-    "bg-emerald-500",
-    "bg-emerald-500",
-    "bg-emerald-400",
-    "bg-emerald-600",
-    "bg-emerald-500",
-    "bg-emerald-400",
-    "bg-emerald-500",
+    "bg-emerald-500", "bg-emerald-400", "bg-red-500", "bg-emerald-400",
+    "bg-emerald-600", "bg-emerald-400", "bg-emerald-600", "bg-red-400",
+    "bg-emerald-600", "bg-emerald-500", "bg-emerald-500", "bg-emerald-400",
+    "bg-red-500", "bg-emerald-500", "bg-emerald-400", "bg-emerald-500",
   ];
 
   return (
@@ -190,21 +177,17 @@ function DisarmGrid() {
   );
 }
 
-function CodeSnippet() {
+function APISnippet() {
   return (
     <div className="mt-4 rounded-lg bg-zinc-900/80 p-3 font-mono text-xs text-zinc-300">
-      <span className="text-emerald-400">curl</span>{" "}
-      <span className="text-emerald-300">-X POST</span>{" "}
-      <span className="text-zinc-400">\</span>
+      <span className="text-emerald-400">POST</span>{" "}
+      <span className="text-zinc-300">/api/source-check</span>
       <br />
-      <span className="pl-4 text-zinc-300">example.invalid/v1/scan</span>
+      <span className="text-emerald-400">POST</span>{" "}
+      <span className="text-zinc-300">/api/researcher/analyze</span>
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Features data                                                      */
-/* ------------------------------------------------------------------ */
 
 interface Feature {
   icon: LucideIcon;
@@ -218,61 +201,57 @@ interface Feature {
 
 const features: Feature[] = [
   {
-    icon: Search,
-    title: "Multi-Engine Scanner",
+    icon: Shield,
+    title: "Source Verification",
     description:
-      "Paste any claim, URL, or screenshot. Get instant analysis from 6 independent AI engines with confidence scores and source verification.",
-    visual: <ThreatGauge />,
+      "Paste a URL or text. Get claim-by-claim fact-checking powered by AI and verified databases. See credibility scores, detect misinformation, and get the true version.",
+    visual: <CredibilityGauge />,
     colSpan: "lg:col-span-2",
     rowSpan: "lg:row-span-2",
-    glowColor: "red",
-  },
-  {
-    icon: GraduationCap,
-    title: "Learn & Level Up",
-    description:
-      "Duolingo-style media literacy courses. Earn XP, maintain streaks, and collect badges.",
-    visual: <ProgressVisual />,
     glowColor: "emerald",
   },
   {
-    icon: Activity,
-    title: "Live Threat Feed",
+    icon: BookOpen,
+    title: "Claim Analysis",
     description:
-      "Real-time dashboard of trending misinformation campaigns and emerging narratives.",
-    visual: <Sparkline />,
+      "Every factual claim is extracted, verified, and rated. Know exactly which parts of an article are accurate and which are misleading.",
+    visual: <ClaimVerdicts />,
+    glowColor: "emerald",
+  },
+  {
+    icon: Brain,
+    title: "AI Content Detection",
+    description:
+      "Identify AI-generated content paragraph by paragraph with per-section confidence scores.",
+    visual: <AIDetectionBars />,
+    glowColor: "emerald",
+  },
+  {
+    icon: GitBranch,
+    title: "Citation Ring Detection",
+    description:
+      "Expose groups of researchers who inflate each other's citation counts through mutual referencing patterns.",
+    visual: <CitationNetwork />,
     glowColor: "emerald",
   },
   {
     icon: Users,
-    title: "Community Verification",
+    title: "Honest Researcher Ratings",
     description:
-      "Crowdsourced truth-checking with expert moderation and reputation systems.",
-    visual: <AvatarStack />,
+      "Adjusted h-index and citation counts that account for manipulation. See the real impact of any researcher.",
+    visual: <IntegrityGrid />,
     glowColor: "emerald",
   },
   {
-    icon: LayoutGrid,
-    title: "DISARM Classification",
+    icon: Heart,
+    title: "Open for Researchers",
     description:
-      "Professional threat classification using the MITRE ATT&CK equivalent for disinformation.",
-    visual: <DisarmGrid />,
-    glowColor: "emerald",
-  },
-  {
-    icon: Code,
-    title: "Developer API",
-    description:
-      "RESTful API for bulk scanning, webhook integrations, and custom workflows. Build misinformation detection into your pipeline.",
-    visual: <CodeSnippet />,
+      "Free for academic researchers and institutions. Built by EaP Guardians to protect the integrity of knowledge worldwide.",
+    visual: <APISnippet />,
     colSpan: "lg:col-span-3",
     glowColor: "emerald",
   },
 ];
-
-/* ------------------------------------------------------------------ */
-/*  FeaturesSection                                                    */
-/* ------------------------------------------------------------------ */
 
 export function FeaturesSection() {
   return (
@@ -283,8 +262,8 @@ export function FeaturesSection() {
       <div className="relative z-10 mx-auto max-w-7xl px-6">
         <SectionHeading
           eyebrow="PLATFORM"
-          title="Everything You Need"
-          gradient="Need"
+          title="Everything You Need for Research Integrity"
+          gradient="Integrity"
         />
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">

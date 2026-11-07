@@ -16,15 +16,27 @@ import {
 } from "@/components/ui/card";
 import { Shield, Loader2 } from "lucide-react";
 
+const ROLES = [
+  { value: "researcher", label: "Researcher" },
+  { value: "faculty", label: "Faculty" },
+  { value: "admin", label: "Institution Admin" },
+];
+
 export default function RegisterPage() {
-  const [name, setName] = useState("");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [institution, setInstitution] = useState("");
+  const [role, setRole] = useState("researcher");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password || password.length < 8 || !fullName) {
+      setError("Please fill all required fields (password must be 8+ characters)");
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -32,7 +44,13 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({
+          name: fullName,
+          email,
+          password,
+          institution: institution || undefined,
+          role,
+        }),
       });
 
       const data = await res.json();
@@ -62,9 +80,10 @@ export default function RegisterPage() {
         </div>
         <CardTitle className="text-2xl text-white">Create an account</CardTitle>
         <CardDescription className="text-zinc-400">
-          Join CivicGuards and start fighting misinformation
+          Join ArtiProof and protect research integrity
         </CardDescription>
       </CardHeader>
+
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {error && (
@@ -73,26 +92,27 @@ export default function RegisterPage() {
             </div>
           )}
           <div className="space-y-2">
-            <Label htmlFor="name" className="text-zinc-300">
-              Name
+            <Label htmlFor="fullName" className="text-zinc-300">
+              Full Name <span className="text-red-400">*</span>
             </Label>
             <Input
-              id="name"
+              id="fullName"
               type="text"
-              placeholder="Your name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              placeholder="Dr. Jane Smith"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
               className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="email" className="text-zinc-300">
-              Email
+              Email <span className="text-red-400">*</span>
             </Label>
             <Input
               id="email"
               type="email"
-              placeholder="you@example.com"
+              placeholder="you@university.edu"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -101,7 +121,7 @@ export default function RegisterPage() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="password" className="text-zinc-300">
-              Password
+              Password <span className="text-red-400">*</span>
             </Label>
             <Input
               id="password"
@@ -114,6 +134,32 @@ export default function RegisterPage() {
               className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
             />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="institution" className="text-zinc-300">Institution / University</Label>
+            <Input
+              id="institution"
+              type="text"
+              placeholder="e.g. ADA University"
+              value={institution}
+              onChange={(e) => setInstitution(e.target.value)}
+              className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="role" className="text-zinc-300">Role</Label>
+            <select
+              id="role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+            >
+              {ROLES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
           <Button
@@ -121,17 +167,12 @@ export default function RegisterPage() {
             disabled={loading}
             className="w-full bg-emerald-500 text-white hover:bg-emerald-600"
           >
-            {loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Create Account
           </Button>
           <p className="text-sm text-zinc-400">
             Already have an account?{" "}
-            <Link
-              href="/login"
-              className="text-emerald-400 hover:text-emerald-300"
-            >
+            <Link href="/login" className="text-emerald-400 hover:text-emerald-300">
               Sign in
             </Link>
           </p>

@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 import { HeroGlobe } from "./HeroGlobe";
 import { InteractiveHoverButton } from "./shared/InteractiveHoverButton";
 
-const headlineWords = ["The", "Truth", "Has"];
-const headlineLine2Words = ["a", "Guardian"];
+const headlineWords = ["Research"];
+const headlineLine2Words = ["Integrity", "Platform"];
 
 const orbitingDots = [
   { size: 8, radius: 140, duration: 8, delay: 0, color: "bg-emerald-400" },
@@ -45,7 +45,7 @@ export function HeroSection() {
               {...animationProps(0)}
               className="text-xs uppercase tracking-[0.2em] text-emerald-400"
             >
-              Misinformation Threat Intelligence
+              Protecting Academic Integrity
             </motion.p>
 
             {/* Headline Line 1 */}
@@ -69,7 +69,7 @@ export function HeroSection() {
                     key={word}
                     className={cn(
                       "inline-block mr-[0.25em]",
-                      word === "Guardian" &&
+                      word === "Platform" &&
                         "text-emerald-400"
                     )}
                     {...animationProps(wordDelay(i, headlineWords.length))}
@@ -85,8 +85,9 @@ export function HeroSection() {
               {...animationProps(0.6)}
               className="mt-6 max-w-lg text-xl text-zinc-400"
             >
-              Multi-engine AI analysis. Real-time threat intelligence. The
-              VirusTotal of misinformation — built for everyone.
+              Verify sources for misinformation, detect AI-generated content,
+              and expose citation manipulation in academic research. Protect the
+              integrity of knowledge.
             </motion.p>
 
             {/* CTA Buttons */}
@@ -95,7 +96,7 @@ export function HeroSection() {
               className="mt-8 flex flex-col gap-4 sm:flex-row"
             >
               <InteractiveHoverButton
-                text="Launch Scanner"
+                text="Check a Source"
                 href="/register"
                 className="py-3 text-base"
               />
@@ -103,7 +104,7 @@ export function HeroSection() {
                 href="#how-it-works"
                 className="inline-flex items-center justify-center rounded-full border border-zinc-700 px-6 py-3 font-semibold text-zinc-300 transition-all hover:border-zinc-500 hover:text-white"
               >
-                See How It Works
+                Learn How It Works
               </a>
             </motion.div>
 
@@ -112,11 +113,10 @@ export function HeroSection() {
               {...animationProps(0.9)}
               className="mt-12 text-sm text-zinc-500"
             >
-              Trusted by researchers at{" "}
-              <span className="text-zinc-400">MIT</span> ·{" "}
-              <span className="text-zinc-400">Stanford</span> ·{" "}
-              <span className="text-zinc-400">Reuters</span> ·{" "}
-              <span className="text-zinc-400">BBC Verify</span>
+              Built for{" "}
+              <span className="text-zinc-400">researchers</span>,{" "}
+              <span className="text-zinc-400">faculty</span>, and{" "}
+              <span className="text-zinc-400">institutions</span> worldwide
             </motion.p>
           </div>
 

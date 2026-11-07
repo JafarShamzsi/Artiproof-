@@ -2,19 +2,24 @@
 Alembic environment configuration for database migrations.
 """
 
+import sys
+from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# Add backend directory to sys.path so `app` package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Import models metadata here once models are defined
-# from app.models import Base
-# target_metadata = Base.metadata
-target_metadata = None
+# Import all models so Alembic sees them for autogenerate
+from app.models import Base  # noqa: E402
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

@@ -3,11 +3,11 @@
 import { Shield, Twitter, Github, Linkedin } from "lucide-react";
 
 const productLinks = [
-  { label: "Scanner", href: "#" },
-  { label: "Education Hub", href: "#" },
-  { label: "Threat Feed", href: "#" },
+  { label: "Source Verification", href: "#features" },
+  { label: "Researcher Analysis", href: "#features" },
+  { label: "Reports", href: "#" },
   { label: "API", href: "#" },
-  { label: "Pricing", href: "#" },
+  { label: "Pricing", href: "#pricing" },
 ];
 
 const companyLinks = [
@@ -40,10 +40,10 @@ export function Footer() {
           <div>
             <div className="flex items-center gap-2">
               <Shield size={20} className="text-emerald-400" />
-              <span className="font-bold text-white">CivicGuards</span>
+              <span className="font-bold text-white">ArtiProof</span>
             </div>
             <p className="mt-2 text-sm text-zinc-500">
-              Defending truth with intelligence
+              Research Integrity Platform
             </p>
             <div className="mt-4 flex items-center gap-3">
               {socialLinks.map((social) => (
@@ -111,9 +111,9 @@ export function Footer() {
         {/* Bottom Bar */}
         <div className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-zinc-800 pt-8">
           <p className="text-sm text-zinc-600">
-            &copy; 2026 CivicGuards. All rights reserved.
+            &copy; 2026 ArtiProof. All rights reserved.
           </p>
-          <p className="text-sm text-zinc-500">Built to defend truth.</p>
+          <p className="text-sm text-zinc-500">Built by EaP Guardians</p>
         </div>
       </div>
     </footer>

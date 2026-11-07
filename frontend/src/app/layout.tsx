@@ -10,9 +10,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "CivicGuards — Misinformation Threat Intelligence",
+  title: "ArtiProof — Research Integrity Platform",
   description:
-    "The VirusTotal of misinformation. Multi-engine AI analysis, real-time threat intelligence, and media literacy education.",
+    "Verify sources, detect AI content, and expose citation manipulation in academic research. Protect the integrity of knowledge.",
 };
 
 export default function RootLayout({
