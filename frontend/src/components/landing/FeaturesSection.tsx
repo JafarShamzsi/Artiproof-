@@ -12,10 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SectionHeading } from "@/components/landing/shared/SectionHeading";
-import { GlowCard } from "@/components/landing/shared/GlowCard";
 import { ScrollReveal } from "@/components/landing/shared/ScrollReveal";
-import { InteractiveGridPattern } from "@/components/landing/shared/InteractiveGridPattern";
 
 function CredibilityGauge() {
   const ref = useRef<SVGSVGElement>(null);
@@ -196,96 +193,86 @@ interface Feature {
   visual: React.ReactNode;
   colSpan?: string;
   rowSpan?: string;
-  glowColor?: string;
 }
 
 const features: Feature[] = [
   {
     icon: Shield,
-    title: "Source Verification",
+    title: "Source verification",
     description:
-      "Paste a URL or text. Get claim-by-claim fact-checking powered by AI and verified databases. See credibility scores, detect misinformation, and get the true version.",
+      "Paste a URL or text. Each factual claim is extracted, fact-checked, and scored against external databases.",
     visual: <CredibilityGauge />,
     colSpan: "lg:col-span-2",
     rowSpan: "lg:row-span-2",
-    glowColor: "emerald",
   },
   {
     icon: BookOpen,
-    title: "Claim Analysis",
+    title: "Claim analysis",
     description:
-      "Every factual claim is extracted, verified, and rated. Know exactly which parts of an article are accurate and which are misleading.",
+      "Every claim gets a verdict — true, false, misleading, partially true, or unverified — with the source that backs it.",
     visual: <ClaimVerdicts />,
-    glowColor: "emerald",
   },
   {
     icon: Brain,
-    title: "AI Content Detection",
+    title: "AI content detection",
     description:
-      "Identify AI-generated content paragraph by paragraph with per-section confidence scores.",
+      "Per-paragraph AI probability with confidence scores, not a single yes/no for the whole document.",
     visual: <AIDetectionBars />,
-    glowColor: "emerald",
   },
   {
     icon: GitBranch,
-    title: "Citation Ring Detection",
+    title: "Citation rings",
     description:
-      "Expose groups of researchers who inflate each other's citation counts through mutual referencing patterns.",
+      "Detect groups of researchers who inflate each other's citation counts through mutual references.",
     visual: <CitationNetwork />,
-    glowColor: "emerald",
   },
   {
     icon: Users,
-    title: "Honest Researcher Ratings",
+    title: "Adjusted h-index",
     description:
-      "Adjusted h-index and citation counts that account for manipulation. See the real impact of any researcher.",
+      "h-index and citation counts recomputed after removing self-citations and ring citations.",
     visual: <IntegrityGrid />,
-    glowColor: "emerald",
   },
   {
     icon: Heart,
-    title: "Built for the EaP Region",
+    title: "Built for the EaP region",
     description:
-      "Purpose-built for Azerbaijan and Eastern Partnership universities. Native Azerbaijani and Russian language support, local compliance, and pricing designed for the region.",
+      "Purpose-built for Azerbaijani and Eastern Partnership universities. Local language, local compliance, regional pricing.",
     visual: <APISnippet />,
     colSpan: "lg:col-span-3",
-    glowColor: "emerald",
   },
 ];
 
 export function FeaturesSection() {
   return (
-    <section id="features" className="relative py-24 overflow-hidden">
-      <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-        <InteractiveGridPattern width={50} height={50} squares={[28, 20]} />
-      </div>
-      <div className="relative z-10 mx-auto max-w-7xl px-6">
-        <SectionHeading
-          eyebrow="PLATFORM"
-          title="Everything You Need for Research Integrity"
-          gradient="Integrity"
-        />
+    <section id="features" className="py-24">
+      <div className="mx-auto max-w-7xl px-6">
+        <div className="mb-12 max-w-2xl">
+          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            What it does
+          </p>
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Five engines, one report
+          </h2>
+        </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {features.map((feature, i) => (
             <ScrollReveal
               key={feature.title}
-              delay={i * 0.1}
+              delay={i * 0.05}
               className={cn(feature.colSpan, feature.rowSpan)}
             >
-              <GlowCard
-                className="h-full p-6"
-                glowColor={feature.glowColor}
-              >
-                <feature.icon className="mb-3 h-6 w-6 text-zinc-400" />
-                <h3 className="text-lg font-semibold text-white">
+              <div className="h-full rounded-xl border border-zinc-800 bg-zinc-900/40 p-6 transition-colors hover:border-zinc-700">
+                <feature.icon className="mb-3 h-5 w-5 text-emerald-400" aria-hidden="true" />
+                <h3 className="text-base font-semibold text-white">
                   {feature.title}
                 </h3>
-                <p className="mt-1 text-sm text-zinc-400">
+                <p className="mt-1 text-sm leading-relaxed text-zinc-400">
                   {feature.description}
                 </p>
                 {feature.visual}
-              </GlowCard>
+              </div>
             </ScrollReveal>
           ))}
         </div>

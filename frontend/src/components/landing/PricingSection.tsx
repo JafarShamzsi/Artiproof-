@@ -3,9 +3,6 @@
 import { useState } from "react";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { WavyBackground } from "./shared/WavyBackground";
-import { SectionHeading } from "@/components/landing/shared/SectionHeading";
-import { GlowCard } from "@/components/landing/shared/GlowCard";
 import { ScrollReveal } from "@/components/landing/shared/ScrollReveal";
 
 type BillingPeriod = "monthly" | "yearly";
@@ -107,22 +104,16 @@ export function PricingSection() {
   const [billing, setBilling] = useState<BillingPeriod>("monthly");
 
   return (
-    <section id="pricing" className="relative overflow-hidden py-24">
-      <div className="absolute inset-0 z-0 opacity-40">
-        <WavyBackground
-          colors={["#064e3b", "#065f46", "#047857", "#059669", "#10b981"]}
-          blur={15}
-          speed="slow"
-          waveOpacity={0.3}
-          backgroundFill="#09090b"
-        />
-      </div>
-      <div className="relative z-10 mx-auto max-w-7xl px-6">
-        <SectionHeading
-          eyebrow="PRICING"
-          title="Choose Your Plan"
-          gradient="Plan"
-        />
+    <section id="pricing" className="py-24">
+      <div className="mx-auto max-w-7xl px-6">
+        <div className="mx-auto mb-12 max-w-2xl text-center">
+          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Pricing
+          </p>
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Free for the first 10 checks. $20 if you keep going.
+          </h2>
+        </div>
 
         <div className="mb-12 flex items-center justify-center gap-1">
           <div className="inline-flex rounded-full border border-zinc-800 bg-zinc-900 p-1">
@@ -153,90 +144,84 @@ export function PricingSection() {
 
         <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
           {plans.map((plan, idx) => (
-            <ScrollReveal key={plan.name} delay={idx * 0.1}>
-              <div className={cn("relative", plan.popular && "md:scale-105")}>
-                {plan.popular && (
-                  <>
-                    {/* Glow halo behind the popular tier */}
-                    <div
-                      aria-hidden="true"
-                      className="absolute -inset-px -z-10 rounded-2xl bg-gradient-to-br from-emerald-500/40 via-emerald-500/10 to-transparent blur-xl"
-                    />
-                    <div className="absolute left-1/2 top-0 z-20 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white shadow-lg shadow-emerald-500/40">
-                      Most Popular
-                    </div>
-                  </>
+            <ScrollReveal key={plan.name} delay={idx * 0.05}>
+              <div
+                className={cn(
+                  "relative h-full rounded-xl border bg-zinc-900/40 p-7 transition-colors",
+                  plan.popular
+                    ? "border-emerald-500/40"
+                    : "border-zinc-800 hover:border-zinc-700",
                 )}
-                <GlowCard
+              >
+                {plan.popular && (
+                  <span className="absolute right-7 top-7 inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                    Most popular
+                  </span>
+                )}
+
+                <h3 className="font-display text-lg font-semibold text-white">
+                  {plan.name}
+                </h3>
+
+                <div className="mt-3 flex items-baseline gap-1">
+                  <span className="font-display text-4xl font-bold text-white">
+                    {billing === "monthly"
+                      ? plan.monthlyPrice
+                      : plan.yearlyPrice}
+                  </span>
+                  {plan.monthlyPrice !== "Custom" && (
+                    <span className="text-sm text-zinc-500">/mo</span>
+                  )}
+                </div>
+
+                <div className="my-6 border-t border-zinc-800/70" />
+
+                <ul className="space-y-3">
+                  {plan.features.map((feature) => (
+                    <li
+                      key={feature.text}
+                      className="flex items-start gap-2 text-sm"
+                    >
+                      {feature.included ? (
+                        <Check
+                          size={14}
+                          className="mt-0.5 shrink-0 text-emerald-400"
+                          aria-label="Included"
+                        />
+                      ) : (
+                        <X
+                          size={14}
+                          className="mt-0.5 shrink-0 text-zinc-700"
+                          aria-label="Not included"
+                        />
+                      )}
+                      <span
+                        className={
+                          feature.included
+                            ? "text-zinc-300"
+                            : "text-zinc-600"
+                        }
+                      >
+                        {feature.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <a
+                  href={plan.ctaHref}
                   className={cn(
-                    "h-full p-8",
-                    plan.popular && "ring-1 ring-emerald-500/40",
+                    "mt-7 inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50",
+                    plan.popular
+                      ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                      : "border border-zinc-700 text-zinc-200 hover:bg-zinc-800",
                   )}
                 >
-                  <h3 className="font-display text-xl font-bold text-white">
-                    {plan.name}
-                  </h3>
-
-                  <div className="mt-4 flex items-baseline gap-1">
-                    <span className="font-display text-4xl font-bold text-white">
-                      {billing === "monthly"
-                        ? plan.monthlyPrice
-                        : plan.yearlyPrice}
-                    </span>
-                    {plan.monthlyPrice !== "Custom" && (
-                      <span className="text-zinc-400">/mo</span>
-                    )}
-                  </div>
-
-                  <div className="my-6 border-t border-zinc-800" />
-
-                  <ul className="space-y-3">
-                    {plan.features.map((feature) => (
-                      <li
-                        key={feature.text}
-                        className="flex items-center gap-2 text-sm"
-                      >
-                        {feature.included ? (
-                          <Check
-                            size={16}
-                            className="shrink-0 text-emerald-400"
-                            aria-label="Included"
-                          />
-                        ) : (
-                          <X
-                            size={16}
-                            className="shrink-0 text-zinc-600"
-                            aria-label="Not included"
-                          />
-                        )}
-                        <span
-                          className={
-                            feature.included
-                              ? "text-zinc-300"
-                              : "text-zinc-600"
-                          }
-                        >
-                          {feature.text}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <a
-                    href={plan.ctaHref}
-                    className={cn(
-                      "mt-8 inline-flex w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50",
-                      plan.popular
-                        ? "cta-glow bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-600"
-                        : "border border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white",
-                    )}
-                  >
-                    {plan.cta}
-                  </a>
-                  <p className="mt-3 text-center text-xs text-zinc-500">
-                    {plan.riskReducer}
-                  </p>
-                </GlowCard>
+                  {plan.cta}
+                </a>
+                <p className="mt-3 text-center text-xs text-zinc-500">
+                  {plan.riskReducer}
+                </p>
               </div>
             </ScrollReveal>
           ))}

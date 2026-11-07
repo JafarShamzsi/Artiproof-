@@ -131,49 +131,52 @@
 }
 
 /*
- * Presentation contrast boost (big-screen / projector readability).
- * All dim text tiers — zinc, emerald, red/amber/blue/purple — get
- * pushed one or two steps brighter so the site reads clearly on a
- * projector. Descendant overrides restore original dark values
- * inside light-bg cards (reports page, share-token page) so
- * dark-on-white still reads correctly. High-contrast mode below
- * still overrides via its html[data-high-contrast] prefix.
+ * Presentation contrast boost — projector-readability mode.
+ *
+ * Previously this block applied unconditionally and flattened
+ * text-zinc-300/400 to the same near-white value, killing the careful
+ * type hierarchy in the marketing landing. Now it's gated behind
+ * `[data-presentation="true"]` on <html> or <body>: pages that need
+ * projector readability (long-form reports shown on a faculty
+ * projector) opt in by setting the attribute; the landing leaves it
+ * unset so the design system's three text tiers stay distinct.
+ *
  * Wrapped in @layer utilities so !important wins over Tailwind.
  */
 @layer utilities {
   /* ----- Zinc (body text) — pushed toward white ----- */
-  .text-zinc-300 { color: #f4f4f5 !important; } /* zinc-100 */
-  .text-zinc-400 { color: #f4f4f5 !important; } /* zinc-100 */
-  .text-zinc-500 { color: #e4e4e7 !important; } /* zinc-200 */
-  .text-zinc-600 { color: #d4d4d8 !important; } /* zinc-300 */
-  .text-zinc-700 { color: #d4d4d8 !important; } /* zinc-300 */
+  [data-presentation="true"] .text-zinc-300 { color: #f4f4f5 !important; } /* zinc-100 */
+  [data-presentation="true"] .text-zinc-400 { color: #f4f4f5 !important; } /* zinc-100 */
+  [data-presentation="true"] .text-zinc-500 { color: #e4e4e7 !important; } /* zinc-200 */
+  [data-presentation="true"] .text-zinc-600 { color: #d4d4d8 !important; } /* zinc-300 */
+  [data-presentation="true"] .text-zinc-700 { color: #d4d4d8 !important; } /* zinc-300 */
 
   /* ----- Emerald / green (brand) — one tier brighter ----- */
-  .text-emerald-400 { color: #6ee7b7 !important; } /* emerald-300 */
-  .text-emerald-500 { color: #6ee7b7 !important; } /* emerald-300 */
-  .text-emerald-600 { color: #34d399 !important; } /* emerald-400 */
-  .text-green-400 { color: #86efac !important; } /* green-300 */
-  .text-green-500 { color: #86efac !important; } /* green-300 */
+  [data-presentation="true"] .text-emerald-400 { color: #6ee7b7 !important; } /* emerald-300 */
+  [data-presentation="true"] .text-emerald-500 { color: #6ee7b7 !important; } /* emerald-300 */
+  [data-presentation="true"] .text-emerald-600 { color: #34d399 !important; } /* emerald-400 */
+  [data-presentation="true"] .text-green-400 { color: #86efac !important; } /* green-300 */
+  [data-presentation="true"] .text-green-500 { color: #86efac !important; } /* green-300 */
 
   /* ----- Semantic accents — one tier brighter ----- */
-  .text-red-400 { color: #fca5a5 !important; } /* red-300 */
-  .text-red-500 { color: #fca5a5 !important; } /* red-300 */
-  .text-amber-400 { color: #fcd34d !important; } /* amber-300 */
-  .text-amber-500 { color: #fcd34d !important; } /* amber-300 */
-  .text-yellow-400 { color: #fde047 !important; } /* yellow-300 */
-  .text-yellow-500 { color: #fde047 !important; } /* yellow-300 */
-  .text-orange-400 { color: #fdba74 !important; } /* orange-300 */
-  .text-orange-500 { color: #fdba74 !important; } /* orange-300 */
-  .text-blue-400 { color: #93c5fd !important; } /* blue-300 */
-  .text-blue-500 { color: #93c5fd !important; } /* blue-300 */
-  .text-purple-400 { color: #d8b4fe !important; } /* purple-300 */
-  .text-purple-500 { color: #d8b4fe !important; } /* purple-300 */
-  .text-indigo-400 { color: #a5b4fc !important; } /* indigo-300 */
-  .text-teal-400 { color: #5eead4 !important; } /* teal-300 */
-  .text-cyan-400 { color: #67e8f9 !important; } /* cyan-300 */
-  .text-pink-400 { color: #f9a8d4 !important; } /* pink-300 */
-  .text-rose-400 { color: #fda4af !important; } /* rose-300 */
-  .text-sky-400 { color: #7dd3fc !important; } /* sky-300 */
+  [data-presentation="true"] .text-red-400 { color: #fca5a5 !important; } /* red-300 */
+  [data-presentation="true"] .text-red-500 { color: #fca5a5 !important; } /* red-300 */
+  [data-presentation="true"] .text-amber-400 { color: #fcd34d !important; } /* amber-300 */
+  [data-presentation="true"] .text-amber-500 { color: #fcd34d !important; } /* amber-300 */
+  [data-presentation="true"] .text-yellow-400 { color: #fde047 !important; } /* yellow-300 */
+  [data-presentation="true"] .text-yellow-500 { color: #fde047 !important; } /* yellow-300 */
+  [data-presentation="true"] .text-orange-400 { color: #fdba74 !important; } /* orange-300 */
+  [data-presentation="true"] .text-orange-500 { color: #fdba74 !important; } /* orange-300 */
+  [data-presentation="true"] .text-blue-400 { color: #93c5fd !important; } /* blue-300 */
+  [data-presentation="true"] .text-blue-500 { color: #93c5fd !important; } /* blue-300 */
+  [data-presentation="true"] .text-purple-400 { color: #d8b4fe !important; } /* purple-300 */
+  [data-presentation="true"] .text-purple-500 { color: #d8b4fe !important; } /* purple-300 */
+  [data-presentation="true"] .text-indigo-400 { color: #a5b4fc !important; } /* indigo-300 */
+  [data-presentation="true"] .text-teal-400 { color: #5eead4 !important; } /* teal-300 */
+  [data-presentation="true"] .text-cyan-400 { color: #67e8f9 !important; } /* cyan-300 */
+  [data-presentation="true"] .text-pink-400 { color: #f9a8d4 !important; } /* pink-300 */
+  [data-presentation="true"] .text-rose-400 { color: #fda4af !important; } /* rose-300 */
+  [data-presentation="true"] .text-sky-400 { color: #7dd3fc !important; } /* sky-300 */
 
   /* ----- Light-bg card descendants — keep original darker values ----- */
   .bg-white .text-zinc-300,
@@ -232,8 +235,8 @@
   .bg-amber-50 .text-amber-400,
   .bg-amber-100 .text-amber-400 { color: #f59e0b !important; } /* amber-500 */
 
-  /* ----- Placeholder ----- */
-  .placeholder\:text-zinc-500::placeholder {
+  /* ----- Placeholder (presentation mode only) ----- */
+  [data-presentation="true"] .placeholder\:text-zinc-500::placeholder {
     color: #e4e4e7 !important;
     opacity: 1 !important;
   }

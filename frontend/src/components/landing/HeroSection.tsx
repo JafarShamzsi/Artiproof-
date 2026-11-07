@@ -7,7 +7,6 @@ import {
   Brain,
   CheckCircle,
   Shield,
-  Star,
   XCircle,
 } from "lucide-react";
 
@@ -90,23 +89,20 @@ export function HeroSection() {
               </p>
             </motion.div>
 
-            {/* Star-rating social proof */}
-            <motion.div {...fade(0.55)} className="mt-10 flex items-center gap-4">
-              <div className="flex items-center gap-0.5" aria-hidden="true">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <Star
-                    key={i}
-                    className="h-4 w-4 fill-amber-400 text-amber-400"
-                  />
-                ))}
+            {/* Honest pre-launch trust line — no fake star ratings.
+                Real signal: scope of the launch + the audited number that
+                anchors the comparison section. */}
+            <motion.div {...fade(0.55)} className="mt-10 max-w-xl">
+              <div className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3">
+                <Shield className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
+                <p className="text-sm leading-relaxed text-zinc-400">
+                  <span className="font-medium text-zinc-200">
+                    Pre-launch in the EaP region.
+                  </span>{" "}
+                  Built for 51 universities and 222,809 students across
+                  Azerbaijan and the Eastern Partnership.
+                </p>
               </div>
-              <p className="text-sm text-zinc-400">
-                <span className="text-zinc-200">
-                  Targeting 51 universities
-                </span>{" "}
-                ·{" "}
-                <span className="text-zinc-200">222,809 students</span>
-              </p>
             </motion.div>
           </div>
 
