@@ -32,11 +32,38 @@ export default function ReportsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const copyShareLink = (token: string, reportId: string) => {
+  const copyShareLink = async (token: string, reportId: string) => {
     const url = `${window.location.origin}/report/${token}`;
-    navigator.clipboard.writeText(url);
-    setCopiedId(reportId);
-    setTimeout(() => setCopiedId(null), 2000);
+
+    // Modern path — requires secure context.
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setCopiedId(reportId);
+        setTimeout(() => setCopiedId(null), 2000);
+        return;
+      }
+    } catch {
+      // fall through to textarea fallback
+    }
+
+    // Fallback for older browsers / non-secure contexts.
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopiedId(reportId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // Last resort — show the user the URL so they can copy manually.
+      window.prompt("Copy this share link:", url);
+    }
   };
 
   return (
@@ -101,13 +128,15 @@ export default function ReportsPage() {
                         {copiedId === report.id ? "Copied!" : "Share"}
                       </Button>
 
-                      {report.pdf_path && (
-                        <a href={backendUrl(`/api/reports/${report.id}/download`)}>
-                          <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600">
-                            <Download className="mr-1 h-3 w-3" /> PDF
-                          </Button>
-                        </a>
-                      )}
+                      <a
+                        href={backendUrl(`/api/reports/${report.id}/download`)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600">
+                          <Download className="mr-1 h-3 w-3" /> PDF
+                        </Button>
+                      </a>
 
                       {report.source_check_id && (
                         <a href={`/check/${report.source_check_id}`}>
