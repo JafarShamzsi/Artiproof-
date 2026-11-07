@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { apiFetch, backendUrl } from "./api";
+import { apiFetch } from "./api";
 
 type Opts =
   | { sourceCheckId: string; researcherProfileId?: undefined }
@@ -88,11 +88,29 @@ export function useReportActions(opts: Opts) {
   const download = useCallback(async () => {
     const r = await ensureReport();
     if (!r) return;
-    window.open(
-      backendUrl(`/api/reports/${r.id}/download`),
-      "_blank",
-      "noopener,noreferrer"
-    );
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await apiFetch(`/api/reports/${r.id}/download`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.detail || `PDF download failed (HTTP ${res.status})`);
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `artiproof-report-${r.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      setError("Network error during download");
+    } finally {
+      setBusy(false);
+    }
   }, [ensureReport]);
 
   return { share, download, busy, copied, error };

@@ -76,7 +76,7 @@ export const typography = {
     "font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight",
   sectionTitle: "font-display text-3xl sm:text-4xl font-bold tracking-tight",
   sectionSubtitle: "text-lg sm:text-xl text-zinc-400 max-w-2xl",
-  eyebrow: "text-sm font-medium text-emerald-400 tracking-wide uppercase",
+  eyebrow: "text-sm font-medium text-brand-fg tracking-wide uppercase",
   pageTitle: "font-display text-2xl font-bold text-white",
   cardTitle: "text-sm font-medium text-zinc-300",
   cardValue: "text-2xl font-bold text-white",

@@ -13,12 +13,14 @@
  * "High score" needs to read as "good" universally.
  */
 
-/** 0-100 score → text color class. Null → muted, theme-aware. */
+/** 0-100 score → text color class. Null → muted, theme-aware.
+ *  Uses 600/700 in light mode for ≥3:1 contrast against white card surfaces;
+ *  400 in dark mode where the surface is near-black. */
 export function scoreColor(score: number | null | undefined): string {
   if (score == null) return "text-fg-tertiary";
-  if (score >= 70) return "text-emerald-500 dark:text-emerald-400";
-  if (score >= 40) return "text-amber-500 dark:text-amber-400";
-  return "text-red-500 dark:text-red-400";
+  if (score >= 70) return "text-emerald-700 dark:text-emerald-400";
+  if (score >= 40) return "text-amber-700 dark:text-amber-400";
+  return "text-red-700 dark:text-red-400";
 }
 
 /** 0-100 score → background color class for progress bars / pills. */
@@ -37,14 +39,15 @@ export function scoreBorderColor(score: number | null | undefined): string {
   return "border-red-500/40";
 }
 
-/** 0-100 score → solid border class (used for score gauge rings). */
+/** 0-100 score → solid border class (used for score gauge rings).
+ *  Light mode uses 600 (≥3:1 vs white); dark stays 500. */
 export function scoreSolidBorderColor(
   score: number | null | undefined,
 ): string {
   if (score == null) return "border-border-strong";
-  if (score >= 70) return "border-emerald-500";
-  if (score >= 40) return "border-amber-500";
-  return "border-red-500";
+  if (score >= 70) return "border-emerald-600 dark:border-emerald-500";
+  if (score >= 40) return "border-amber-600 dark:border-amber-500";
+  return "border-red-600 dark:border-red-500";
 }
 
 /** 0-100 score → SVG hex stroke (for canvas / inline SVG that can't take Tailwind). */
@@ -69,12 +72,12 @@ export function verdictColor(
 ): string {
   switch (verdict) {
     case "true":
-      return "text-emerald-500 dark:text-emerald-400";
+      return "text-emerald-700 dark:text-emerald-400";
     case "false":
-      return "text-red-500 dark:text-red-400";
+      return "text-red-700 dark:text-red-400";
     case "misleading":
     case "partially_true":
-      return "text-amber-500 dark:text-amber-400";
+      return "text-amber-700 dark:text-amber-400";
     case "unverified":
     default:
       return "text-fg-secondary";

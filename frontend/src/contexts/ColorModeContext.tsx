@@ -57,24 +57,34 @@ function applyMode(mode: ColorMode): "light" | "dark" {
 }
 
 export function ColorModeProvider({ children }: { children: ReactNode }) {
-  // Default to "system" on the server. The pre-hydration script in
-  // layout.tsx will already have set the correct class before React paints,
-  // so the first client render sees the right state.
-  const [mode, setModeState] = useState<ColorMode>("system");
-  const [resolved, setResolved] = useState<"light" | "dark">("dark");
-
-  // Read stored value once on mount.
-  useEffect(() => {
+  // Lazy initializer so the *first* client render already reflects the
+  // stored preference. SSR always sees "system"/"dark" (server can't read
+  // localStorage); the pre-hydration script in layout.tsx applies the
+  // correct class before React mounts, and <html suppressHydrationWarning>
+  // tolerates the mismatch. Doing this avoids the
+  // react-hooks/set-state-in-effect cascading-render anti-pattern.
+  const [mode, setModeState] = useState<ColorMode>(() => {
+    if (typeof window === "undefined") return "system";
+    return readStoredMode();
+  });
+  const [resolved, setResolved] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "dark";
     const stored = readStoredMode();
-    setModeState(stored);
-    setResolved(applyMode(stored));
-  }, []);
+    return stored === "system" ? (systemPrefersDark() ? "dark" : "light") : stored;
+  });
+
+  // Re-apply DOM class whenever resolved changes (and on first paint).
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", resolved === "dark");
+    root.style.colorScheme = resolved;
+  }, [resolved]);
 
   // When mode is "system", track changes to the OS preference live.
   useEffect(() => {
     if (mode !== "system" || typeof window === "undefined") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => setResolved(applyMode("system"));
+    const handler = () => setResolved(systemPrefersDark() ? "dark" : "light");
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, [mode]);

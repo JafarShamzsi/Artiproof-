@@ -70,7 +70,6 @@ export default function SettingsPage() {
         body: JSON.stringify({
           full_name: fullName,
           institution: institution || null,
-          role,
         }),
       });
 
@@ -93,14 +92,14 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Settings</h1>
-        <p className="text-zinc-400">Manage your profile and preferences.</p>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Settings</h1>
+        <p className="text-zinc-600 dark:text-zinc-400">Manage your profile and preferences.</p>
       </div>
 
-      <Card className="border-zinc-800 bg-zinc-900/50">
+      <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-white">
-            <User className="h-5 w-5 text-zinc-400" /> Profile
+          <CardTitle className="flex items-center gap-2 text-zinc-900 dark:text-white">
+            <User className="h-5 w-5 text-zinc-500 dark:text-zinc-400" /> Profile
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -112,62 +111,60 @@ export default function SettingsPage() {
               </div>
               <SkeletonField />
               <SkeletonField />
-              <div className="h-9 w-32 animate-pulse rounded-md bg-zinc-800/60" />
+              <div className="h-9 w-32 animate-pulse rounded-md bg-zinc-200/70 dark:bg-zinc-800/60" />
             </div>
           ) : (
             <>
               {error && (
-                <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+                <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
                   {error}
                 </div>
               )}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="settings-full-name" className="text-zinc-300">Full Name</Label>
+                  <Label htmlFor="settings-full-name" className="text-zinc-700 dark:text-zinc-300">Full Name</Label>
                   <Input
                     id="settings-full-name"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    className="border-zinc-700 bg-zinc-800/50 text-white"
+                    className="border-zinc-300 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="settings-email" className="text-zinc-300">Email</Label>
+                  <Label htmlFor="settings-email" className="text-zinc-700 dark:text-zinc-300">Email</Label>
                   <Input
                     id="settings-email"
                     value={email || session?.user?.email || ""}
                     disabled
-                    className="border-zinc-700 bg-zinc-800/50 text-zinc-500"
+                    className="border-zinc-300 bg-zinc-50 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-500"
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="settings-institution" className="text-zinc-300">Institution / University</Label>
+                <Label htmlFor="settings-institution" className="text-zinc-700 dark:text-zinc-300">Institution / University</Label>
                 <Input
                   id="settings-institution"
                   value={institution}
                   onChange={(e) => setInstitution(e.target.value)}
                   placeholder="e.g. ADA University"
-                  className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
+                  className="border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white dark:placeholder:text-zinc-500"
                 />
               </div>
+              {/* Role is read-only — privileged changes go through an admin tool,
+                  not the user's own profile editor. Display only. */}
               <div className="space-y-2">
-                <Label htmlFor="settings-role" className="text-zinc-300">Role</Label>
-                <select
+                <Label htmlFor="settings-role" className="text-zinc-700 dark:text-zinc-300">Role</Label>
+                <Input
                   id="settings-role"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as UserRole)}
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white"
-                >
-                  <option value="researcher">Researcher</option>
-                  <option value="faculty">Faculty</option>
-                  <option value="admin">Admin</option>
-                </select>
+                  value={role.charAt(0).toUpperCase() + role.slice(1)}
+                  disabled
+                  className="border-zinc-300 bg-zinc-50 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-500"
+                />
               </div>
               <Button
                 onClick={handleSave}
                 disabled={saving}
-                className="bg-emerald-500 text-white hover:bg-emerald-600"
+                className="bg-brand text-white hover:bg-brand-hover"
               >
                 {saving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -181,10 +178,10 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-zinc-800 bg-zinc-900/50">
+      <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-white">
-            <Eye className="h-5 w-5 text-zinc-400" /> Accessibility
+          <CardTitle className="flex items-center gap-2 text-zinc-900 dark:text-white">
+            <Eye className="h-5 w-5 text-zinc-500 dark:text-zinc-400" /> Accessibility
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -193,16 +190,16 @@ export default function SettingsPage() {
               type="checkbox"
               checked={highContrast}
               onChange={toggleHighContrast}
-              className="mt-1 h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-emerald-500"
+              className="mt-1 h-4 w-4 rounded border-zinc-300 bg-white text-brand dark:border-zinc-600 dark:bg-zinc-800"
             />
             <div className="flex-1">
-              <div className="text-sm font-medium text-white">
+              <div className="text-sm font-medium text-zinc-900 dark:text-white">
                 High Contrast Mode
               </div>
-              <p className="mt-1 text-sm text-zinc-400">
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 WCAG 2.1 AAA palette optimized for projector presentations and
                 low-vision readers. Toggle anywhere with{" "}
-                <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-300">
+                <kbd className="rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                   Alt + H
                 </kbd>
                 .
@@ -221,8 +218,8 @@ export default function SettingsPage() {
 function SkeletonField() {
   return (
     <div className="space-y-2">
-      <div className="h-4 w-24 animate-pulse rounded bg-zinc-800/60" />
-      <div className="h-9 w-full animate-pulse rounded-md bg-zinc-800/60" />
+      <div className="h-4 w-24 animate-pulse rounded bg-zinc-200/70 dark:bg-zinc-800/60" />
+      <div className="h-9 w-full animate-pulse rounded-md bg-zinc-200/70 dark:bg-zinc-800/60" />
     </div>
   );
 }

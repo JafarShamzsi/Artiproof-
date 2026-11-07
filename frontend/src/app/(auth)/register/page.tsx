@@ -17,10 +17,12 @@ import {
 } from "@/components/ui/card";
 import { Chrome, Shield, Loader2 } from "lucide-react";
 
+// Admin role is intentionally not exposed on the public sign-up form — it's
+// privileged and assigned out-of-band by an existing admin. The backend also
+// enforces this server-side (see backend/app/routers/auth.py:register).
 const ROLES = [
   { value: "researcher", label: "Researcher" },
   { value: "faculty", label: "Faculty" },
-  { value: "admin", label: "Institution Admin" },
 ];
 
 export default function RegisterPage() {
@@ -74,13 +76,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900/50 backdrop-blur-xl">
+    <Card className="border-zinc-200 bg-white backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/50">
       <CardHeader className="text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-500">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-brand">
           <Shield className="h-6 w-6 text-white" />
         </div>
-        <CardTitle className="text-2xl text-white">Create an account</CardTitle>
-        <CardDescription className="text-zinc-400">
+        <CardTitle className="text-2xl text-zinc-900 dark:text-white">Create an account</CardTitle>
+        <CardDescription className="text-zinc-600 dark:text-zinc-400">
           Join ArtiProof and protect research integrity
         </CardDescription>
       </CardHeader>
@@ -88,13 +90,13 @@ export default function RegisterPage() {
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {error && (
-            <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+            <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
               {error}
             </div>
           )}
           <div className="space-y-2">
-            <Label htmlFor="fullName" className="text-zinc-300">
-              Full Name <span className="text-red-400">*</span>
+            <Label htmlFor="fullName" className="text-zinc-700 dark:text-zinc-300">
+              Full Name <span className="text-red-600 dark:text-red-400">*</span>
             </Label>
             <Input
               id="fullName"
@@ -103,12 +105,12 @@ export default function RegisterPage() {
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               required
-              className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
+              className="border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white dark:placeholder:text-zinc-500"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-zinc-300">
-              Email <span className="text-red-400">*</span>
+            <Label htmlFor="email" className="text-zinc-700 dark:text-zinc-300">
+              Email <span className="text-red-600 dark:text-red-400">*</span>
             </Label>
             <Input
               id="email"
@@ -117,12 +119,12 @@ export default function RegisterPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
+              className="border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white dark:placeholder:text-zinc-500"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password" className="text-zinc-300">
-              Password <span className="text-red-400">*</span>
+            <Label htmlFor="password" className="text-zinc-700 dark:text-zinc-300">
+              Password <span className="text-red-600 dark:text-red-400">*</span>
             </Label>
             <Input
               id="password"
@@ -133,30 +135,30 @@ export default function RegisterPage() {
               required
               minLength={8}
               aria-describedby="password-hint"
-              className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
+              className="border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white dark:placeholder:text-zinc-500"
             />
             <p id="password-hint" className="text-xs text-zinc-500">
               Minimum 8 characters. Use a passphrase or password manager.
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="institution" className="text-zinc-300">Institution / University</Label>
+            <Label htmlFor="institution" className="text-zinc-700 dark:text-zinc-300">Institution / University</Label>
             <Input
               id="institution"
               type="text"
               placeholder="e.g. ADA University"
               value={institution}
               onChange={(e) => setInstitution(e.target.value)}
-              className="border-zinc-700 bg-zinc-800/50 text-white placeholder:text-zinc-500"
+              className="border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white dark:placeholder:text-zinc-500"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="role" className="text-zinc-300">Role</Label>
+            <Label htmlFor="role" className="text-zinc-700 dark:text-zinc-300">Role</Label>
             <select
               id="role"
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-sm text-white focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-brand/50 focus:outline-none focus:ring-1 focus:ring-brand/50 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
             >
               {ROLES.map((r) => (
                 <option key={r.value} value={r.value}>
@@ -170,15 +172,15 @@ export default function RegisterPage() {
           <Button
             type="submit"
             disabled={loading}
-            className="w-full bg-emerald-500 text-white hover:bg-emerald-600"
+            className="w-full bg-brand text-white hover:bg-brand-hover"
           >
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Create Account
           </Button>
           <div className="flex w-full items-center gap-3">
-            <div className="h-px flex-1 bg-zinc-800" />
+            <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
             <span className="text-xs uppercase tracking-wider text-zinc-500">or</span>
-            <div className="h-px flex-1 bg-zinc-800" />
+            <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
           </div>
           <Button
             type="button"
@@ -188,7 +190,7 @@ export default function RegisterPage() {
               setGoogleLoading(true);
               void signIn("google", { callbackUrl: "/dashboard" });
             }}
-            className="w-full border-zinc-700 bg-zinc-900 text-white hover:bg-zinc-800 hover:text-white"
+            className="w-full border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800 dark:hover:text-white"
           >
             {googleLoading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -197,9 +199,9 @@ export default function RegisterPage() {
             )}
             Sign up with Google
           </Button>
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Already have an account?{" "}
-            <Link href="/login" className="text-emerald-400 hover:text-emerald-300">
+            <Link href="/login" className="text-brand hover:text-brand-hover dark:text-brand-fg">
               Sign in
             </Link>
           </p>

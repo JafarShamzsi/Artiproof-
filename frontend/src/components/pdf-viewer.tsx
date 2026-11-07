@@ -4,7 +4,6 @@ import {
   useState,
   useRef,
   useCallback,
-  useEffect,
   forwardRef,
   useImperativeHandle,
 } from "react";
@@ -127,7 +126,7 @@ const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(
             onLoadSuccess={onDocumentLoadSuccess}
             loading={
               <div className="flex items-center justify-center py-20">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
               </div>
             }
             error={
@@ -172,7 +171,7 @@ function PulseOverlay({
   const [x0, y0, x1, y1] = bbox;
   return (
     <div
-      className="pointer-events-none absolute animate-pulse rounded border-2 border-emerald-400 bg-emerald-400/10"
+      className="pointer-events-none absolute animate-pulse rounded border-2 border-brand bg-brand/15"
       style={{
         left: x0 * scale,
         top: y0 * scale,
