@@ -110,3 +110,124 @@ class AccountDeleteRequest(BaseModel):
     deletion from the dashboard. Frontend asks the user to type DELETE."""
     current_password: str
     confirm: str  # must equal "DELETE"
+
+
+# ─── Password reset ───────────────────────────────────────────────────────
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    """Always succeeds — never confirms whether the email exists.
+    `dev_reset_url` is populated only when SMTP isn't configured so the dev /
+    QA flow remains testable. Production should never see it set."""
+    detail: str = "If that account exists, a reset link has been sent."
+    dev_reset_url: Optional[str] = None
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _new_password_within_bcrypt_limit(cls, v: str) -> str:
+        return _validate_bcrypt_length(v)
+
+
+# ─── Email verification ──────────────────────────────────────────────────
+
+
+class EmailVerificationRequestResponse(BaseModel):
+    detail: str = "Verification link sent."
+    dev_verify_url: Optional[str] = None
+
+
+class EmailVerificationStatus(BaseModel):
+    email: str
+    verified: bool
+    verified_at: Optional[datetime] = None
+
+
+# ─── 2FA TOTP ────────────────────────────────────────────────────────────
+
+
+class TotpSetupResponse(BaseModel):
+    """Returned once at setup. The user scans `provisioning_uri` with their
+    authenticator and types the 6-digit code into /me/2fa/enable to confirm.
+    `backup_codes` are shown ONCE — backend stores hashes, never plaintext.
+    """
+    provisioning_uri: str
+    secret: str  # base32 — for users who can't scan and need to type
+    backup_codes: list[str]
+
+
+class TotpEnableRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=8)  # 6-digit TOTP, or 8-char backup
+
+
+class TotpDisableRequest(BaseModel):
+    current_password: str
+    code: str = Field(min_length=6, max_length=8)
+
+
+class TotpStatus(BaseModel):
+    enabled: bool
+    backup_codes_remaining: int = 0
+
+
+class LoginTwoFactorRequest(BaseModel):
+    """Step 2 of login when the user has TOTP enabled. The challenge_token
+    came from step 1 and links this submission to the right user."""
+    challenge_token: str
+    code: str = Field(min_length=6, max_length=8)
+
+
+class LoginChallengeResponse(BaseModel):
+    """Step 1 returns this when the account has 2FA. Frontend stashes the
+    challenge_token and POSTs it back with the code to /api/auth/login/2fa."""
+    challenge: str = "totp"
+    challenge_token: str
+
+
+# ─── Sessions ────────────────────────────────────────────────────────────
+
+
+class SessionItem(BaseModel):
+    id: str
+    user_agent: Optional[str] = None
+    ip_address: Optional[str] = None
+    label: Optional[str] = None
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+    is_current: bool = False  # set by the route handler
+
+    model_config = {"from_attributes": True}
+
+
+# ─── Connected accounts ──────────────────────────────────────────────────
+
+
+class ConnectionItem(BaseModel):
+    provider: str  # "google" for now
+    linked: bool
+    email: Optional[str] = None
+    linked_at: Optional[datetime] = None
+
+
+class GoogleLinkRequest(BaseModel):
+    id_token: str = Field(min_length=1)
+
+
+# ─── Analysis preferences ────────────────────────────────────────────────
+
+
+class AnalysisPreferences(BaseModel):
+    """Per-user pipeline defaults. Same shape as constants.DEFAULT_ANALYSIS_PREFERENCES."""
+
+    check_citations: bool = True
+    trace_misinfo_origins: bool = True
+    ai_detection_model: str = "gemini-2.0-flash"
+    researcher_field_inference: bool = True

@@ -57,3 +57,22 @@ DEFAULT_NOTIFICATION_PREFERENCES: dict[str, bool] = {
 # stores the user's choice. Translation infrastructure (next-intl) is a
 # separate phase; for now we just persist the preference.
 SUPPORTED_LOCALES = ("en", "az", "ru")
+
+
+# ─── Analysis defaults ────────────────────────────────────────────────────
+# Per-user defaults for the source-verification + researcher pipelines.
+# Merged with User.analysis_preferences on read so adding a key never
+# breaks existing rows. Settings page edits these values directly.
+DEFAULT_ANALYSIS_PREFERENCES: dict[str, object] = {
+    "check_citations": True,
+    "trace_misinfo_origins": True,
+    "ai_detection_model": "gemini-2.0-flash",
+    "researcher_field_inference": True,
+}
+
+# How long password-reset and email-verification tokens are valid for.
+PASSWORD_RESET_TOKEN_TTL_HOURS = 1
+EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24
+
+# 2FA backup codes — number issued at setup. Each is single-use.
+TOTP_BACKUP_CODE_COUNT = 10

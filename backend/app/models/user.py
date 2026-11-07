@@ -31,3 +31,19 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     # except /api/auth/reactivate. User can self-reactivate. Distinct from
     # `deleted_at` (account deletion).
     deactivated_at = sa.Column(sa.DateTime(timezone=True), nullable=True, index=True)
+    # Email verification: NULL = unverified. Migration 0005 grandfathers existing
+    # users to created_at so they don't see a verification banner retroactively.
+    email_verified_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    # TOTP shared secret. Stored plaintext for now — encryption-at-rest is a
+    # KMS concern noted in the migration. Only populated after 2FA setup.
+    totp_secret = sa.Column(sa.String, nullable=True)
+    totp_enabled = sa.Column(sa.Boolean, nullable=False, server_default="false")
+    # JSON list of bcrypt-hashed backup codes. Each single-use; consuming one
+    # rotates the array (drops the matched hash) before responding.
+    totp_backup_codes = sa.Column(sa.JSON, nullable=True)
+    # OAuth providers linked to this account. Shape:
+    #   {"google": {"sub": str, "email": str, "linked_at": iso8601}}
+    linked_providers = sa.Column(sa.JSON, nullable=True)
+    # Per-user defaults for analysis pipelines. Merged with
+    # constants.DEFAULT_ANALYSIS_PREFERENCES on read.
+    analysis_preferences = sa.Column(sa.JSON, nullable=True)

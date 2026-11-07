@@ -39,6 +39,8 @@ passlib[bcrypt]>=1.7.4,<2.0
 bcrypt>=4.2.1,<5
 python-jose[cryptography]>=3.3.0,<4.0
 google-auth>=2.38.0,<3.0
+# TOTP / 2FA — RFC 6238 codes + provisioning URI for the QR.
+pyotp>=2.9.0,<3.0
 
 # Rate limiting
 slowapi>=0.1.9,<1.0
