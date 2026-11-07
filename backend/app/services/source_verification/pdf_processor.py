@@ -14,9 +14,17 @@ import fitz  # PyMuPDF
 logger = logging.getLogger(__name__)
 
 
+MAX_PDF_PAGES = 500
+
+
 def extract_text_with_positions(pdf_path: str) -> dict:
     """
     Extract all text from a PDF with position data for every text block.
+
+    Validates the file before extracting:
+    - rejects encrypted PDFs (we don't have a passphrase to unlock them)
+    - rejects PDFs with zero pages or more than MAX_PDF_PAGES (500)
+    - surfaces a clear error if PyMuPDF can't even parse the file
 
     Returns:
         {
@@ -31,7 +39,7 @@ def extract_text_with_positions(pdf_path: str) -> dict:
                             "text": "paragraph text...",
                             "bbox": [x0, y0, x1, y1],
                             "block_index": 0,
-                            "char_start": 0,     # offset in full_text
+                            "char_start": 0,
                             "char_end": 150,
                         }
                     ]
@@ -39,7 +47,22 @@ def extract_text_with_positions(pdf_path: str) -> dict:
             ]
         }
     """
-    doc = fitz.open(pdf_path)
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        raise ValueError(f"Invalid or corrupted PDF file: {e}") from e
+
+    if doc.is_encrypted:
+        doc.close()
+        raise ValueError("Encrypted PDFs are not supported")
+
+    if doc.page_count == 0:
+        doc.close()
+        raise ValueError("PDF has no pages")
+
+    if doc.page_count > MAX_PDF_PAGES:
+        doc.close()
+        raise ValueError(f"PDF exceeds maximum page limit ({MAX_PDF_PAGES})")
     pages = []
     full_text_parts = []
     char_offset = 0

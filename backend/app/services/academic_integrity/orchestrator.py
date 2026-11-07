@@ -2,13 +2,17 @@
 Academic integrity orchestrator — coordinates the Module 2 pipeline.
 
 Steps (sequential — graph must be built before ring detection):
-1. Resolve researcher profile (Semantic Scholar / ORCID)
+1. Resolve researcher profile (Semantic Scholar / ORCID / Scopus / Google Scholar)
 2. Fetch publications
 3. Build citation graph
 4. Detect citation rings and manipulation
 5. Analyze topic relevance (Gemini)
 6. Calculate adjusted ratings
 7. Save all results
+
+The step-level broad excepts here are intentional: a single step failure
+should yield an "error" event for that step and continue. Tightening would
+break the resilience contract.
 """
 
 import logging
@@ -19,7 +23,9 @@ from typing import AsyncGenerator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.researcher import ResearcherProfile, PublicationAnalysis
+from app.schemas.breakdown import FORMULA_VERSION
 from app.services.academic_integrity.scholar_scraper import (
     resolve_researcher,
     fetch_publications,
@@ -32,12 +38,28 @@ from app.services.academic_integrity.rating_adjuster import calculate_adjusted_m
 logger = logging.getLogger(__name__)
 
 
+# A paper is "heavily self-cited" if more than this fraction of its citations
+# come from the target researcher.
+SELF_CITED_HEAVILY_THRESHOLD = 0.25
+
+
 class AcademicIntegrityOrchestrator:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._warnings: list[dict] = []
+        self._apis_used: list[str] = []
+        self._fallback_used = False
+
+    def _track_api(self, name: str) -> None:
+        if name not in self._apis_used:
+            self._apis_used.append(name)
 
     async def run_pipeline_streaming(self, profile_id: str) -> AsyncGenerator[dict, None]:
         """Run the full pipeline, yielding progress events for SSE."""
+        self._warnings = []
+        self._apis_used = []
+        self._fallback_used = False
+
         result = await self.db.execute(
             select(ResearcherProfile).where(ResearcherProfile.id == profile_id)
         )
@@ -59,9 +81,17 @@ class AcademicIntegrityOrchestrator:
                 google_scholar_id=profile.google_scholar_id,
                 orcid=profile.orcid,
             )
+            self._track_api("semantic_scholar")
+            if profile.scopus_id:
+                self._track_api("scopus")
+            if profile.google_scholar_id:
+                self._track_api("google_scholar")
+            if profile.orcid:
+                self._track_api("orcid")
         except Exception as e:
             logger.exception("Researcher resolution failed")
             researcher_data = None
+            self._warnings.append({"type": "resolve_failed", "error": type(e).__name__})
             yield {"step": "resolving", "status": "error", "detail": str(e), "progress": 0.15}
 
         if not researcher_data or not researcher_data.get("s2_id"):
@@ -75,12 +105,11 @@ class AcademicIntegrityOrchestrator:
             }
             return
 
-        # Update profile with resolved data
         s2_id = researcher_data["s2_id"]
         profile.researcher_name = researcher_data.get("name") or profile.researcher_name
         profile.institution = researcher_data.get("institution") or profile.institution
-        profile.official_h_index = researcher_data.get("h_index")
-        profile.official_citation_count = researcher_data.get("citation_count")
+        profile.official_h_index = researcher_data.get("h_index") or profile.official_h_index
+        profile.official_citation_count = researcher_data.get("citation_count") or profile.official_citation_count
         if researcher_data.get("orcid"):
             profile.orcid = researcher_data["orcid"]
         await self.db.commit()
@@ -94,6 +123,7 @@ class AcademicIntegrityOrchestrator:
         except Exception as e:
             logger.exception("Publications fetch failed")
             publications = []
+            self._warnings.append({"type": "publications_fetch_failed", "error": type(e).__name__})
             yield {"step": "publications", "status": "error", "detail": str(e), "progress": 0.35}
 
         if not publications:
@@ -114,31 +144,44 @@ class AcademicIntegrityOrchestrator:
             }
         except Exception as e:
             logger.exception("Citation graph build failed")
-            graph_data = {"nodes": [], "edges": [], "citing_authors": {}, "self_citations": 0, "total_citations_checked": 0}
+            graph_data = {
+                "nodes": [], "edges": [], "citing_authors": {},
+                "self_citations": 0, "total_citations_checked": 0,
+                "per_paper_citations": {},
+            }
+            self._warnings.append({"type": "citation_graph_failed", "error": type(e).__name__})
             yield {"step": "citation_graph", "status": "error", "detail": str(e), "progress": 0.55}
 
-        # Step 4: Detect rings
+        # Step 4: Detect rings (field-aware thresholds)
         yield {"step": "ring_detection", "status": "processing", "detail": "Analyzing citation patterns...", "progress": 0.6}
         try:
-            ring_data = detect_rings(graph_data, publications)
+            field = self._infer_field(researcher_data, profile)
+            ring_data = detect_rings(graph_data, publications, field=field)
             flag_count = len(ring_data.get("flags", []))
             yield {
                 "step": "ring_detection", "status": "done",
-                "detail": f"Found {flag_count} flag(s)",
+                "detail": f"Found {flag_count} flag(s) (field: {field or 'default'})",
                 "progress": 0.7,
             }
         except Exception as e:
             logger.exception("Ring detection failed")
-            ring_data = {"suspicious_pairs": [], "potential_rings": [], "self_citation_rate": 0, "self_citation_status": "normal", "citation_velocity_anomalies": [], "flags": []}
+            ring_data = {
+                "suspicious_pairs": [], "potential_rings": [], "self_citation_rate": 0,
+                "self_citation_status": "normal", "citation_velocity_anomalies": [], "flags": [],
+                "total_citations_checked": graph_data.get("total_citations_checked", 0),
+            }
+            self._warnings.append({"type": "ring_detection_failed", "error": type(e).__name__})
             yield {"step": "ring_detection", "status": "error", "detail": str(e), "progress": 0.7}
 
         # Step 5: Topic analysis
         yield {"step": "topic_analysis", "status": "processing", "detail": "Checking topic relevance...", "progress": 0.75}
         try:
             publications = await analyze_topic_relevance(publications)
+            self._track_api("gemini")
             yield {"step": "topic_analysis", "status": "done", "detail": "Topic analysis complete", "progress": 0.8}
         except Exception as e:
             logger.exception("Topic analysis failed")
+            self._warnings.append({"type": "topic_analysis_failed", "error": type(e).__name__})
             yield {"step": "topic_analysis", "status": "error", "detail": str(e), "progress": 0.8}
 
         # Step 6: Calculate adjusted ratings
@@ -151,6 +194,7 @@ class AcademicIntegrityOrchestrator:
             yield {"step": "adjusting", "status": "done", "detail": adjusted.get("explanation", "")[:100], "progress": 0.9}
         except Exception as e:
             logger.exception("Rating adjustment failed")
+            self._warnings.append({"type": "rating_adjustment_failed", "error": type(e).__name__})
             adjusted = {
                 "adjusted_h_index": profile.official_h_index,
                 "adjusted_citation_count": profile.official_citation_count,
@@ -158,6 +202,7 @@ class AcademicIntegrityOrchestrator:
                 "self_citation_rate": 0.0,
                 "topic_relevance_score": None,
                 "explanation": "Rating adjustment failed",
+                "breakdown": None,
             }
             yield {"step": "adjusting", "status": "error", "detail": str(e), "progress": 0.9}
 
@@ -176,6 +221,23 @@ class AcademicIntegrityOrchestrator:
 
         yield {"step": "complete", "status": "completed", "detail": "Analysis complete", "progress": 1.0}
 
+    @staticmethod
+    def _infer_field(researcher_data: dict | None, profile: ResearcherProfile) -> str | None:
+        """Best-effort field inference for ring threshold tuning.
+
+        Sources, in order: Scopus subject_areas, ResearcherProfile.research_fields.
+        Returns None if we can't tell — ring_detector falls back to "default".
+        """
+        if researcher_data:
+            areas = researcher_data.get("subject_areas") or []
+            if areas:
+                return str(areas[0]).lower()
+        if profile.research_fields:
+            fields = profile.research_fields
+            if isinstance(fields, list) and fields:
+                return str(fields[0]).lower()
+        return None
+
     async def _save_results(
         self,
         profile: ResearcherProfile,
@@ -186,19 +248,38 @@ class AcademicIntegrityOrchestrator:
     ) -> None:
         """Persist all analysis results to the database."""
 
-        # Save publications
-        suspicious_pairs_ids = {p["author_id"] for p in ring_data.get("suspicious_pairs", [])}
+        per_paper = graph_data.get("per_paper_citations", {})
+        suspicious_author_ids = {p["author_id"] for p in ring_data.get("suspicious_pairs", [])}
 
         for pub in publications:
-            # Determine if this paper is heavily self-cited
-            is_self_cited = False
-            # Check if any suspicious citers appear in this paper's citing authors
-            suspicious_count = 0
+            paper_id = pub.get("paper_id")
+            paper_stats = per_paper.get(paper_id, {})
+            paper_total = paper_stats.get("total", 0)
+            paper_self = paper_stats.get("self_citations", 0)
+
+            # Heavily self-cited if a sizeable share of citations are self
+            is_self_cited = (
+                paper_total > 0
+                and (paper_self / paper_total) > SELF_CITED_HEAVILY_THRESHOLD
+            )
+
+            # Suspicious citations = sum of citation counts from authors
+            # flagged as suspicious by ring_detector. Pulled from the graph
+            # builder's per-paper citing_authors map so we don't rely on
+            # brittle title matching.
+            paper_citers = paper_stats.get("citing_authors", {})
+            suspicious_count = sum(
+                count for aid, count in paper_citers.items()
+                if aid in suspicious_author_ids
+            )
 
             flags = []
             topic_score = pub.get("topic_match_score")
             if topic_score is not None and topic_score < 0.3:
                 flags.append("Low topic relevance to journal")
+            if is_self_cited:
+                self_rate = paper_self / max(paper_total, 1)
+                flags.append(f"Heavily self-cited ({self_rate:.0%} of citations)")
 
             pub_record = PublicationAnalysis(
                 id=str(uuid.uuid4()),
@@ -228,6 +309,22 @@ class AcademicIntegrityOrchestrator:
             "graph": {
                 "nodes": graph_data.get("nodes", [])[:50],
                 "edges": graph_data.get("edges", [])[:100],
+            },
+        }
+        profile.integrity_breakdown = adjusted.get("breakdown")
+        profile.model_metadata = {
+            "model_provider": "google",
+            "model_name": settings.GEMINI_MODEL,
+            "apis_used": list(self._apis_used),
+            "fallback_used": self._fallback_used,
+            "processing_warnings": list(self._warnings),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "formula_version": FORMULA_VERSION,
+            "context": {
+                "publications_count": len(publications),
+                "citations_checked": graph_data.get("total_citations_checked", 0),
+                "field_used": ring_data.get("field_used"),
+                "thresholds_used": ring_data.get("thresholds_used"),
             },
         }
         profile.analysis_status = "completed"

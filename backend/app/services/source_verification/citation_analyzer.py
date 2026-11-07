@@ -2,10 +2,14 @@
 Citation analyzer — checks citations for accessibility, retractions, and credibility.
 """
 
+import asyncio
 import logging
 from urllib.parse import urlparse
 
 import httpx
+
+from app.config import settings
+from app.utils.retry import HTTP_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -26,18 +30,38 @@ LOW_CREDIBILITY_DOMAINS = {
 }
 
 
+@with_retry(max_retries=2, exceptions=HTTP_RETRY_EXCEPTIONS)
+async def _head_request(url: str) -> int:
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=10.0,
+        headers={"User-Agent": "ArtiProof/1.0"},
+    ) as client:
+        resp = await client.head(url)
+        return resp.status_code
+
+
 async def check_url_accessible(url: str) -> bool:
     """Check if a URL is accessible via HEAD request."""
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=10.0,
-            headers={"User-Agent": "ArtiProof/1.0"},
-        ) as client:
-            resp = await client.head(url)
-            return resp.status_code < 400
-    except Exception:
+        return (await _head_request(url)) < 400
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError):
         return False
+    except httpx.HTTPStatusError:
+        return False
+    except httpx.InvalidURL:
+        return False
+
+
+@with_retry(max_retries=2, exceptions=HTTP_RETRY_EXCEPTIONS)
+async def _fetch_crossref(doi: str) -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"https://api.crossref.org/works/{doi}",
+            headers={"User-Agent": f"ArtiProof/1.0 (mailto:{settings.CONTACT_EMAIL})"},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def check_retraction_crossref(doi: str) -> bool:
@@ -45,7 +69,6 @@ async def check_retraction_crossref(doi: str) -> bool:
     if not doi:
         return False
 
-    # Normalize DOI
     doi = doi.strip()
     if doi.startswith("https://doi.org/"):
         doi = doi[16:]
@@ -55,33 +78,26 @@ async def check_retraction_crossref(doi: str) -> bool:
         doi = doi[4:]
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"https://api.crossref.org/works/{doi}",
-                headers={"User-Agent": "ArtiProof/1.0 (mailto:info@example.invalid)"},
-            )
-            if resp.status_code != 200:
-                return False
-
-            data = resp.json()
-            message = data.get("message", {})
-
-            # Check for retraction
-            update_to = message.get("update-to", [])
-            for update in update_to:
-                if update.get("type") == "retraction":
-                    return True
-
-            # Check for "Retracted" in title
-            titles = message.get("title", [])
-            for t in titles:
-                if "retract" in t.lower():
-                    return True
-
-            return False
-    except Exception:
-        logger.debug("CrossRef check failed for DOI %s", doi)
+        data = await _fetch_crossref(doi)
+    except httpx.HTTPStatusError as e:
+        # 404 = unknown DOI; not a retraction signal but not an error either
+        if e.response.status_code != 404:
+            logger.debug("CrossRef returned %d for DOI %s", e.response.status_code, doi)
         return False
+    except (httpx.TimeoutException, httpx.ConnectError):
+        logger.debug("CrossRef unreachable for DOI %s", doi)
+        return False
+
+    message = data.get("message", {})
+    update_to = message.get("update-to", [])
+    for update in update_to:
+        if update.get("type") == "retraction":
+            return True
+    titles = message.get("title", [])
+    for t in titles:
+        if "retract" in t.lower():
+            return True
+    return False
 
 
 def _extract_doi(url: str) -> str | None:
@@ -170,10 +186,38 @@ async def analyze_citation(citation: dict) -> dict:
     }
 
 
-async def analyze_all_citations(citations: list[dict]) -> list[dict]:
-    """Analyze a batch of citations. Runs sequentially to avoid hammering external APIs."""
-    results = []
-    for citation in citations[:20]:  # Cap at 20
-        result = await analyze_citation(citation)
-        results.append(result)
+async def analyze_all_citations(citations: list[dict], warnings: list | None = None) -> list[dict]:
+    """Analyze a batch of citations in parallel.
+
+    Cap at 20 to avoid hammering external APIs. Each per-citation analysis
+    has its own retry/backoff via the underlying HTTP helpers, so running
+    them concurrently is safe.
+    """
+    if len(citations) > 20 and warnings is not None:
+        warnings.append({
+            "type": "citations_capped",
+            "module": "citation_analyzer",
+            "total": len(citations),
+            "analyzed": 20,
+        })
+
+    capped = citations[:20]
+    raw_results = await asyncio.gather(
+        *[analyze_citation(c) for c in capped],
+        return_exceptions=True,
+    )
+
+    results: list[dict] = []
+    for cit, r in zip(capped, raw_results):
+        if isinstance(r, Exception):
+            logger.warning("Citation analysis failed for %s: %s", cit.get("url"), type(r).__name__)
+            if warnings is not None:
+                warnings.append({
+                    "type": "citation_analysis_failed",
+                    "module": "citation_analyzer",
+                    "url": cit.get("url"),
+                    "error": type(r).__name__,
+                })
+            continue
+        results.append(r)
     return results

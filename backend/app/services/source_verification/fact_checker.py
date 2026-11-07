@@ -9,6 +9,7 @@ from typing import Optional
 import httpx
 import google.generativeai as genai
 from app.config import settings
+from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, HTTP_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -37,39 +38,51 @@ Return valid JSON with these fields:
 Return ONLY the JSON object, no other text."""
 
 
+@with_retry(max_retries=2, exceptions=HTTP_RETRY_EXCEPTIONS)
+async def _fetch_google_factcheck(claim_text: str) -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            "https://factchecktools.googleapis.com/v1alpha1/claims:search",
+            params={
+                "query": claim_text[:200],
+                "key": settings.GOOGLE_FACTCHECK_API_KEY,
+                "languageCode": "en",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def check_with_google_factcheck(claim_text: str) -> list[dict]:
     """Query Google Fact Check Tools API for existing fact-checks on this claim."""
     if not settings.GOOGLE_FACTCHECK_API_KEY:
         return []
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://factchecktools.googleapis.com/v1alpha1/claims:search",
-                params={
-                    "query": claim_text[:200],
-                    "key": settings.GOOGLE_FACTCHECK_API_KEY,
-                    "languageCode": "en",
-                },
-            )
-            if resp.status_code != 200:
-                return []
-
-            data = resp.json()
-            results = []
-            for item in data.get("claims", [])[:3]:
-                for review in item.get("claimReview", []):
-                    results.append({
-                        "publisher": review.get("publisher", {}).get("name", "Unknown"),
-                        "url": review.get("url", ""),
-                        "title": review.get("title", ""),
-                        "rating": review.get("textualRating", ""),
-                        "claim_text": item.get("text", ""),
-                    })
-            return results
-    except Exception:
-        logger.exception("Google Fact Check API call failed")
+        data = await _fetch_google_factcheck(claim_text)
+    except httpx.HTTPStatusError as e:
+        # 404/no results is expected for many claims; only log unusual codes.
+        if e.response.status_code not in (400, 404):
+            logger.warning("Google Fact Check returned %d", e.response.status_code)
         return []
+    except (httpx.TimeoutException, httpx.ConnectError):
+        logger.warning("Google Fact Check unreachable")
+        return []
+    except json.JSONDecodeError:
+        logger.error("Google Fact Check returned invalid JSON")
+        return []
+
+    results = []
+    for item in data.get("claims", [])[:3]:
+        for review in item.get("claimReview", []):
+            results.append({
+                "publisher": review.get("publisher", {}).get("name", "Unknown"),
+                "url": review.get("url", ""),
+                "title": review.get("title", ""),
+                "rating": review.get("textualRating", ""),
+                "claim_text": item.get("text", ""),
+            })
+    return results
 
 
 async def verify_claim(claim_text: str, article_context: str = "") -> dict:
@@ -118,61 +131,36 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
         }
 
     genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel(settings.GEMINI_MODEL)
-
     context_snippet = article_context[:500] if article_context else "No additional context available."
 
     try:
-        response = await model.generate_content_async(
+        raw = await _call_gemini_verify(
             VERIFICATION_PROMPT.format(
                 claim_text=claim_text,
                 context=context_snippet,
                 factcheck_context=factcheck_context,
-            ),
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=2048,
-            ),
+            )
         )
-
-        raw = response.text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-        if raw.endswith("```"):
-            raw = raw[:-3]
-        raw = raw.strip()
-        if raw.startswith("json"):
-            raw = raw[4:].strip()
-
-        result = json.loads(raw)
-
-        # Merge fact-check sources
-        sources = result.get("sources", [])
-        if isinstance(sources, list):
-            # Normalize sources to dicts
-            normalized = []
-            for s in sources:
-                if isinstance(s, str):
-                    normalized.append({"name": s, "url": ""})
-                elif isinstance(s, dict):
-                    normalized.append(s)
-            sources = normalized
-        for r in factcheck_results:
-            sources.append({"name": r["publisher"], "url": r["url"]})
-
-        valid_verdicts = {"true", "false", "misleading", "unverified", "partially_true"}
-        verdict = result.get("verdict", "unverified")
-        if verdict not in valid_verdicts:
-            verdict = "unverified"
-
+    except Exception as e:
+        logger.error("Gemini verify call failed: %s", type(e).__name__)
         return {
-            "verdict": verdict,
-            "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.5)))),
-            "explanation": str(result.get("explanation", "Analysis completed.")),
-            "true_version": result.get("true_version"),
-            "sources": sources[:10],
+            "verdict": "unverified",
+            "confidence": 0.2,
+            "explanation": "Verification service unavailable.",
+            "true_version": None,
+            "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results],
         }
 
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+    if raw.endswith("```"):
+        raw = raw[:-3]
+    raw = raw.strip()
+    if raw.startswith("json"):
+        raw = raw[4:].strip()
+
+    try:
+        result = json.loads(raw)
     except json.JSONDecodeError:
         logger.error("Failed to parse Gemini fact-check response")
         return {
@@ -182,12 +170,43 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
             "true_version": None,
             "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results],
         }
-    except Exception:
-        logger.exception("Fact-check verification failed")
-        return {
-            "verdict": "unverified",
-            "confidence": 0.2,
-            "explanation": "Verification service encountered an error.",
-            "true_version": None,
-            "sources": [],
-        }
+
+    sources = result.get("sources", [])
+    if isinstance(sources, list):
+        normalized = []
+        for s in sources:
+            if isinstance(s, str):
+                normalized.append({"name": s, "url": ""})
+            elif isinstance(s, dict):
+                normalized.append(s)
+        sources = normalized
+    else:
+        sources = []
+    for r in factcheck_results:
+        sources.append({"name": r["publisher"], "url": r["url"]})
+
+    valid_verdicts = {"true", "false", "misleading", "unverified", "partially_true"}
+    verdict = result.get("verdict", "unverified")
+    if verdict not in valid_verdicts:
+        verdict = "unverified"
+
+    return {
+        "verdict": verdict,
+        "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.5)))),
+        "explanation": str(result.get("explanation", "Analysis completed.")),
+        "true_version": result.get("true_version"),
+        "sources": sources[:10],
+    }
+
+
+@with_retry(max_retries=2, exceptions=GEMINI_RETRY_EXCEPTIONS)
+async def _call_gemini_verify(prompt: str) -> str:
+    model = genai.GenerativeModel(settings.GEMINI_MODEL)
+    response = await model.generate_content_async(
+        prompt,
+        generation_config=genai.types.GenerationConfig(
+            temperature=0.1,
+            max_output_tokens=2048,
+        ),
+    )
+    return response.text.strip()

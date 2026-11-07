@@ -3,13 +3,17 @@ Topic analyzer — checks whether papers are published in journals relevant to t
 Uses Gemini for NLP similarity analysis.
 """
 
+import asyncio
 import json
 import logging
 
 import google.generativeai as genai
 from app.config import settings
+from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
+
+BATCH_SIZE = 15
 
 TOPIC_PROMPT = """You are an academic topic relevance analyst. For each paper below, assess how well the paper's topic matches the journal/venue it was published in.
 
@@ -27,14 +31,61 @@ Return a JSON array:
 Return ONLY the JSON array, no other text."""
 
 
+@with_retry(max_retries=2, exceptions=GEMINI_RETRY_EXCEPTIONS)
+async def _call_gemini(prompt: str) -> str:
+    model = genai.GenerativeModel(settings.GEMINI_MODEL)
+    response = await model.generate_content_async(
+        prompt,
+        generation_config=genai.types.GenerationConfig(
+            temperature=0.1,
+            max_output_tokens=4096,
+        ),
+    )
+    return response.text.strip()
+
+
+async def _process_batch(batch: list[tuple[int, dict]]) -> list[dict]:
+    """Score one batch. Returns list of {index, topic_match_score} dicts.
+
+    `index` is the position within the batch — caller maps it back to the
+    original publication index.
+    """
+    formatted = "\n".join(
+        f"[{idx}] Title: \"{p['title']}\" — Journal/Venue: \"{p['journal']}\""
+        for idx, (_, p) in enumerate(batch)
+    )
+
+    try:
+        raw = await _call_gemini(TOPIC_PROMPT.format(papers=formatted))
+    except Exception as e:
+        logger.error("Topic analysis batch failed: %s", type(e).__name__)
+        return []
+
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+    if raw.endswith("```"):
+        raw = raw[:-3]
+    raw = raw.strip()
+    if raw.startswith("json"):
+        raw = raw[4:].strip()
+
+    try:
+        results = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.error("Failed to parse Gemini topic analysis response")
+        return []
+
+    if not isinstance(results, list):
+        return []
+    return results
+
+
 async def analyze_topic_relevance(publications: list[dict]) -> list[dict]:
     """
     Analyze whether papers are published in topically relevant journals.
 
-    Takes a list of publication dicts (title, journal, year).
-    Returns list with added topic_match_score field.
+    Batches are processed concurrently rather than sequentially.
     """
-    # Filter to papers that have both title and journal
     papers_with_venue = [
         (i, p) for i, p in enumerate(publications)
         if p.get("journal") and p.get("title")
@@ -50,52 +101,29 @@ async def analyze_topic_relevance(publications: list[dict]) -> list[dict]:
         return publications
 
     genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel(settings.GEMINI_MODEL)
 
-    # Process in batches of 15
-    batch_size = 15
-    for batch_start in range(0, len(papers_with_venue), batch_size):
-        batch = papers_with_venue[batch_start:batch_start + batch_size]
+    batches = [
+        papers_with_venue[i:i + BATCH_SIZE]
+        for i in range(0, len(papers_with_venue), BATCH_SIZE)
+    ]
 
-        formatted = "\n".join(
-            f"[{idx}] Title: \"{p['title']}\" — Journal/Venue: \"{p['journal']}\""
-            for idx, (_, p) in enumerate(batch)
-        )
+    batch_results = await asyncio.gather(
+        *[_process_batch(b) for b in batches],
+        return_exceptions=True,
+    )
 
-        try:
-            response = await model.generate_content_async(
-                TOPIC_PROMPT.format(papers=formatted),
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,
-                    max_output_tokens=4096,
-                ),
-            )
+    for batch, results in zip(batches, batch_results):
+        if isinstance(results, Exception):
+            logger.warning("Topic batch raised: %s", type(results).__name__)
+            continue
+        for item in results:
+            idx_in_batch = item.get("index", -1)
+            if 0 <= idx_in_batch < len(batch):
+                orig_idx = batch[idx_in_batch][0]
+                publications[orig_idx]["topic_match_score"] = max(
+                    0.0, min(1.0, float(item.get("topic_match_score", 0.5)))
+                )
 
-            raw = response.text.strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
-            if raw.startswith("json"):
-                raw = raw[4:].strip()
-
-            results = json.loads(raw)
-            if isinstance(results, list):
-                for item in results:
-                    idx = item.get("index", -1)
-                    if 0 <= idx < len(batch):
-                        orig_idx = batch[idx][0]
-                        publications[orig_idx]["topic_match_score"] = max(
-                            0.0, min(1.0, float(item.get("topic_match_score", 0.5)))
-                        )
-
-        except json.JSONDecodeError:
-            logger.error("Failed to parse Gemini topic analysis response")
-        except Exception:
-            logger.exception("Topic analysis batch failed")
-
-    # Fill in missing scores
     for p in publications:
         if "topic_match_score" not in p:
             p["topic_match_score"] = None

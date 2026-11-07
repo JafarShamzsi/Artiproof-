@@ -23,21 +23,24 @@ async def build_citation_graph(
 
     Returns:
         {
-            "nodes": [{"id": str, "name": str, "type": "target"|"citer"|"co-author", "citation_count": int}],
+            "nodes": [{"id": str, "name": str, "type": "target"|"citer", "citation_count": int}],
             "edges": [{"source": str, "target": str, "weight": int, "papers": [str]}],
             "citing_authors": {author_id: {"name": str, "count": int}},
             "self_citations": int,
             "total_citations_checked": int,
+            "per_paper_citations": {paper_id: {"total": int, "self_citations": int}},
         }
     """
-    # Track who cites this researcher
     citing_author_counts: Counter = Counter()
     citing_author_names: dict[str, str] = {}
     self_citations = 0
     total_checked = 0
-    edges_data: dict[str, list[str]] = defaultdict(list)  # citer_id -> [paper_titles]
+    edges_data: dict[str, list[str]] = defaultdict(list)
+    # Per-paper tracking so the orchestrator can mark which publications
+    # are heavily self-cited (issue 13) and count suspicious citations
+    # without relying on title-string matching (issue 14).
+    per_paper: dict[str, dict] = {}
 
-    # Sort by citation count descending and take top papers
     sorted_pubs = sorted(publications, key=lambda p: p.get("citation_count", 0), reverse=True)
     papers_to_check = sorted_pubs[:max_papers_to_check]
 
@@ -46,9 +49,12 @@ async def build_citation_graph(
         if not paper_id:
             continue
 
-        # Fetch who cites this paper
         citations = await fetch_paper_citations(paper_id, limit=50)
-        total_checked += len(citations)
+        paper_total = len(citations)
+        paper_self = 0
+        # author_id -> count of times they cited THIS paper
+        paper_citers: Counter = Counter()
+        total_checked += paper_total
 
         for citing in citations:
             for author in citing.get("authors", []):
@@ -60,11 +66,18 @@ async def build_citation_graph(
 
                 if aid == target_author_id:
                     self_citations += 1
+                    paper_self += 1
                 else:
                     citing_author_counts[aid] += 1
                     edges_data[aid].append(pub.get("title", "")[:80])
+                    paper_citers[aid] += 1
 
-    # Build nodes and edges for visualization
+        per_paper[paper_id] = {
+            "total": paper_total,
+            "self_citations": paper_self,
+            "citing_authors": dict(paper_citers),
+        }
+
     nodes = [
         {
             "id": target_author_id,
@@ -98,4 +111,5 @@ async def build_citation_graph(
         },
         "self_citations": self_citations,
         "total_citations_checked": total_checked,
+        "per_paper_citations": per_paper,
     }
