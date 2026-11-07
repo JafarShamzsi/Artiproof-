@@ -20,9 +20,10 @@ class ResearcherProfile(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "researcher_profiles"
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    # user_id intentionally nullable: profiles can exist without an owning user
-    # (e.g. researchers analyzed by name only)
-    user_id = sa.Column(sa.String, sa.ForeignKey("users.id"), nullable=True, index=True)
+    # Every profile is owned by the user who triggered the analysis. There is
+    # no "anonymous" profile path today; if/when one is added, relax this and
+    # update list/get filters to allow ``user_id IS NULL`` as well.
+    user_id = sa.Column(sa.String, sa.ForeignKey("users.id"), nullable=False, index=True)
     researcher_name = sa.Column(sa.String, nullable=False)
     scopus_id = sa.Column(sa.String, nullable=True)
     google_scholar_id = sa.Column(sa.String, nullable=True)

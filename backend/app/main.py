@@ -149,10 +149,16 @@ cors_origins = list(settings.CORS_ORIGINS)
 if settings.APP_URL and settings.APP_URL not in cors_origins:
     cors_origins.append(settings.APP_URL)
 
+# Default to None (no regex) so previews must be explicitly enabled. The previous
+# `https://.*\.vercel\.app` allowed *any* tenant's preview to call our API with
+# credentials, which is far too permissive — set CORS_ORIGIN_REGEX in env to
+# something tied to this project's deploys (e.g. r"https://artiproof-[a-z0-9-]+\.vercel\.app").
+cors_regex = settings.CORS_ORIGIN_REGEX or None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=cors_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],

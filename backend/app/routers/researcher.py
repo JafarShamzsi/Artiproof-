@@ -50,6 +50,8 @@ def _profile_to_response(profile: ResearcherProfile, publications=None) -> Resea
         analysis_status=profile.analysis_status,
         last_analyzed_at=profile.last_analyzed_at,
         created_at=profile.created_at,
+        integrity_breakdown=profile.integrity_breakdown,
+        model_metadata=profile.model_metadata,
         publications=[
             PublicationAnalysisResponse(
                 id=p.id,
@@ -96,6 +98,17 @@ async def analyze_researcher(
     db.add(profile)
     await db.commit()
     await db.refresh(profile)
+
+    # Best-effort enqueue. If Celery isn't installed/reachable the row stays
+    # `pending` and the SSE stream will run the pipeline on first connect —
+    # so the user-facing flow always works either way.
+    try:
+        from app.tasks import celery_app
+
+        if celery_app is not None:
+            celery_app.send_task("researcher.run_pipeline", args=[profile.id])
+    except Exception:
+        logger.exception("Failed to enqueue researcher pipeline (will run on SSE connect)")
 
     return _profile_to_response(profile)
 

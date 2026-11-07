@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    # Optional explicit origin matcher; empty by default for local review.
+    CORS_ORIGIN_REGEX: str = ""
 
     # AI
     GEMINI_API_KEY: str = ""

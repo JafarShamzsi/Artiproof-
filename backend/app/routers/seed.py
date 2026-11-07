@@ -30,10 +30,15 @@ def _ensure_seeding_allowed() -> None:
 
 @router.post("/demo")
 async def seed_demo_data(db: AsyncSession = Depends(get_db)):
-    """Seed the database with demo data for hackathon presentation."""
+    """Seed the database with demo data for hackathon presentation.
+
+    Idempotent: if demo data is already present (detected by the demo user's
+    existing source-checks), the endpoint returns a no-op response instead of
+    duplicating rows. To force a re-seed, pass ?force=true.
+    """
     _ensure_seeding_allowed()
 
-    from sqlalchemy import select
+    from sqlalchemy import select, delete as sa_delete
 
     now = datetime.now(timezone.utc)
     user_id = "demo-user"
@@ -50,6 +55,15 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
             role="researcher",
         ))
         await db.flush()
+
+    # Idempotency check — if demo source checks already exist for this user
+    # we've already seeded, so short-circuit. Repeat callers get the same
+    # shape they got the first time.
+    already = await db.execute(
+        select(SourceCheck.id).where(SourceCheck.user_id == user_id).limit(1)
+    )
+    if already.scalar_one_or_none():
+        return {"status": "ok", "seeded": "already_present"}
 
     # ── Source Check 1: News article with misinformation ──
     sc1_id = str(uuid.uuid4())

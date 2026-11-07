@@ -47,6 +47,8 @@ def _check_to_response(check: SourceCheck, claims=None, ai_detections=None, cita
         has_annotated_pdf=check.annotated_pdf_path is not None,
         created_at=check.created_at,
         completed_at=check.completed_at,
+        score_breakdown=check.score_breakdown,
+        model_metadata=check.model_metadata,
         claims=[
             ClaimAnalysisResponse(
                 id=c.id, claim_text=c.claim_text, verdict=c.verdict,
@@ -86,6 +88,17 @@ async def create_source_check(
     user_id = current_user.id
     orchestrator = SourceVerificationOrchestrator(db)
     check_id = await orchestrator.create_check(user_id, data.input_type, data.input_content)
+
+    # Best-effort enqueue — SSE stream is still the primary trigger; this
+    # ensures even abandoned tabs eventually run the pipeline.
+    try:
+        from app.tasks import celery_app
+
+        if celery_app is not None:
+            celery_app.send_task("source_check.run_pipeline", args=[check_id])
+    except Exception:
+        logger.exception("Failed to enqueue source-check pipeline (will run on SSE connect)")
+
     result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
     return _check_to_response(result.scalar_one())
 
@@ -129,6 +142,14 @@ async def upload_pdf_source_check(
         input_content=file.filename,
         original_pdf_path=pdf_path,
     )
+
+    try:
+        from app.tasks import celery_app
+
+        if celery_app is not None:
+            celery_app.send_task("source_check.run_pipeline", args=[check_id])
+    except Exception:
+        logger.exception("Failed to enqueue source-check pipeline (will run on SSE connect)")
 
     result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
     return _check_to_response(result.scalar_one())

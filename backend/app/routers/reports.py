@@ -181,7 +181,7 @@ async def list_reports(
 
 @router.get("/shared/{share_token}", response_model=ReportResponse)
 async def get_shared_report(share_token: str, db: AsyncSession = Depends(get_db)):
-    """Public report access (no auth required)."""
+    """Public report access (no auth required) — keyed by share token."""
     result = await db.execute(
         select(Report).where(
             Report.share_token == share_token, Report.deleted_at.is_(None)
@@ -193,15 +193,35 @@ async def get_shared_report(share_token: str, db: AsyncSession = Depends(get_db)
     return _report_response(report)
 
 
+@router.get("/shared/{share_token}/download")
+async def download_shared_report(share_token: str, db: AsyncSession = Depends(get_db)):
+    """Public PDF download — requires the unguessable share token, not auth."""
+    result = await db.execute(
+        select(Report).where(
+            Report.share_token == share_token, Report.deleted_at.is_(None)
+        )
+    )
+    report = result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return await _serve_report_pdf(report, db)
+
+
 @router.get("/{report_id}", response_model=ReportResponse)
-async def get_report(report_id: str, db: AsyncSession = Depends(get_db)):
-    """Get report details."""
+async def get_report(
+    report_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get report details. Owner-only — public sharing goes through `/shared/{token}`."""
     result = await db.execute(
         select(Report).where(Report.id == report_id, Report.deleted_at.is_(None))
     )
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+    if report.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this report")
     return _report_response(report)
 
 
@@ -278,16 +298,29 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> bytes:
 
 
 @router.get("/{report_id}/download")
-async def download_report(report_id: str, db: AsyncSession = Depends(get_db)):
+async def download_report(
+    report_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Download PDF report. Regenerates on the fly if the cached file is missing —
-    Local generated reports may not yet have a cached artifact."""
+    Local generated reports may not yet have a cached artifact.
+
+    Owner-only. Public sharing of the *PDF* goes through ``/shared/{token}/download``.
+    """
     result = await db.execute(
         select(Report).where(Report.id == report_id, Report.deleted_at.is_(None))
     )
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+    if report.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to download this report")
+    return await _serve_report_pdf(report, db)
 
+
+async def _serve_report_pdf(report: Report, db: AsyncSession) -> Response:
+    """Render or load the PDF for a Report and return it as an HTTP attachment."""
     if report.pdf_path and os.path.exists(report.pdf_path):
         with open(report.pdf_path, "rb") as f:
             pdf_bytes = f.read()
