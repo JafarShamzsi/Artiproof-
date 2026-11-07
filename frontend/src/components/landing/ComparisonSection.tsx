@@ -10,17 +10,25 @@ interface FeatureRow {
   turnitin: Cell;
   gptzero: Cell;
   originality: Cell;
+  /** True if no competitor in the table also has this feature. */
+  unique?: boolean;
 }
 
 const features: FeatureRow[] = [
   { name: "Plagiarism detection",         artiproof: true,        turnitin: true,         gptzero: false,         originality: true       },
   { name: "AI content detection",         artiproof: true,        turnitin: true,         gptzero: true,          originality: true       },
-  { name: "Citation ring detection",      artiproof: true,        turnitin: false,        gptzero: false,         originality: false      },
-  { name: "Researcher integrity scoring", artiproof: true,        turnitin: false,        gptzero: false,         originality: false      },
-  { name: "Fact-checking with sources",   artiproof: true,        turnitin: false,        gptzero: false,         originality: false      },
-  { name: "Self-citation analysis",       artiproof: true,        turnitin: false,        gptzero: false,         originality: false      },
+  { name: "Citation ring detection",      artiproof: true,        turnitin: false,        gptzero: false,         originality: false,     unique: true },
+  { name: "Researcher integrity scoring", artiproof: true,        turnitin: false,        gptzero: false,         originality: false,     unique: true },
+  { name: "Fact-checking with sources",   artiproof: true,        turnitin: false,        gptzero: false,         originality: false,     unique: true },
+  { name: "Self-citation analysis",       artiproof: true,        turnitin: false,        gptzero: false,         originality: false,     unique: true },
   { name: "Free tier",                    artiproof: true,        turnitin: false,        gptzero: true,          originality: false      },
   { name: "Starting price",               artiproof: "$20/mo",    turnitin: "$3/student", gptzero: "$15/mo",      originality: "$15/mo"   },
+];
+
+const COMPETITORS = [
+  { key: "turnitin" as const, name: "Turnitin" },
+  { key: "gptzero" as const, name: "GPTZero" },
+  { key: "originality" as const, name: "Originality" },
 ];
 
 function CellContent({ value, primary }: { value: Cell; primary: boolean }) {
@@ -39,8 +47,9 @@ function CellContent({ value, primary }: { value: Cell; primary: boolean }) {
   return value ? (
     <Check
       className={
-        "mx-auto h-4 w-4 " + (primary ? "text-emerald-400" : "text-zinc-500")
+        "mx-auto h-5 w-5 " + (primary ? "text-emerald-400" : "text-zinc-500")
       }
+      strokeWidth={primary ? 2 : 1.5}
       aria-label="Yes"
     />
   ) : (
@@ -61,7 +70,8 @@ export function ComparisonSection() {
           </h2>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop / tablet — full feature table */}
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800">
@@ -89,9 +99,18 @@ export function ComparisonSection() {
               {features.map((row) => (
                 <tr
                   key={row.name}
-                  className="border-b border-zinc-800/60 last:border-b-0"
+                  className="border-b border-zinc-800/60 transition-colors last:border-b-0 hover:bg-white/[0.02]"
                 >
-                  <td className="px-4 py-3 text-zinc-300">{row.name}</td>
+                  <td className="px-4 py-3 text-zinc-300">
+                    <span className="inline-flex items-center gap-2">
+                      {row.name}
+                      {row.unique && (
+                        <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                          Unique
+                        </span>
+                      )}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-center">
                     <CellContent value={row.artiproof} primary />
                   </td>
@@ -108,6 +127,74 @@ export function ComparisonSection() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile — summary cards + ArtiProof-only feature list. The full
+            table doesn't survive a 360px viewport without horizontal scroll
+            and tiny text, so we summarize per-competitor instead. */}
+        <div className="md:hidden">
+          <div className="space-y-3">
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/[0.04] p-4">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+                <span className="font-semibold text-white">ArtiProof</span>
+                <span className="ml-auto tabular-nums text-sm text-zinc-400">
+                  $20/mo
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-emerald-300/80">
+                7 of 7 integrity features
+              </p>
+            </div>
+
+            {COMPETITORS.map((c) => {
+              const present = features.filter(
+                (f) => typeof f[c.key] === "boolean" && f[c.key] === true,
+              ).length;
+              const total = features.filter(
+                (f) => typeof f[c.key] === "boolean",
+              ).length;
+              const price = features.find((f) => f.name === "Starting price")?.[c.key];
+              return (
+                <div
+                  key={c.key}
+                  className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-zinc-200">{c.name}</span>
+                    {price && typeof price === "string" && (
+                      <span className="ml-auto tabular-nums text-sm text-zinc-500">
+                        {price}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {present} of {total} integrity features
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 rounded-xl border border-zinc-800 p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-emerald-400">
+              Only on ArtiProof
+            </p>
+            <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+              {features
+                .filter((f) => f.unique)
+                .map((f) => (
+                  <li key={f.name} className="flex items-center gap-2">
+                    <Check
+                      className="h-4 w-4 shrink-0 text-emerald-400"
+                      strokeWidth={2}
+                      aria-hidden="true"
+                    />
+                    {f.name}
+                  </li>
+                ))}
+            </ul>
+          </div>
         </div>
       </div>
     </section>

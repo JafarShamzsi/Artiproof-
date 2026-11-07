@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, X } from "lucide-react";
+import { Check, X, Plus, Minus } from "lucide-react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { ScrollReveal } from "@/components/landing/shared/ScrollReveal";
 
@@ -232,26 +233,82 @@ export function PricingSection() {
           ))}
         </div>
 
-        {/* Mini-FAQ */}
+        {/* Mini-FAQ — expandable accordion (first item open by default) */}
         <div className="mx-auto mt-20 max-w-3xl">
-          <h3 className="mb-6 text-center font-display text-2xl font-bold text-white">
+          <h3 className="mb-6 text-center font-display text-2xl font-bold text-balance text-white">
             Pricing questions
           </h3>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {faqs.map((faq) => (
-              <div
-                key={faq.q}
-                className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5"
-              >
-                <h4 className="text-sm font-semibold text-white">{faq.q}</h4>
-                <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                  {faq.a}
-                </p>
-              </div>
-            ))}
-          </div>
+          <FaqAccordion items={faqs} />
         </div>
       </div>
     </section>
+  );
+}
+
+interface FaqItem {
+  q: string;
+  a: string;
+}
+
+function FaqAccordion({ items }: { items: readonly FaqItem[] }) {
+  const [openIdx, setOpenIdx] = useState<number | null>(0);
+  const reduce = useReducedMotion();
+
+  return (
+    <div className="divide-y divide-zinc-800/70 rounded-xl border border-zinc-800 bg-zinc-900/30">
+      {items.map((faq, i) => {
+        const isOpen = openIdx === i;
+        const id = `faq-${i}`;
+        return (
+          <div key={faq.q}>
+            <button
+              type="button"
+              onClick={() => setOpenIdx(isOpen ? null : i)}
+              aria-expanded={isOpen}
+              aria-controls={id}
+              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+            >
+              <span className="text-sm font-semibold text-white">
+                {faq.q}
+              </span>
+              <span
+                aria-hidden="true"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zinc-700 text-zinc-400"
+              >
+                {isOpen ? (
+                  <Minus className="h-3.5 w-3.5" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+              </span>
+            </button>
+            <AnimatePresence initial={false}>
+              {isOpen && (
+                <motion.div
+                  id={id}
+                  key="content"
+                  initial={
+                    reduce ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }
+                  }
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={
+                    reduce ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }
+                  }
+                  transition={{
+                    duration: reduce ? 0 : 0.22,
+                    ease: [0.16, 1, 0.3, 1],
+                  }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <p className="px-5 pb-5 text-sm leading-relaxed text-zinc-400">
+                    {faq.a}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </div>
   );
 }

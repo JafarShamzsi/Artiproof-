@@ -10,6 +10,55 @@ import {
   XCircle,
 } from "lucide-react";
 
+/** Word-by-word mask reveal for the hero headline.
+ *  Each word sits in an `overflow-hidden` span and slides up from
+ *  100% offset. Stagger 50ms. The whole reveal completes in ~700ms.
+ *  Honors prefers-reduced-motion: no transform, instant render. */
+function HeadlineWords({
+  segments,
+  reduce,
+}: {
+  segments: { text: string; emerald: boolean }[];
+  reduce: boolean;
+}) {
+  let wordIndex = 0;
+  return (
+    <>
+      {segments.map((seg, segIdx) => {
+        const words = seg.text.split(" ");
+        return (
+          <span key={segIdx} className={seg.emerald ? "text-emerald-400" : undefined}>
+            {words.map((word, i) => {
+              const idx = wordIndex++;
+              return (
+                <span
+                  key={`${segIdx}-${i}`}
+                  className="inline-block overflow-hidden align-bottom"
+                >
+                  <motion.span
+                    className="inline-block"
+                    initial={{ y: reduce ? 0 : "110%" }}
+                    animate={{ y: 0 }}
+                    transition={{
+                      duration: reduce ? 0 : 0.55,
+                      delay: reduce ? 0 : 0.1 + idx * 0.05,
+                      ease: [0.16, 1, 0.3, 1],
+                    }}
+                  >
+                    {word}
+                  </motion.span>
+                  {i < words.length - 1 ? " " : ""}
+                </span>
+              );
+            })}
+            {segIdx < segments.length - 1 ? " " : ""}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 const claimRows = [
   {
     icon: CheckCircle,
@@ -56,13 +105,15 @@ export function HeroSection() {
               Research integrity, automated
             </motion.p>
 
-            <motion.h1
-              {...fade(0.1)}
-              className="mt-6 font-display text-4xl font-bold leading-[1.05] tracking-tight text-balance text-white sm:text-5xl md:text-6xl lg:text-7xl"
-            >
-              Know if you can{" "}
-              <span className="text-emerald-400">trust the research</span>.
-            </motion.h1>
+            <h1 className="mt-6 font-display text-4xl font-bold leading-[1.05] tracking-tight text-balance text-white sm:text-5xl md:text-6xl lg:text-7xl">
+              <HeadlineWords
+                segments={[
+                  { text: "Know if you can", emerald: false },
+                  { text: "trust the research.", emerald: true },
+                ]}
+                reduce={Boolean(reduce)}
+              />
+            </h1>
 
             <motion.p
               {...fade(0.25)}
