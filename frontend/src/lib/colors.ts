@@ -6,20 +6,24 @@
  *   >= 70 → emerald (good)
  *   >= 40 → amber  (warn)
  *    < 40 → red    (bad)
- *   null / undefined → muted zinc
+ *   null / undefined → muted (theme-aware)
+ *
+ * NOTE: score colors are SEMANTIC, not brand. They stay
+ * red/amber/emerald regardless of the brand color (currently wine).
+ * "High score" needs to read as "good" universally.
  */
 
-/** 0-100 score → text color class. Null → muted. */
+/** 0-100 score → text color class. Null → muted, theme-aware. */
 export function scoreColor(score: number | null | undefined): string {
-  if (score == null) return "text-zinc-400";
-  if (score >= 70) return "text-emerald-400";
-  if (score >= 40) return "text-amber-400";
-  return "text-red-400";
+  if (score == null) return "text-fg-tertiary";
+  if (score >= 70) return "text-emerald-500 dark:text-emerald-400";
+  if (score >= 40) return "text-amber-500 dark:text-amber-400";
+  return "text-red-500 dark:text-red-400";
 }
 
 /** 0-100 score → background color class for progress bars / pills. */
 export function scoreBgColor(score: number | null | undefined): string {
-  if (score == null) return "bg-zinc-600";
+  if (score == null) return "bg-border-strong";
   if (score >= 70) return "bg-emerald-500";
   if (score >= 40) return "bg-amber-500";
   return "bg-red-500";
@@ -27,7 +31,7 @@ export function scoreBgColor(score: number | null | undefined): string {
 
 /** 0-100 score → translucent border class (e.g. card outlines). */
 export function scoreBorderColor(score: number | null | undefined): string {
-  if (score == null) return "border-zinc-700";
+  if (score == null) return "border-border-default";
   if (score >= 70) return "border-emerald-500/40";
   if (score >= 40) return "border-amber-500/40";
   return "border-red-500/40";
@@ -37,7 +41,7 @@ export function scoreBorderColor(score: number | null | undefined): string {
 export function scoreSolidBorderColor(
   score: number | null | undefined,
 ): string {
-  if (score == null) return "border-zinc-600";
+  if (score == null) return "border-border-strong";
   if (score >= 70) return "border-emerald-500";
   if (score >= 40) return "border-amber-500";
   return "border-red-500";
@@ -45,7 +49,7 @@ export function scoreSolidBorderColor(
 
 /** 0-100 score → SVG hex stroke (for canvas / inline SVG that can't take Tailwind). */
 export function scoreStroke(score: number | null | undefined): string {
-  if (score == null) return "#52525b"; // zinc-600
+  if (score == null) return "#71717a"; // neutral
   if (score >= 70) return "#10b981"; // emerald-500
   if (score >= 40) return "#f59e0b"; // amber-500
   return "#ef4444"; // red-500
@@ -53,7 +57,7 @@ export function scoreStroke(score: number | null | undefined): string {
 
 /** AI-probability (0..1) → background color class for the heat bar. */
 export function aiProbColor(prob: number | null | undefined): string {
-  if (prob == null) return "bg-zinc-600";
+  if (prob == null) return "bg-border-strong";
   if (prob >= 0.7) return "bg-red-500";
   if (prob >= 0.4) return "bg-amber-500";
   return "bg-emerald-500";
@@ -65,14 +69,14 @@ export function verdictColor(
 ): string {
   switch (verdict) {
     case "true":
-      return "text-emerald-400";
+      return "text-emerald-500 dark:text-emerald-400";
     case "false":
-      return "text-red-400";
+      return "text-red-500 dark:text-red-400";
     case "misleading":
     case "partially_true":
-      return "text-amber-400";
+      return "text-amber-500 dark:text-amber-400";
     case "unverified":
     default:
-      return "text-zinc-400";
+      return "text-fg-secondary";
   }
 }

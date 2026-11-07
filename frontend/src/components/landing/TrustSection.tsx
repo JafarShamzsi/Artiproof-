@@ -25,19 +25,19 @@ const stats = [
 
 export function TrustSection() {
   return (
-    <section className="py-16">
+    <section className="border-y border-border-subtle py-16">
       <div className="mx-auto max-w-6xl px-6">
         <div className="grid grid-cols-2 gap-x-8 gap-y-10 md:grid-cols-4">
           {stats.map((stat) => (
             <div key={stat.label}>
-              <div className="font-display text-3xl font-bold tabular-nums text-white md:text-4xl">
+              <div className="font-display text-3xl font-semibold tabular-nums text-fg-primary md:text-4xl">
                 {stat.value}
               </div>
-              <div className="mt-1 text-sm leading-snug text-zinc-400">
+              <div className="mt-1.5 text-sm leading-snug text-fg-secondary">
                 {stat.label}
               </div>
-              <div className="mt-1 text-[11px] text-zinc-600">
-                Source: {stat.source}
+              <div className="mt-1 text-[11px] uppercase tracking-wider text-fg-tertiary">
+                Source · {stat.source}
               </div>
             </div>
           ))}

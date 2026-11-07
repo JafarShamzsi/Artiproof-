@@ -25,11 +25,11 @@ export const colors = {
     inverse: "text-zinc-950",
   },
   brand: {
-    primary: "text-emerald-400",
-    primaryBg: "bg-emerald-500",
-    primaryHover: "hover:bg-emerald-600",
-    primaryGhost: "bg-emerald-500/10 text-emerald-400",
-    primaryBorder: "border-emerald-500/20",
+    primary: "text-brand-fg",
+    primaryBg: "bg-brand",
+    primaryHover: "hover:bg-brand-hover",
+    primaryGhost: "bg-brand-soft text-brand-fg",
+    primaryBorder: "border-brand/30",
   },
   success: {
     text: "text-emerald-400",

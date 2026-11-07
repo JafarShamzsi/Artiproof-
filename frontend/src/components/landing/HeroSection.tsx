@@ -6,19 +6,36 @@ import {
   ArrowRight,
   Brain,
   CheckCircle,
-  Shield,
+  Sparkle,
   XCircle,
 } from "lucide-react";
 
-/** Word-by-word mask reveal for the hero headline.
- *  Each word sits in an `overflow-hidden` span and slides up from
- *  100% offset. Stagger 50ms. The whole reveal completes in ~700ms.
- *  Honors prefers-reduced-motion: no transform, instant render. */
+const claimRows = [
+  {
+    icon: CheckCircle,
+    color: "text-emerald-500 dark:text-emerald-400",
+    text: "Verified — Nature 2024 retraction archive",
+  },
+  {
+    icon: XCircle,
+    color: "text-red-500 dark:text-red-400",
+    text: "False — citation 7 doesn't support claim",
+  },
+  {
+    icon: Brain,
+    color: "text-amber-500 dark:text-amber-400",
+    text: "AI-likely — paragraphs 3, 5, 11 (>0.7)",
+  },
+];
+
+/** Word-by-word mask reveal. Each word in an `overflow-hidden` span,
+ *  slides up 110% to 0. Stagger 50ms. Honors reduced-motion via duration:0
+ *  (initial state stays invariant for SSR safety). */
 function HeadlineWords({
   segments,
   reduce,
 }: {
-  segments: { text: string; emerald: boolean }[];
+  segments: { text: string; emphasis?: boolean }[];
   reduce: boolean;
 }) {
   let wordIndex = 0;
@@ -27,19 +44,23 @@ function HeadlineWords({
       {segments.map((seg, segIdx) => {
         const words = seg.text.split(" ");
         return (
-          <span key={segIdx} className={seg.emerald ? "text-emerald-400" : undefined}>
+          <span
+            key={segIdx}
+            className={
+              seg.emphasis
+                ? "italic text-brand-fg dark:text-brand-fg"
+                : undefined
+            }
+          >
             {words.map((word, i) => {
               const idx = wordIndex++;
               return (
                 <span
                   key={`${segIdx}-${i}`}
-                  className="inline-block overflow-hidden align-bottom"
+                  className="inline-block overflow-hidden align-bottom pb-[0.05em]"
                 >
                   <motion.span
                     className="inline-block"
-                    // Always `initial: y "110%"` so server and client
-                    // markup match. Reduced-motion users get duration: 0
-                    // — instant snap, no hydration mismatch.
                     initial={{ y: "110%" }}
                     animate={{ y: 0 }}
                     transition={{
@@ -50,11 +71,11 @@ function HeadlineWords({
                   >
                     {word}
                   </motion.span>
-                  {i < words.length - 1 ? " " : ""}
+                  {i < words.length - 1 ? " " : ""}
                 </span>
               );
             })}
-            {segIdx < segments.length - 1 ? " " : ""}
+            {segIdx < segments.length - 1 ? " " : ""}
           </span>
         );
       })}
@@ -62,31 +83,10 @@ function HeadlineWords({
   );
 }
 
-const claimRows = [
-  {
-    icon: CheckCircle,
-    color: "text-emerald-400",
-    text: "Verified — Nature 2024 retraction archive",
-  },
-  {
-    icon: XCircle,
-    color: "text-red-400",
-    text: "False — citation 7 doesn't support claim",
-  },
-  {
-    icon: Brain,
-    color: "text-amber-400",
-    text: "AI-likely — paragraphs 3, 5, 11 (>0.7)",
-  },
-];
-
 export function HeroSection() {
   const reduce = useReducedMotion();
 
   const fade = (delay: number) => ({
-    // Initial state is invariant so SSR markup matches first client
-    // render. Reduced-motion users get duration: 0 — content snaps in
-    // place without an animation pass and without hydration mismatch.
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
     transition: {
@@ -97,63 +97,86 @@ export function HeroSection() {
   });
 
   return (
-    <section className="relative flex min-h-[100dvh] items-center overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-900/40" />
+    <section className="relative flex min-h-[100dvh] items-center overflow-hidden pt-20 md:pt-0">
+      {/* Backdrop: a single warm wine glow off-center, low opacity, no
+          grid pattern, no mesh. Plays in both light and dark via the
+          brand token. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+      >
+        <div
+          className="absolute -top-1/4 left-1/2 h-[80vh] w-[80vh] -translate-x-1/2 rounded-full blur-[160px]"
+          style={{ background: "color-mix(in oklab, var(--brand) 22%, transparent)" }}
+        />
+      </div>
 
-      <div className="relative mx-auto w-full max-w-7xl px-6 py-20">
-        <div className="grid grid-cols-1 items-center gap-16 lg:grid-cols-2">
+      <div className="relative mx-auto w-full max-w-7xl px-6 py-16">
+        <div className="grid grid-cols-1 items-center gap-16 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
           {/* Left — Copy + CTA */}
           <div>
             <motion.p
               {...fade(0)}
-              className="text-xs font-medium uppercase tracking-wider text-emerald-400"
+              className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-brand-fg"
             >
+              <Sparkle className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
               Research integrity, automated
             </motion.p>
 
-            <h1 className="mt-6 font-display text-4xl font-bold leading-[1.05] tracking-tight text-balance text-white sm:text-5xl md:text-6xl lg:text-7xl">
+            <h1 className="mt-6 font-display text-5xl font-semibold leading-[1.02] tracking-tight text-balance text-fg-primary sm:text-6xl md:text-7xl lg:text-[5.25rem]">
               <HeadlineWords
                 segments={[
-                  { text: "Know if you can", emerald: false },
-                  { text: "trust the research.", emerald: true },
+                  { text: "Know if you can" },
+                  { text: "trust the research.", emphasis: true },
                 ]}
                 reduce={Boolean(reduce)}
               />
             </h1>
 
             <motion.p
-              {...fade(0.25)}
-              className="mt-6 max-w-xl text-lg text-zinc-400 sm:text-xl"
+              {...fade(0.3)}
+              className="mt-7 max-w-xl text-lg leading-relaxed text-fg-secondary sm:text-xl"
             >
-              Five integrity checks in one platform — AI detection, plagiarism,
-              citation rings, fact-checking, and researcher scoring. Built for
-              universities across Azerbaijan and the EaP region.
+              Five integrity engines on one submission — plagiarism, AI
+              detection, citation rings, fact-checking, researcher
+              scoring. Every score breaks down to a list of specific
+              deductions you can defend in writing.
             </motion.p>
 
             <motion.div
-              {...fade(0.4)}
-              className="mt-8 flex flex-col items-start gap-3"
+              {...fade(0.45)}
+              className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center"
             >
               <Link
                 href="/register"
-                className="cta-glow group inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:bg-emerald-600 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                className="cta-glow group inline-flex h-13 items-center justify-center gap-2 rounded-xl bg-brand px-7 py-3 text-base font-semibold text-white shadow-lg shadow-[color:var(--brand)]/25 transition-all hover:bg-brand-hover active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
               >
                 Start free analysis
-                <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={2} />
               </Link>
-              <p className="text-xs text-zinc-500">
-                No credit card required · 10 free checks per month
-              </p>
+              <Link
+                href="#how-it-works"
+                className="inline-flex h-13 items-center justify-center rounded-xl border border-border-default bg-transparent px-6 py-3 text-base font-medium text-fg-primary transition-colors hover:bg-surface-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+              >
+                See it in action
+              </Link>
             </motion.div>
 
-            {/* Honest pre-launch trust line — no fake star ratings.
-                Real signal: scope of the launch + the audited number that
-                anchors the comparison section. */}
-            <motion.div {...fade(0.55)} className="mt-10 max-w-xl">
-              <div className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3">
-                <Shield className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
-                <p className="text-sm leading-relaxed text-zinc-400">
-                  <span className="font-medium text-zinc-200">
+            <motion.p
+              {...fade(0.6)}
+              className="mt-5 text-xs text-fg-tertiary"
+            >
+              No credit card · 10 free checks per month
+            </motion.p>
+
+            <motion.div {...fade(0.75)} className="mt-10 max-w-xl">
+              <div className="flex items-start gap-3 rounded-lg border border-border-default bg-surface-card px-4 py-3">
+                <span
+                  aria-hidden="true"
+                  className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-brand"
+                />
+                <p className="text-sm leading-relaxed text-fg-secondary">
+                  <span className="font-medium text-fg-primary">
                     Pre-launch in the EaP region.
                   </span>{" "}
                   Built for 51 universities and 222,809 students across
@@ -163,36 +186,34 @@ export function HeroSection() {
             </motion.div>
           </div>
 
-          {/* Right — Product browser mockup */}
-          <motion.div
-            {...fade(0.5)}
-            className="relative"
-          >
-            <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/50">
+          {/* Right — Product mockup */}
+          <motion.div {...fade(0.55)} className="relative">
+            <div className="relative overflow-hidden rounded-2xl border border-border-default bg-surface-card shadow-[0_30px_60px_-20px_rgba(124,40,40,0.25)] dark:shadow-[0_30px_60px_-20px_rgba(0,0,0,0.6)]">
               {/* Browser chrome */}
-              <div className="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-3">
-                <div className="h-3 w-3 rounded-full bg-red-500/60" />
-                <div className="h-3 w-3 rounded-full bg-yellow-500/60" />
-                <div className="h-3 w-3 rounded-full bg-green-500/60" />
-                <span className="ml-3 truncate text-xs text-zinc-500">
+              <div className="flex items-center gap-1.5 border-b border-border-subtle bg-surface-elevated px-4 py-3">
+                <div className="h-2.5 w-2.5 rounded-full bg-red-500/60" />
+                <div className="h-2.5 w-2.5 rounded-full bg-amber-500/60" />
+                <div className="h-2.5 w-2.5 rounded-full bg-emerald-500/60" />
+                <span className="ml-3 truncate font-mono text-xs text-fg-tertiary">
                   app.example.invalid/check/results
                 </span>
               </div>
 
-              {/* Mock results page */}
               <div className="space-y-4 p-5">
                 <div className="flex items-center gap-3">
                   <div
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-3 border-emerald-500 text-emerald-400"
                     aria-hidden="true"
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-[3px] border-emerald-500 text-emerald-500 dark:text-emerald-400"
                   >
-                    <span className="text-lg font-bold">92</span>
+                    <span className="font-display text-lg font-bold tabular-nums">
+                      92
+                    </span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-white">
+                    <p className="truncate text-sm font-semibold text-fg-primary">
                       A Review of Climate Sensitivity Estimates (2024)
                     </p>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-fg-tertiary">
                       Credibility: high · 2 minor issues
                     </p>
                   </div>
@@ -204,27 +225,27 @@ export function HeroSection() {
                     return (
                       <div
                         key={i}
-                        className="flex items-start gap-2.5 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2"
+                        className="flex items-start gap-2.5 rounded-md border border-border-subtle bg-surface-base px-3 py-2"
                       >
                         <Icon
                           className={`mt-0.5 h-4 w-4 shrink-0 ${row.color}`}
+                          strokeWidth={2}
                           aria-hidden="true"
                         />
-                        <p className="text-xs text-zinc-300">{row.text}</p>
+                        <p className="text-xs text-fg-primary">{row.text}</p>
                       </div>
                     );
                   })}
                 </div>
 
-                {/* AI bar mock */}
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-xs font-medium text-zinc-400">
+                    <span className="text-xs font-medium text-fg-secondary">
                       AI-likely content
                     </span>
-                    <span className="text-xs text-zinc-500">14%</span>
+                    <span className="text-xs tabular-nums text-fg-tertiary">14%</span>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-border-subtle">
                     <div
                       className="h-full rounded-full bg-emerald-500"
                       style={{ width: "14%" }}
@@ -234,15 +255,22 @@ export function HeroSection() {
               </div>
             </div>
 
-            {/* Floating credibility badge */}
-            <div className="absolute -bottom-4 -left-4 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 shadow-xl">
+            {/* Floating credibility ribbon */}
+            <div className="absolute -bottom-4 -left-4 hidden rounded-lg border border-border-default bg-surface-card px-3 py-2 shadow-lg sm:flex">
               <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20">
-                  <Shield className="h-4 w-4 text-emerald-400" />
-                </div>
+                <span
+                  aria-hidden="true"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-soft"
+                >
+                  <span className="font-display text-xs font-bold text-brand-fg">3</span>
+                </span>
                 <div>
-                  <p className="text-xs font-semibold text-white">High confidence</p>
-                  <p className="text-[10px] text-zinc-500">Verified by 3 sources</p>
+                  <p className="text-xs font-semibold text-fg-primary">
+                    Verified by 3 sources
+                  </p>
+                  <p className="font-mono text-[10px] text-fg-tertiary">
+                    NOAA · Nature · arXiv
+                  </p>
                 </div>
               </div>
             </div>

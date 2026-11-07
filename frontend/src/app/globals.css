@@ -5,10 +5,30 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* ArtiProof brand tokens — wine + amber palette, theme-aware via the
+     CSS variables defined in :root (light) and html.dark (dark). */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent-amber: var(--accent-amber);
+
+  --color-surface-base: var(--surface-base);
+  --color-surface-card: var(--surface-card);
+  --color-surface-elevated: var(--surface-elevated);
+
+  --color-fg-primary: var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-tertiary: var(--fg-tertiary);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-mono);
   --font-heading: var(--font-display);
   --font-display: var(--font-display), var(--font-sans), system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
@@ -50,9 +70,30 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  /* ArtiProof — light mode (cream + deep wine).
+     Light is not an inverted dark; it's tuned separately. */
+  --brand: #7C2828;          /* deeper oxblood */
+  --brand-hover: #5C1F1F;
+  --brand-fg: #7C2828;
+  --brand-soft: #F4E5E5;     /* wine tinted at 96% lightness */
+  --accent-amber: #C8901E;
+
+  --surface-base: #FBF7F3;   /* warm cream */
+  --surface-card: #FFFFFF;
+  --surface-elevated: #FFFFFFE6;
+
+  --fg-primary: #1A0808;     /* deep wine-black */
+  --fg-secondary: #6B5048;
+  --fg-tertiary: #9C7E72;
+
+  --border-subtle: #E5DBD09A;
+  --border-default: #D9CDBE;
+  --border-strong: #B79E89;
+
+  /* shadcn token bridge — keep for compat with existing Card/Button */
+  --background: var(--surface-base);
+  --foreground: var(--fg-primary);
+  --card: var(--surface-card);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -85,9 +126,28 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  /* ArtiProof — dark mode (charcoal-wine + warm cream text). */
+  --brand: #A03434;          /* oxblood, brighter for dark contrast */
+  --brand-hover: #B84747;
+  --brand-fg: #D87979;       /* rose-tinged for body callouts */
+  --brand-soft: #2A1414;     /* wine tinted very dark */
+  --accent-amber: #E8AA42;
+
+  --surface-base: #15100F;
+  --surface-card: #1F1816;
+  --surface-elevated: #1F1816CC;
+
+  --fg-primary: #F5EBE5;     /* warm off-white */
+  --fg-secondary: #B8A89E;
+  --fg-tertiary: #8A7A70;
+
+  --border-subtle: #3A2D2A80;
+  --border-default: #3A2D2A;
+  --border-strong: #5C4641;
+
+  --background: var(--surface-base);
+  --foreground: var(--fg-primary);
+  --card: var(--surface-card);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
@@ -577,15 +637,15 @@ body::before {
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  background: linear-gradient(135deg, #10b981, #059669);
-  filter: blur(12px);
-  opacity: 0.4;
+  background: linear-gradient(135deg, var(--brand), var(--brand-hover));
+  filter: blur(14px);
+  opacity: 0.45;
   z-index: -1;
   transition: opacity 0.3s ease;
 }
 .cta-glow:hover::after,
 .cta-glow:focus-visible::after {
-  opacity: 0.65;
+  opacity: 0.7;
 }
 @media (prefers-reduced-motion: reduce) {
   .cta-glow::after {

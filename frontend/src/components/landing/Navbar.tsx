@@ -9,7 +9,8 @@ import {
   useScroll,
   AnimatePresence,
 } from "framer-motion";
-import { Shield, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -19,44 +20,52 @@ import {
   SheetTitle,
   SheetClose,
 } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
-// Anchors are prefixed with `/` so they resolve correctly even when the navbar
-// renders on /privacy or /terms — bare `#features` would just look for that
-// anchor on the current route, which doesn't exist there.
 const navLinks = [
   { label: "How it works", href: "/#how-it-works", id: "how-it-works" },
   { label: "Features", href: "/#features", id: "features" },
+  { label: "Compare", href: "/#compare", id: "compare" },
   { label: "Pricing", href: "/#pricing", id: "pricing" },
 ] as const;
+
+/** Brand wordmark — small wine-filled circle with a serif `A` cut into it.
+ *  Pure SVG so it scales and themes via currentColor where useful. */
+function BrandMark({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand text-[13px] font-bold leading-none text-white",
+        "font-display",
+        className,
+      )}
+    >
+      A
+    </span>
+  );
+}
 
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const prefersReducedMotion = useReducedMotion();
+  const reduce = useReducedMotion();
   const lastY = useRef(0);
 
   const { scrollY } = useScroll();
 
-  // Hide on scroll-down past the hero, show on scroll-up. Doesn't fire
-  // until past 100px so the user doesn't lose the navbar instantly on
-  // a single twitch.
   useMotionValueEvent(scrollY, "change", (current) => {
-    setScrolled(current > 50);
-    if (prefersReducedMotion) return;
+    setScrolled(current > 32);
+    if (reduce) return;
     const delta = current - lastY.current;
-    if (current < 100) {
-      setHidden(false);
-    } else if (delta > 6) {
-      setHidden(true);
-    } else if (delta < -6) {
-      setHidden(false);
-    }
+    if (current < 100) setHidden(false);
+    else if (delta > 6) setHidden(true);
+    else if (delta < -6) setHidden(false);
     lastY.current = current;
   });
 
-  // Active section indicator — IntersectionObserver on the section ids.
   useEffect(() => {
     const sections = navLinks
       .map((l) => document.getElementById(l.id))
@@ -65,23 +74,12 @@ export function Navbar() {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        // Pick the entry closest to the top of the viewport that is
-        // intersecting, so the active link tracks the section the user
-        // is reading rather than whichever one entered last.
         const visible = entries
           .filter((e) => e.isIntersecting)
-          .sort(
-            (a, b) =>
-              a.boundingClientRect.top - b.boundingClientRect.top,
-          );
-        if (visible[0]) {
-          setActiveId(visible[0].target.id);
-        }
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActiveId(visible[0].target.id);
       },
-      {
-        rootMargin: "-30% 0px -60% 0px",
-        threshold: 0,
-      },
+      { rootMargin: "-30% 0px -60% 0px", threshold: 0 },
     );
 
     sections.forEach((s) => observer.observe(s));
@@ -90,36 +88,25 @@ export function Navbar() {
 
   return (
     <motion.header
-      // Invariant `initial` so SSR markup matches first client render.
-      // `useReducedMotion()` returns null during SSR and the real value
-      // on the client, so branching `initial` on it causes hydration
-      // mismatch. Instead we keep the entry transform and zero out the
-      // duration when motion is reduced — instantaneous snap, no flash.
       initial={{ y: -20, opacity: 0 }}
-      animate={{
-        y: hidden ? "-100%" : 0,
-        opacity: 1,
-      }}
-      transition={{
-        duration: prefersReducedMotion ? 0 : 0.3,
-        ease: [0.16, 1, 0.3, 1],
-      }}
+      animate={{ y: hidden ? "-100%" : 0, opacity: 1 }}
+      transition={{ duration: reduce ? 0 : 0.3, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "fixed top-0 left-0 right-0 z-50 h-14 md:h-16 transition-[background-color,border-color] duration-300",
+        "fixed top-0 left-0 right-0 z-50 h-14 md:h-16 transition-[background-color,border-color,backdrop-filter] duration-300",
         scrolled
-          ? "backdrop-blur-xl bg-zinc-950/80 border-b border-white/[0.06]"
-          : "bg-transparent border-b border-transparent",
+          ? "border-b border-border-subtle bg-surface-base/80 backdrop-blur-xl"
+          : "border-b border-transparent bg-transparent",
       )}
     >
       <nav className="mx-auto flex h-full max-w-7xl items-center justify-between px-6">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 shrink-0">
-          <Shield className="size-5 text-emerald-400" />
-          <span className="text-lg font-bold text-white">ArtiProof</span>
+        <Link href="/" className="flex shrink-0 items-center gap-2.5">
+          <BrandMark />
+          <span className="font-display text-lg font-semibold tracking-tight text-fg-primary">
+            ArtiProof
+          </span>
         </Link>
 
-        {/* Desktop nav with active-section indicator */}
-        <ul className="hidden md:flex items-center gap-1">
+        <ul className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => {
             const isActive = activeId === link.id;
             return (
@@ -127,8 +114,10 @@ export function Navbar() {
                 <a
                   href={link.href}
                   className={cn(
-                    "relative inline-flex items-center rounded-md px-3 py-2 text-sm transition-colors duration-200",
-                    isActive ? "text-white" : "text-zinc-400 hover:text-white",
+                    "inline-flex items-center rounded-md px-3 py-2 text-sm transition-colors duration-200",
+                    isActive
+                      ? "text-fg-primary"
+                      : "text-fg-secondary hover:text-fg-primary",
                   )}
                 >
                   {link.label}
@@ -138,12 +127,8 @@ export function Navbar() {
                     <motion.span
                       layoutId="nav-active-indicator"
                       aria-hidden="true"
-                      className="absolute -bottom-0.5 left-3 right-3 h-px bg-emerald-400"
-                      transition={{
-                        type: "spring",
-                        stiffness: 380,
-                        damping: 32,
-                      }}
+                      className="absolute -bottom-0.5 left-3 right-3 h-px bg-brand"
+                      transition={{ type: "spring", stiffness: 380, damping: 32 }}
                     />
                   )}
                 </AnimatePresence>
@@ -152,49 +137,47 @@ export function Navbar() {
           })}
         </ul>
 
-        {/* Desktop auth buttons */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="hidden items-center gap-3 md:flex">
+          <ThemeToggle />
           <Link
             href="/login"
-            className="inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white hover:bg-zinc-800"
+            className="inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary"
           >
             Sign in
           </Link>
           <Link
             href="/register"
-            className="inline-flex h-9 items-center rounded-lg bg-emerald-500 px-4 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 hover:shadow-emerald-500/30 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+            className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-sm shadow-[color:var(--brand)]/25 transition-all hover:bg-brand-hover active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
           >
-            Get started free
+            Get started
           </Link>
         </div>
 
-        {/* Mobile menu */}
-        <div className="md:hidden">
+        <div className="flex items-center gap-2 md:hidden">
+          <ThemeToggle />
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white">
-              <Menu className="size-5" />
+            <SheetTrigger className="inline-flex h-9 w-9 items-center justify-center rounded-md text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary">
+              <Menu className="size-5" strokeWidth={1.5} />
               <span className="sr-only">Open menu</span>
             </SheetTrigger>
             <SheetContent
               side="right"
-              className="w-full max-w-xs bg-zinc-950 border-zinc-800"
+              className="w-full max-w-xs border-border-default bg-surface-base"
             >
               <SheetHeader>
-                <SheetTitle className="flex items-center gap-2 text-white">
-                  <Shield className="size-5 text-emerald-400" />
+                <SheetTitle className="flex items-center gap-2 font-display text-fg-primary">
+                  <BrandMark />
                   ArtiProof
                 </SheetTitle>
               </SheetHeader>
 
               <motion.div
-                className="flex flex-col gap-1 px-4 mt-4"
+                className="mt-4 flex flex-col gap-1 px-4"
                 initial="hidden"
                 animate="visible"
                 variants={{
                   hidden: {},
-                  visible: {
-                    transition: { staggerChildren: 0.04 },
-                  },
+                  visible: { transition: { staggerChildren: 0.04 } },
                 }}
               >
                 {navLinks.map((link) => (
@@ -208,7 +191,7 @@ export function Navbar() {
                   >
                     <SheetClose
                       render={<a href={link.href} />}
-                      className="flex w-full rounded-md px-3 py-2.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+                      className="flex w-full rounded-md px-3 py-2.5 text-sm text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary"
                     >
                       {link.label}
                     </SheetClose>
@@ -216,16 +199,16 @@ export function Navbar() {
                 ))}
               </motion.div>
 
-              <div className="flex flex-col gap-3 px-4 mt-8">
+              <div className="mt-8 flex flex-col gap-3 px-4">
                 <SheetClose
                   render={<Link href="/login" />}
-                  className="inline-flex items-center justify-center rounded-lg border border-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                  className="inline-flex items-center justify-center rounded-lg border border-border-default px-4 py-2.5 text-sm font-medium text-fg-primary transition-colors hover:bg-surface-card"
                 >
                   Sign in
                 </SheetClose>
                 <SheetClose
                   render={<Link href="/register" />}
-                  className="inline-flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/20"
+                  className="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-brand-hover"
                 >
                   Get started
                 </SheetClose>

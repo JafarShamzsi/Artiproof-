@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Minus, Shield } from "lucide-react";
+import { Check, Minus } from "lucide-react";
 
 type Cell = boolean | string;
 
@@ -10,7 +10,6 @@ interface FeatureRow {
   turnitin: Cell;
   gptzero: Cell;
   originality: Cell;
-  /** True if no competitor in the table also has this feature. */
   unique?: boolean;
 }
 
@@ -35,10 +34,10 @@ function CellContent({ value, primary }: { value: Cell; primary: boolean }) {
   if (typeof value === "string") {
     return (
       <span
-        className={
-          "tabular-nums " +
-          (primary ? "font-semibold text-white" : "text-zinc-400")
-        }
+        className={cn(
+          "tabular-nums",
+          primary ? "font-semibold text-fg-primary" : "text-fg-secondary",
+        )}
       >
         {value}
       </span>
@@ -46,51 +45,54 @@ function CellContent({ value, primary }: { value: Cell; primary: boolean }) {
   }
   return value ? (
     <Check
-      className={
-        "mx-auto h-5 w-5 " + (primary ? "text-emerald-400" : "text-zinc-500")
-      }
+      className={cn(
+        "mx-auto h-5 w-5",
+        primary ? "text-brand-fg" : "text-fg-tertiary",
+      )}
       strokeWidth={primary ? 2 : 1.5}
       aria-label="Yes"
     />
   ) : (
-    <Minus className="mx-auto h-4 w-4 text-zinc-700" aria-label="No" />
+    <Minus className="mx-auto h-4 w-4 text-border-strong" strokeWidth={1.5} aria-label="No" />
   );
 }
 
+import { cn } from "@/lib/utils";
+
 export function ComparisonSection() {
   return (
-    <section className="py-24">
+    <section id="compare" className="py-24 sm:py-28">
       <div className="mx-auto max-w-5xl px-6">
         <div className="mb-12 max-w-2xl">
-          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-fg-tertiary">
             How we compare
           </p>
-          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
-            Five integrity engines. One workflow. One bill.
+          <h2 className="mt-3 font-display text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-fg-primary sm:text-5xl">
+            Five integrity engines.{" "}
+            <span className="italic text-brand-fg">One workflow. One bill.</span>
           </h2>
         </div>
 
         {/* Desktop / tablet — full feature table */}
-        <div className="hidden overflow-x-auto md:block">
+        <div className="hidden overflow-x-auto rounded-xl border border-border-default md:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800">
-                <th className="px-4 py-3 text-left font-medium text-zinc-500">
+              <tr className="border-b border-border-default bg-surface-card">
+                <th className="px-4 py-3.5 text-left font-medium text-fg-tertiary">
                   Feature
                 </th>
-                <th className="px-4 py-3 text-center">
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-white">
-                    <Shield className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
+                <th className="px-4 py-3.5 text-center">
+                  <span className="font-display font-semibold text-fg-primary">
                     ArtiProof
                   </span>
                 </th>
-                <th className="px-4 py-3 text-center font-medium text-zinc-500">
+                <th className="px-4 py-3.5 text-center font-medium text-fg-tertiary">
                   Turnitin
                 </th>
-                <th className="px-4 py-3 text-center font-medium text-zinc-500">
+                <th className="px-4 py-3.5 text-center font-medium text-fg-tertiary">
                   GPTZero
                 </th>
-                <th className="px-4 py-3 text-center font-medium text-zinc-500">
+                <th className="px-4 py-3.5 text-center font-medium text-fg-tertiary">
                   Originality
                 </th>
               </tr>
@@ -99,28 +101,28 @@ export function ComparisonSection() {
               {features.map((row) => (
                 <tr
                   key={row.name}
-                  className="border-b border-zinc-800/60 transition-colors last:border-b-0 hover:bg-white/[0.02]"
+                  className="border-b border-border-subtle transition-colors last:border-b-0 hover:bg-surface-card"
                 >
-                  <td className="px-4 py-3 text-zinc-300">
+                  <td className="px-4 py-3.5 text-fg-primary">
                     <span className="inline-flex items-center gap-2">
                       {row.name}
                       {row.unique && (
-                        <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
-                          Unique
+                        <span className="inline-flex items-center rounded-full border border-brand/30 bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand-fg">
+                          Only here
                         </span>
                       )}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-4 py-3.5 text-center">
                     <CellContent value={row.artiproof} primary />
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-4 py-3.5 text-center">
                     <CellContent value={row.turnitin} primary={false} />
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-4 py-3.5 text-center">
                     <CellContent value={row.gptzero} primary={false} />
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-4 py-3.5 text-center">
                     <CellContent value={row.originality} primary={false} />
                   </td>
                 </tr>
@@ -129,20 +131,19 @@ export function ComparisonSection() {
           </table>
         </div>
 
-        {/* Mobile — summary cards + ArtiProof-only feature list. The full
-            table doesn't survive a 360px viewport without horizontal scroll
-            and tiny text, so we summarize per-competitor instead. */}
+        {/* Mobile — summary cards + ArtiProof-only feature list. */}
         <div className="md:hidden">
           <div className="space-y-3">
-            <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/[0.04] p-4">
+            <div className="rounded-xl border border-brand/40 bg-brand-soft p-4">
               <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-emerald-400" aria-hidden="true" />
-                <span className="font-semibold text-white">ArtiProof</span>
-                <span className="ml-auto tabular-nums text-sm text-zinc-400">
+                <span className="font-display font-semibold text-fg-primary">
+                  ArtiProof
+                </span>
+                <span className="ml-auto tabular-nums text-sm text-brand-fg">
                   $20/mo
                 </span>
               </div>
-              <p className="mt-1 text-xs text-emerald-300/80">
+              <p className="mt-1 text-xs text-brand-fg">
                 7 of 7 integrity features
               </p>
             </div>
@@ -158,17 +159,17 @@ export function ComparisonSection() {
               return (
                 <div
                   key={c.key}
-                  className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4"
+                  className="rounded-xl border border-border-default bg-surface-card p-4"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-zinc-200">{c.name}</span>
+                    <span className="font-medium text-fg-primary">{c.name}</span>
                     {price && typeof price === "string" && (
-                      <span className="ml-auto tabular-nums text-sm text-zinc-500">
+                      <span className="ml-auto tabular-nums text-sm text-fg-secondary">
                         {price}
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-xs text-zinc-500">
+                  <p className="mt-1 text-xs text-fg-tertiary">
                     {present} of {total} integrity features
                   </p>
                 </div>
@@ -176,17 +177,17 @@ export function ComparisonSection() {
             })}
           </div>
 
-          <div className="mt-6 rounded-xl border border-zinc-800 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-emerald-400">
+          <div className="mt-6 rounded-xl border border-border-default p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-brand-fg">
               Only on ArtiProof
             </p>
-            <ul className="mt-3 space-y-2 text-sm text-zinc-300">
+            <ul className="mt-3 space-y-2 text-sm text-fg-primary">
               {features
                 .filter((f) => f.unique)
                 .map((f) => (
                   <li key={f.name} className="flex items-center gap-2">
                     <Check
-                      className="h-4 w-4 shrink-0 text-emerald-400"
+                      className="h-4 w-4 shrink-0 text-brand-fg"
                       strokeWidth={2}
                       aria-hidden="true"
                     />

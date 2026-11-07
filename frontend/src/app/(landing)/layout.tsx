@@ -1,9 +1,11 @@
-import { SmoothScrollProvider } from "@/components/landing/SmoothScrollProvider";
-
 export default function LandingLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <SmoothScrollProvider>{children}</SmoothScrollProvider>;
+  // Passthrough. Native CSS `scroll-behavior: smooth` is set on <html>
+  // in globals.css and respects prefers-reduced-motion. Lenis-based
+  // inertial scroll was removed as the wine-paper voice doesn't want
+  // ride-along physics.
+  return <>{children}</>;
 }
