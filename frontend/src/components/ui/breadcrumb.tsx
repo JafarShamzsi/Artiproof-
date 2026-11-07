@@ -29,21 +29,21 @@ export function Breadcrumb({
               {i > 0 && (
                 <ChevronRight
                   aria-hidden="true"
-                  className="h-3.5 w-3.5 text-zinc-600"
+                  className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-600"
                 />
               )}
               <li>
                 {item.href && !isLast ? (
                   <Link
                     href={item.href}
-                    className="text-zinc-500 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                    className="text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
                   >
                     {item.label}
                   </Link>
                 ) : (
                   <span
                     aria-current={isLast ? "page" : undefined}
-                    className="text-zinc-300"
+                    className="text-zinc-700 dark:text-zinc-300"
                   >
                     {item.label}
                   </span>

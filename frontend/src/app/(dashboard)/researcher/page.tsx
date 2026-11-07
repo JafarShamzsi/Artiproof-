@@ -114,18 +114,18 @@ export default function ResearcherAnalysisPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-2xl font-bold text-white">Analyze Researcher</h1>
+      <h1 className="font-display text-2xl font-bold text-zinc-900 dark:text-white">Analyze Researcher</h1>
 
-      <Card className="border-zinc-800 bg-zinc-900/50">
+      <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
         <CardHeader>
-          <CardTitle className="text-lg text-white">Evaluate academic integrity</CardTitle>
-          <p className="text-sm text-zinc-400">
+          <CardTitle className="text-lg text-zinc-900 dark:text-white">Evaluate academic integrity</CardTitle>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Search by name, Scopus ID, Google Scholar ID, or ORCID
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label htmlFor="researcher-name" className="text-zinc-400">Researcher Name</Label>
+            <Label htmlFor="researcher-name" className="text-zinc-600 dark:text-zinc-400">Researcher Name</Label>
             <Input
               id="researcher-name"
               placeholder="e.g. John Smith"
@@ -133,42 +133,42 @@ export default function ResearcherAnalysisPage() {
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               disabled={loading}
-              className="mt-1 border-zinc-700 bg-zinc-800 text-white placeholder:text-zinc-500"
+              className="mt-1 border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
             />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <Label htmlFor="researcher-scopus" className="text-zinc-400">Scopus ID</Label>
+              <Label htmlFor="researcher-scopus" className="text-zinc-600 dark:text-zinc-400">Scopus ID</Label>
               <Input
                 id="researcher-scopus"
                 placeholder="e.g. 57203100718"
                 value={scopusId}
                 onChange={(e) => setScopusId(e.target.value)}
                 disabled={loading}
-                className="mt-1 border-zinc-700 bg-zinc-800 text-white placeholder:text-zinc-500"
+                className="mt-1 border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
               />
             </div>
             <div>
-              <Label htmlFor="researcher-scholar" className="text-zinc-400">Google Scholar ID</Label>
+              <Label htmlFor="researcher-scholar" className="text-zinc-600 dark:text-zinc-400">Google Scholar ID</Label>
               <Input
                 id="researcher-scholar"
                 placeholder="e.g. xJaxiEEAAAAJ"
                 value={scholarId}
                 onChange={(e) => setScholarId(e.target.value)}
                 disabled={loading}
-                className="mt-1 border-zinc-700 bg-zinc-800 text-white placeholder:text-zinc-500"
+                className="mt-1 border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
               />
             </div>
             <div>
-              <Label htmlFor="researcher-orcid" className="text-zinc-400">ORCID</Label>
+              <Label htmlFor="researcher-orcid" className="text-zinc-600 dark:text-zinc-400">ORCID</Label>
               <Input
                 id="researcher-orcid"
                 placeholder="e.g. 0000-0002-1234-5678"
                 value={orcid}
                 onChange={(e) => setOrcid(e.target.value)}
                 disabled={loading}
-                className="mt-1 border-zinc-700 bg-zinc-800 text-white placeholder:text-zinc-500"
+                className="mt-1 border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
               />
             </div>
           </div>
@@ -176,7 +176,7 @@ export default function ResearcherAnalysisPage() {
           <Button
             onClick={handleSubmit}
             disabled={loading || !hasInput}
-            className="w-full bg-purple-500 text-white hover:bg-purple-600"
+            className="w-full bg-accent-amber text-white hover:opacity-90"
           >
             {loading ? (
               <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing...</>
@@ -188,7 +188,7 @@ export default function ResearcherAnalysisPage() {
           {error && (
             <div
               role="alert"
-              className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-700 dark:text-red-300"
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
@@ -204,7 +204,7 @@ export default function ResearcherAnalysisPage() {
 
       {/* Progress */}
       {loading && events.length > 0 && (
-        <Card className="border-zinc-800 bg-zinc-900/50">
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardContent className="py-6">
             <div
               role="progressbar"
@@ -212,10 +212,10 @@ export default function ResearcherAnalysisPage() {
               aria-valuenow={Math.round(progress * 100)}
               aria-valuemin={0}
               aria-valuemax={100}
-              className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+              className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
             >
               <div
-                className="h-full rounded-full bg-purple-500 transition-all duration-300"
+                className="h-full rounded-full bg-accent-amber transition-all duration-300"
                 style={{ width: `${progress * 100}%` }}
               />
             </div>
@@ -223,15 +223,15 @@ export default function ResearcherAnalysisPage() {
               {events.map((event, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm">
                   {event.status === "done" ? (
-                    <CheckCircle className="h-4 w-4 shrink-0 text-emerald-400" />
+                    <CheckCircle className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
                   ) : event.status === "error" || event.status === "failed" ? (
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                   ) : event.status === "processing" ? (
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-purple-400" />
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent-amber" />
                   ) : (
                     <Clock className="h-4 w-4 shrink-0 text-zinc-500" />
                   )}
-                  <span className="text-zinc-300">{event.detail}</span>
+                  <span className="text-zinc-700 dark:text-zinc-300">{event.detail}</span>
                 </div>
               ))}
             </div>
@@ -267,9 +267,9 @@ function PastAnalyses() {
   }, []);
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900/50">
+    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
       <CardHeader>
-        <CardTitle className="text-sm text-zinc-400">Past Analyses</CardTitle>
+        <CardTitle className="text-sm text-zinc-600 dark:text-zinc-400">Past Analyses</CardTitle>
       </CardHeader>
       <CardContent>
         {!loaded ? (
@@ -286,19 +286,19 @@ function PastAnalyses() {
               <a
                 key={a.id}
                 href={`/researcher/${a.id}`}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/30 px-4 py-3 transition hover:border-zinc-700"
+                className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 transition hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-800/30 dark:hover:border-zinc-700"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">{a.researcher_name}</p>
+                  <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{a.researcher_name}</p>
                   <p className="text-xs text-zinc-500">
                     {a.institution || "Unknown institution"} — {new Date(a.created_at).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge className={
-                    a.analysis_status === "completed" ? "bg-emerald-500/20 text-emerald-400"
-                    : a.analysis_status === "failed" ? "bg-red-500/20 text-red-400"
-                    : "bg-blue-500/20 text-blue-400"
+                    a.analysis_status === "completed" ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400"
+                    : a.analysis_status === "failed" ? "bg-red-500/20 text-red-700 dark:text-red-400"
+                    : "bg-blue-500/20 text-blue-700 dark:text-blue-400"
                   }>
                     {a.analysis_status}
                   </Badge>

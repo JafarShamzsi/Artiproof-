@@ -8,38 +8,38 @@ const TONE_STYLES: Record<
 > = {
   excellent: {
     card: "border-emerald-500/30 bg-emerald-500/5",
-    label: "text-emerald-300",
+    label: "text-emerald-700 dark:text-emerald-300",
     icon: Sparkles,
-    iconClass: "text-emerald-300",
-    pill: "bg-emerald-500/20 text-emerald-300",
+    iconClass: "text-emerald-700 dark:text-emerald-300",
+    pill: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
   },
   good: {
     card: "border-emerald-500/20 bg-emerald-500/5",
-    label: "text-emerald-300",
+    label: "text-emerald-700 dark:text-emerald-300",
     icon: ShieldCheck,
-    iconClass: "text-emerald-300",
-    pill: "bg-emerald-500/20 text-emerald-300",
+    iconClass: "text-emerald-700 dark:text-emerald-300",
+    pill: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
   },
   fair: {
     card: "border-amber-500/30 bg-amber-500/5",
-    label: "text-amber-300",
+    label: "text-amber-700 dark:text-amber-300",
     icon: Info,
-    iconClass: "text-amber-300",
-    pill: "bg-amber-500/20 text-amber-300",
+    iconClass: "text-amber-700 dark:text-amber-300",
+    pill: "bg-amber-500/20 text-amber-700 dark:text-amber-300",
   },
   poor: {
     card: "border-red-500/30 bg-red-500/5",
-    label: "text-red-300",
+    label: "text-red-700 dark:text-red-300",
     icon: AlertTriangle,
-    iconClass: "text-red-300",
-    pill: "bg-red-500/20 text-red-300",
+    iconClass: "text-red-700 dark:text-red-300",
+    pill: "bg-red-500/20 text-red-700 dark:text-red-300",
   },
   critical: {
     card: "border-red-500/40 bg-red-500/10",
-    label: "text-red-300",
+    label: "text-red-700 dark:text-red-300",
     icon: XCircle,
-    iconClass: "text-red-300",
-    pill: "bg-red-500/20 text-red-300",
+    iconClass: "text-red-700 dark:text-red-300",
+    pill: "bg-red-500/20 text-red-700 dark:text-red-300",
   },
 };
 
@@ -69,14 +69,14 @@ export function ScoreExplanationCard({
           {explanation.label}
         </p>
       </div>
-      <p className="mt-2 text-sm leading-relaxed text-zinc-200">
+      <p className="mt-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-200">
         {explanation.summary}
       </p>
       {explanation.reasons.length > 0 && (
-        <ul className="mt-2 space-y-1 text-xs text-zinc-300">
+        <ul className="mt-2 space-y-1 text-xs text-zinc-600 dark:text-zinc-300">
           {explanation.reasons.map((reason, i) => (
             <li key={i} className="flex items-start gap-1.5">
-              <span className={cn("mt-[5px] h-1 w-1 shrink-0 rounded-full", style.iconClass.replace("text-", "bg-"))} />
+              <span className={cn("mt-[5px] h-1 w-1 shrink-0 rounded-full", style.iconClass.replace(/text-/g, "bg-"))} />
               <span>{reason}</span>
             </li>
           ))}
@@ -114,7 +114,7 @@ export function ScoreExplanationCompact({
         </p>
       </div>
       {topReason && (
-        <p className="mt-1 text-[11px] leading-snug text-zinc-200">{topReason}</p>
+        <p className="mt-1 text-[11px] leading-snug text-zinc-700 dark:text-zinc-200">{topReason}</p>
       )}
     </div>
   );

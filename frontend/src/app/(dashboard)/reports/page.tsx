@@ -115,19 +115,19 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Reports</h1>
-        <p className="mt-1 text-sm text-zinc-300">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Reports</h1>
+        <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
           Download PDF reports or copy a public share link.
         </p>
       </div>
 
-      <Card className="border-white bg-white text-zinc-950 shadow-xl shadow-black/20">
+      <Card className="border-zinc-200 bg-white text-zinc-900 shadow-xl shadow-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-100 dark:shadow-black/20">
         <CardHeader>
-          <CardTitle className="text-sm text-zinc-700">Generated Reports</CardTitle>
+          <CardTitle className="text-sm text-zinc-700 dark:text-zinc-400">Generated Reports</CardTitle>
         </CardHeader>
         <CardContent>
           {error && (
-            <div className="mb-4 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -135,13 +135,13 @@ export default function ReportsPage() {
 
           {loading ? (
             <div className="flex justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-700" />
+              <Loader2 className="h-6 w-6 animate-spin text-brand dark:text-brand-fg" />
             </div>
           ) : reports.length === 0 ? (
             <div className="flex flex-col items-center py-12">
               <FileText className="mb-3 h-10 w-10 text-zinc-500" />
-              <p className="text-sm font-medium text-zinc-800">No reports generated yet.</p>
-              <p className="mt-1 text-xs text-zinc-600">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">No reports generated yet.</p>
+              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                 Reports can be generated from source check or researcher analysis results.
               </p>
             </div>
@@ -150,28 +150,28 @@ export default function ReportsPage() {
               {reports.map((report) => (
                 <div
                   key={report.id}
-                  className="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-4 shadow-sm"
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-800/30 dark:shadow-none"
                 >
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 shrink-0 text-emerald-700" />
-                        <p className="truncate text-sm font-semibold text-zinc-950">{report.title}</p>
+                        <FileText className="h-4 w-4 shrink-0 text-brand dark:text-brand-fg" />
+                        <p className="truncate text-sm font-semibold text-zinc-900 dark:text-white">{report.title}</p>
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         <Badge className={
                           report.report_type === "source_verification"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-indigo-100 text-indigo-800"
+                            ? "bg-brand-soft text-brand dark:bg-brand/15 dark:text-brand-fg"
+                            : "bg-accent-amber/15 text-accent-amber"
                         }>
                           {report.report_type === "source_verification" ? "Source Verification" : "Researcher Integrity"}
                         </Badge>
-                        <span className="text-xs font-medium text-zinc-600">
+                        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                           {new Date(report.created_at).toLocaleDateString()}
                         </span>
                       </div>
                       {report.summary && (
-                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-zinc-700">{report.summary}</p>
+                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">{report.summary}</p>
                       )}
                     </div>
 
@@ -179,7 +179,7 @@ export default function ReportsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100"
+                        className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                         onClick={() => copyShareLink(report.share_token, report.id)}
                       >
                         {copiedId === report.id ? (
@@ -192,7 +192,7 @@ export default function ReportsPage() {
 
                       <Button
                         size="sm"
-                        className="bg-emerald-600 text-white hover:bg-emerald-700"
+                        className="bg-brand text-white hover:bg-brand-hover"
                         onClick={() => downloadReport(report)}
                         disabled={downloadingId === report.id}
                       >
@@ -206,14 +206,14 @@ export default function ReportsPage() {
 
                       {report.source_check_id && (
                         <a href={`/check/${report.source_check_id}`}>
-                          <Button variant="outline" size="sm" className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100">
+                          <Button variant="outline" size="sm" className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
                             <ExternalLink className="h-3 w-3" />
                           </Button>
                         </a>
                       )}
                       {report.researcher_profile_id && (
                         <a href={`/researcher/${report.researcher_profile_id}`}>
-                          <Button variant="outline" size="sm" className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100">
+                          <Button variant="outline" size="sm" className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
                             <ExternalLink className="h-3 w-3" />
                           </Button>
                         </a>

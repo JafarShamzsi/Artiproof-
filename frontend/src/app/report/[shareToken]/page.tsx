@@ -45,7 +45,7 @@ export default function SharedReportPage({
     setDownloading(true);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/reports/${report.id}/download`);
+      const res = await fetch(`${BACKEND_URL}/api/reports/shared/${shareToken}/download`);
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.detail || "PDF download failed");
@@ -69,20 +69,20 @@ export default function SharedReportPage({
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-300" />
+      <div className="flex min-h-screen items-center justify-center bg-surface-base">
+        <Loader2 className="h-8 w-8 animate-spin text-brand" />
       </div>
     );
   }
 
   if (error || !report) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-4">
-        <Card className="w-full max-w-lg border-white bg-white text-zinc-950">
+      <div className="flex min-h-screen items-center justify-center bg-surface-base p-4">
+        <Card className="w-full max-w-lg border-border-default bg-surface-card text-fg-primary">
           <CardContent className="py-12 text-center">
-            <Shield className="mx-auto mb-4 h-12 w-12 text-zinc-500" />
-            <h1 className="text-xl font-bold text-zinc-950">Report Not Found</h1>
-            <p className="mt-2 text-sm text-zinc-700">
+            <Shield className="mx-auto mb-4 h-12 w-12 text-fg-tertiary" />
+            <h1 className="text-xl font-bold">Report Not Found</h1>
+            <p className="mt-2 text-sm text-fg-secondary">
               This shared report link may have expired or does not exist.
             </p>
           </CardContent>
@@ -92,28 +92,28 @@ export default function SharedReportPage({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 p-4 md:p-8">
+    <div className="min-h-screen bg-surface-base p-4 md:p-8">
       <div className="mx-auto max-w-3xl">
         {/* Header */}
         <div className="mb-6 flex items-center justify-center gap-2">
-          <Shield className="h-6 w-6 text-emerald-300" />
-          <span className="text-lg font-bold text-white">ArtiProof</span>
+          <Shield className="h-6 w-6 text-brand" />
+          <span className="text-lg font-bold text-fg-primary">ArtiProof</span>
         </div>
 
-        <Card className="border-white bg-white text-zinc-950 shadow-xl shadow-black/20">
+        <Card className="border-border-default bg-surface-card text-fg-primary shadow-xl shadow-black/5 dark:shadow-black/20">
           <CardContent className="py-8">
             <div className="text-center">
-              <FileText className="mx-auto mb-3 h-10 w-10 text-emerald-700" />
-              <h1 className="text-2xl font-bold text-zinc-950">{report.title}</h1>
+              <FileText className="mx-auto mb-3 h-10 w-10 text-brand" />
+              <h1 className="text-2xl font-bold">{report.title}</h1>
               <div className="mt-2 flex items-center justify-center gap-2">
                 <Badge className={
                   report.report_type === "source_verification"
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-indigo-100 text-indigo-800"
+                    ? "bg-brand-soft text-brand dark:bg-brand/15 dark:text-brand-fg"
+                    : "bg-accent-amber/15 text-accent-amber"
                 }>
                   {report.report_type === "source_verification" ? "Source Verification" : "Researcher Integrity"}
                 </Badge>
-                <span className="text-xs font-medium text-zinc-600">
+                <span className="text-xs font-medium text-fg-secondary">
                   {new Date(report.created_at).toLocaleDateString()}
                 </span>
               </div>
@@ -121,11 +121,11 @@ export default function SharedReportPage({
 
             {report.summary && (
               <div className="mt-8">
-                <h2 className="mb-3 text-sm font-semibold text-zinc-800">Executive Summary</h2>
+                <h2 className="mb-3 text-sm font-semibold text-fg-primary">Executive Summary</h2>
                 <div className="space-y-3">
                   {report.summary.split("\n\n").map((para, i) => (
                     para.trim() && (
-                      <p key={i} className="text-sm leading-relaxed text-zinc-700">
+                      <p key={i} className="text-sm leading-relaxed text-fg-secondary">
                         {para}
                       </p>
                     )
@@ -136,14 +136,14 @@ export default function SharedReportPage({
 
             <div className="mt-8 flex flex-col items-center gap-3 text-center">
               {downloadError && (
-                <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+                <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{downloadError}</span>
                 </div>
               )}
 
               <Button
-                className="bg-emerald-600 text-white hover:bg-emerald-700"
+                className="bg-brand text-white hover:bg-brand-hover"
                 onClick={downloadReport}
                 disabled={downloading}
               >
@@ -155,7 +155,7 @@ export default function SharedReportPage({
                 Download PDF
               </Button>
 
-              <p className="text-xs text-zinc-600">
+              <p className="text-xs text-fg-tertiary">
                 This report was generated by ArtiProof Research Integrity Platform
               </p>
             </div>

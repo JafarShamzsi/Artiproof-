@@ -9,7 +9,6 @@ import {
   Shield,
   Brain,
   BookOpen,
-  FileText,
   Share2,
   Download,
   CheckCircle,
@@ -20,13 +19,12 @@ import {
   ArrowLeft,
   ExternalLink,
   Globe,
-  File as FileIcon,
 } from "lucide-react";
 import type { PdfViewerHandle } from "@/components/pdf-viewer";
 
 const PdfViewer = lazy(() => import("@/components/pdf-viewer"));
 
-import { apiFetch, backendUrl } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { useReportActions } from "@/lib/useReportActions";
 import { explainCredibility } from "@/lib/scoreExplanation";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -133,11 +131,11 @@ const VERDICT_CONFIG: Record<
   string,
   { icon: typeof CheckCircle; color: string; bg: string; label: string }
 > = {
-  true: { icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/20", label: "True" },
-  false: { icon: XCircle, color: "text-red-400", bg: "bg-red-500/20", label: "False" },
-  misleading: { icon: AlertTriangle, color: "text-amber-400", bg: "bg-amber-500/20", label: "Misleading" },
-  partially_true: { icon: AlertTriangle, color: "text-yellow-400", bg: "bg-yellow-500/20", label: "Partially True" },
-  unverified: { icon: HelpCircle, color: "text-zinc-400", bg: "bg-zinc-500/20", label: "Unverified" },
+  true: { icon: CheckCircle, color: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-500/20", label: "True" },
+  false: { icon: XCircle, color: "text-red-700 dark:text-red-400", bg: "bg-red-500/20", label: "False" },
+  misleading: { icon: AlertTriangle, color: "text-amber-700 dark:text-amber-400", bg: "bg-amber-500/20", label: "Misleading" },
+  partially_true: { icon: AlertTriangle, color: "text-yellow-700 dark:text-yellow-400", bg: "bg-yellow-500/20", label: "Partially True" },
+  unverified: { icon: HelpCircle, color: "text-zinc-600 dark:text-zinc-400", bg: "bg-zinc-500/20", label: "Unverified" },
 };
 
 // ── Page Component ──
@@ -185,7 +183,7 @@ export default function SourceCheckResultPage({
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-brand dark:text-brand-fg" />
       </div>
     );
   }
@@ -193,12 +191,12 @@ export default function SourceCheckResultPage({
   if (error || !data) {
     return (
       <div className="space-y-4">
-        <Link href="/check" className="flex items-center gap-1 text-sm text-zinc-400 hover:text-white">
+        <Link href="/check" className="flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
           <ArrowLeft className="h-4 w-4" /> Back
         </Link>
-        <Card className="border-zinc-800 bg-zinc-900/50">
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardContent className="py-12 text-center">
-            <p className="text-red-400">Source check not found.</p>
+            <p className="text-red-700 dark:text-red-400">Source check not found.</p>
           </CardContent>
         </Card>
       </div>
@@ -206,10 +204,12 @@ export default function SourceCheckResultPage({
   }
 
   const isPdf = data.has_pdf;
+  // Same-origin proxy so pdf.js (which can't set Authorization headers)
+  // can load the authenticated backend PDF through our Next.js route.
   const pdfUrl = data.has_annotated_pdf
-    ? backendUrl(`/api/source-check/${id}/pdf/annotated`)
+    ? `/api/pdf/source-check/${id}/annotated`
     : data.has_pdf
-      ? backendUrl(`/api/source-check/${id}/pdf/original`)
+      ? `/api/pdf/source-check/${id}/original`
       : null;
 
   // Split-view for PDFs, full-width for URL/text
@@ -261,15 +261,15 @@ function SplitView({
           <Link
             href="/check"
             aria-label="Back to source checks"
-            className="text-zinc-400 hover:text-white"
+            className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h1 className="font-display text-xl font-bold text-white">Source Check</h1>
+          <h1 className="font-display text-xl font-bold text-zinc-900 dark:text-white">Source Check</h1>
         </div>
 
         {/* Score */}
-        <Card className="mb-4 border-zinc-800 bg-zinc-900/50">
+        <Card className="mb-4 border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardContent className="flex flex-col gap-3 py-4">
             <div className="flex items-center gap-4">
               <div
@@ -284,12 +284,12 @@ function SplitView({
                 <span className="text-xl font-bold">{Math.round(score)}</span>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-white">{data.input_title || "PDF Document"}</p>
+                <p className="truncate text-sm font-semibold text-zinc-900 dark:text-white">{data.input_title || "PDF Document"}</p>
                 <div className="mt-1 flex gap-2">
-                  <Badge className="bg-blue-500/20 text-blue-400 text-[10px]">
+                  <Badge className="bg-blue-500/20 text-blue-700 text-[10px] dark:text-blue-400">
                     AI: {(data.ai_content_percentage ?? 0).toFixed(0)}%
                   </Badge>
-                  <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+                  <Badge className="bg-amber-500/20 text-amber-700 text-[10px] dark:text-amber-400">
                     {data.misinfo_claims_found ?? 0} misinfo
                   </Badge>
                 </div>
@@ -304,11 +304,11 @@ function SplitView({
       </div>
 
       {/* Right Panel — PDF Viewer. Full height on mobile (stacked below), 60% on lg+ */}
-      <div className="min-h-[60vh] flex-1 overflow-hidden rounded-lg border border-zinc-800 lg:min-h-0">
+      <div className="min-h-[60vh] flex-1 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 lg:min-h-0">
         <Suspense
           fallback={
-            <div className="flex h-full items-center justify-center bg-zinc-950">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+            <div className="flex h-full items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+              <Loader2 className="h-8 w-8 animate-spin text-emerald-700 dark:text-emerald-400" />
             </div>
           }
         >
@@ -349,17 +349,17 @@ function FindingsList({
                 key={claim.id}
                 type="button"
                 onClick={() => clickable && onFindingClick("claims", claim.id)}
-                className={`mb-2 w-full rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 text-left transition ${clickable ? "cursor-pointer hover:border-emerald-500/40" : ""}`}
+                className={`mb-2 w-full rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-left transition dark:border-zinc-800 dark:bg-zinc-800/30 ${clickable ? "cursor-pointer hover:border-brand/40" : ""}`}
               >
                 <div className="flex items-center gap-2">
                   <Icon className={`h-4 w-4 shrink-0 ${config.color}`} />
                   <Badge className={`${config.bg} ${config.color} text-[10px]`}>{config.label}</Badge>
                   <span className="text-[10px] text-zinc-500">{(claim.confidence * 100).toFixed(0)}%</span>
                 </div>
-                <p className="mt-1 text-xs text-white line-clamp-2">&ldquo;{claim.claim_text}&rdquo;</p>
-                <p className="mt-1 text-[11px] text-zinc-400 line-clamp-2">{claim.explanation}</p>
+                <p className="mt-1 text-xs text-zinc-900 dark:text-white line-clamp-2">&ldquo;{claim.claim_text}&rdquo;</p>
+                <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400 line-clamp-2">{claim.explanation}</p>
                 {claim.true_version && (
-                  <p className="mt-1 text-[11px] text-emerald-400 line-clamp-1">Correct: {claim.true_version}</p>
+                  <p className="mt-1 text-[11px] text-emerald-700 dark:text-emerald-400 line-clamp-1">Correct: {claim.true_version}</p>
                 )}
               </button>
             );
@@ -380,15 +380,15 @@ function FindingsList({
                 key={d.id}
                 type="button"
                 onClick={() => clickable && onFindingClick("ai_detections", d.id)}
-                className={`mb-2 flex w-full items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 text-left transition ${clickable ? "cursor-pointer hover:border-purple-500/40" : ""}`}
+                className={`mb-2 flex w-full items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-left transition dark:border-zinc-800 dark:bg-zinc-800/30 ${clickable ? "cursor-pointer hover:border-brand/40" : ""}`}
               >
                 <div className="flex w-12 shrink-0 flex-col items-center">
-                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
                     <div className={`h-full rounded-full ${aiProbColor(d.ai_probability)}`} style={{ width: `${d.ai_probability * 100}%` }} />
                   </div>
                   <span className="mt-0.5 text-[9px] text-zinc-500">{(d.ai_probability * 100).toFixed(0)}%</span>
                 </div>
-                <p className="flex-1 text-[11px] text-zinc-400 line-clamp-2">{d.paragraph_text}</p>
+                <p className="flex-1 text-[11px] text-zinc-600 dark:text-zinc-400 line-clamp-2">{d.paragraph_text}</p>
               </button>
             );
           })}
@@ -408,20 +408,20 @@ function FindingsList({
                 key={cit.id}
                 type="button"
                 onClick={() => clickable && onFindingClick("citations", cit.id)}
-                className={`mb-2 flex w-full items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 text-left transition ${clickable ? "cursor-pointer hover:border-yellow-500/40" : ""}`}
+                className={`mb-2 flex w-full items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-left transition dark:border-zinc-800 dark:bg-zinc-800/30 ${clickable ? "cursor-pointer hover:border-yellow-500/40" : ""}`}
               >
                 {cit.is_retracted ? (
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-700 dark:text-red-400" />
                 ) : !cit.is_accessible ? (
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                 ) : (
-                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs text-white">{cit.original_citation}</p>
+                  <p className="truncate text-xs text-zinc-900 dark:text-white">{cit.original_citation}</p>
                   <div className="mt-0.5 flex gap-1">
-                    {cit.is_retracted && <Badge className="bg-red-500/20 text-red-400 text-[9px]">RETRACTED</Badge>}
-                    {!cit.is_accessible && <Badge className="bg-amber-500/20 text-amber-400 text-[9px]">BROKEN</Badge>}
+                    {cit.is_retracted && <Badge className="bg-red-500/20 text-red-700 text-[9px] dark:text-red-400">RETRACTED</Badge>}
+                    {!cit.is_accessible && <Badge className="bg-amber-500/20 text-amber-700 text-[9px] dark:text-amber-400">BROKEN</Badge>}
                   </div>
                 </div>
               </button>
@@ -454,10 +454,10 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/check" className="text-zinc-400 hover:text-white">
+          <Link href="/check" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h1 className="text-2xl font-bold text-white">Source Check Results</h1>
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Source Check Results</h1>
         </div>
         <div className="flex gap-2">
           <Button
@@ -465,7 +465,7 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
             size="sm"
             onClick={share}
             disabled={busy}
-            className="border-zinc-700 text-zinc-400"
+            className="border-zinc-300 text-zinc-700 dark:border-zinc-700 dark:text-zinc-400"
           >
             {busy ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -478,7 +478,7 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
             size="sm"
             onClick={download}
             disabled={busy}
-            className="bg-emerald-500 text-white hover:bg-emerald-600"
+            className="bg-brand text-white hover:bg-brand-hover"
           >
             {busy ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -491,7 +491,7 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
           {error}
         </div>
       )}
@@ -499,14 +499,14 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
       {data.status !== "completed" && (
         <Card className="border-blue-500/30 bg-blue-500/5">
           <CardContent className="flex items-center gap-3 py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
-            <span className="text-sm text-zinc-300">Status: {data.status}</span>
+            <Loader2 className="h-5 w-5 animate-spin text-blue-700 dark:text-blue-400" />
+            <span className="text-sm text-zinc-700 dark:text-zinc-300">Status: {data.status}</span>
           </CardContent>
         </Card>
       )}
 
       {/* Score Card */}
-      <Card className="border-zinc-800 bg-zinc-900/50">
+      <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
         <CardContent className="py-8">
           <div className="flex flex-col items-center gap-6 md:flex-row">
             <div
@@ -522,16 +522,16 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
               <span className="text-xs opacity-70">/ 100</span>
             </div>
             <div className="flex-1 text-center md:text-left">
-              <h2 className="text-xl font-semibold text-white">{data.input_title || "Credibility Score"}</h2>
+              <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">{data.input_title || "Credibility Score"}</h2>
               {data.input_type === "url" && (
                 <p className="mt-1 flex items-center gap-1 text-sm text-zinc-500">
                   <Globe className="h-3 w-3" /> {data.input_content}
                 </p>
               )}
               <div className="mt-3 flex flex-wrap gap-2">
-                <Badge className="bg-blue-500/20 text-blue-400"><Brain className="mr-1 h-3 w-3" /> AI: {aiPct.toFixed(0)}%</Badge>
-                <Badge className="bg-amber-500/20 text-amber-400"><Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found ?? 0} misinfo</Badge>
-                <Badge className="bg-purple-500/20 text-purple-400"><BookOpen className="mr-1 h-3 w-3" /> {data.citations.length} citations</Badge>
+                <Badge className="bg-blue-500/20 text-blue-700 dark:text-blue-400"><Brain className="mr-1 h-3 w-3" /> AI: {aiPct.toFixed(0)}%</Badge>
+                <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-400"><Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found ?? 0} misinfo</Badge>
+                <Badge className="bg-fg-tertiary/15 text-fg-secondary"><BookOpen className="mr-1 h-3 w-3" /> {data.citations.length} citations</Badge>
               </div>
             </div>
           </div>
@@ -547,16 +547,16 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
 
       {/* Claims */}
       {data.claims.length > 0 && (
-        <Card className="border-zinc-800 bg-zinc-900/50">
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-400"><Shield className="h-4 w-4" /> Claims ({data.claims.length})</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"><Shield className="h-4 w-4" /> Claims ({data.claims.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {data.claims.map((claim) => {
               const config = VERDICT_CONFIG[claim.verdict] || VERDICT_CONFIG.unverified;
               const Icon = config.icon;
               return (
-                <div key={claim.id} className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-4">
+                <div key={claim.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
                   <div className="flex items-start gap-3">
                     <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${config.color}`} />
                     <div className="flex-1">
@@ -564,17 +564,17 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
                         <Badge className={`${config.bg} ${config.color}`}>{config.label}</Badge>
                         <span className="text-xs text-zinc-500">{(claim.confidence * 100).toFixed(0)}%</span>
                       </div>
-                      <p className="mt-2 text-sm text-white">&ldquo;{claim.claim_text}&rdquo;</p>
-                      <p className="mt-2 text-sm text-zinc-400">{claim.explanation}</p>
+                      <p className="mt-2 text-sm text-zinc-900 dark:text-white">&ldquo;{claim.claim_text}&rdquo;</p>
+                      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{claim.explanation}</p>
                       {claim.true_version && (
                         <div className="mt-2 rounded border border-emerald-500/20 bg-emerald-500/5 p-2">
-                          <p className="text-xs font-medium text-emerald-400">Correct version:</p>
-                          <p className="text-sm text-zinc-300">{claim.true_version}</p>
+                          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Correct version:</p>
+                          <p className="text-sm text-zinc-700 dark:text-zinc-300">{claim.true_version}</p>
                         </div>
                       )}
                       {claim.origin_trace && (
                         <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/5 p-2">
-                          <p className="text-xs font-medium text-amber-400">Origin: {claim.origin_trace.origin_platform} ({claim.origin_trace.first_seen})</p>
+                          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Origin: {claim.origin_trace.origin_platform} ({claim.origin_trace.first_seen})</p>
                         </div>
                       )}
                     </div>
@@ -588,23 +588,23 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
 
       {/* AI Detection */}
       {data.ai_detections.length > 0 && (
-        <Card className="border-zinc-800 bg-zinc-900/50">
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-400"><Brain className="h-4 w-4" /> AI Detection</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"><Brain className="h-4 w-4" /> AI Detection</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {data.ai_detections.map((d) => (
               <div key={d.id} className="flex items-start gap-3">
                 <div className="flex w-16 shrink-0 flex-col items-center">
-                  <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
                     <div className={`h-full rounded-full ${aiProbColor(d.ai_probability)}`} style={{ width: `${d.ai_probability * 100}%` }} />
                   </div>
                   <span className="mt-1 text-[10px] text-zinc-500">{(d.ai_probability * 100).toFixed(0)}%</span>
                 </div>
-                <p className="flex-1 text-sm text-zinc-400 line-clamp-2">{d.paragraph_text}</p>
+                <p className="flex-1 text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">{d.paragraph_text}</p>
               </div>
             ))}
-            <p className="border-t border-zinc-800 pt-3 text-[11px] leading-relaxed text-zinc-500">
+            <p className="border-t border-zinc-200 pt-3 text-[11px] leading-relaxed text-zinc-500 dark:border-zinc-800">
               AI detection is probabilistic and should be treated as one signal
               among many — not as proof of authorship.
             </p>
@@ -614,42 +614,42 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
 
       {/* Citations */}
       {data.citations.length > 0 && (
-        <Card className="border-zinc-800 bg-zinc-900/50">
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-400"><BookOpen className="h-4 w-4" /> Citations ({data.citations.length})</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"><BookOpen className="h-4 w-4" /> Citations ({data.citations.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {data.citations.map((cit) => (
-              <div key={cit.id} className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-800/30 px-4 py-3">
+              <div key={cit.id} className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
                 {cit.is_retracted ? (
                   <>
-                    <XCircle aria-hidden="true" className="h-4 w-4 text-red-400" />
+                    <XCircle aria-hidden="true" className="h-4 w-4 text-red-700 dark:text-red-400" />
                     <span className="sr-only">Retracted citation:</span>
                   </>
                 ) : !cit.is_accessible ? (
                   <>
-                    <AlertTriangle aria-hidden="true" className="h-4 w-4 text-amber-400" />
+                    <AlertTriangle aria-hidden="true" className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                     <span className="sr-only">Inaccessible citation:</span>
                   </>
                 ) : (
                   <>
-                    <CheckCircle aria-hidden="true" className="h-4 w-4 text-emerald-400" />
+                    <CheckCircle aria-hidden="true" className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
                     <span className="sr-only">Verified citation:</span>
                   </>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-white">{cit.original_citation}</p>
+                  <p className="truncate text-sm text-zinc-900 dark:text-white">{cit.original_citation}</p>
                   {cit.citation_url && (
-                    <a href={cit.citation_url} target="_blank" rel="noopener noreferrer" className="mt-0.5 flex items-center gap-1 text-xs text-blue-400 hover:underline">
+                    <a href={cit.citation_url} target="_blank" rel="noopener noreferrer" className="mt-0.5 flex items-center gap-1 text-xs text-blue-700 hover:underline dark:text-blue-400">
                       {cit.citation_url.substring(0, 60)}... <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {cit.is_retracted && <Badge className="bg-red-500/20 text-red-400 text-[10px]">RETRACTED</Badge>}
-                    {!cit.is_accessible && <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">INACCESSIBLE</Badge>}
+                    {cit.is_retracted && <Badge className="bg-red-500/20 text-red-700 text-[10px] dark:text-red-400">RETRACTED</Badge>}
+                    {!cit.is_accessible && <Badge className="bg-amber-500/20 text-amber-700 text-[10px] dark:text-amber-400">INACCESSIBLE</Badge>}
                   </div>
                   {cit.issues?.map((issue: string, i: number) => (
-                    <p key={i} className="mt-0.5 text-xs text-amber-400/80">- {issue}</p>
+                    <p key={i} className="mt-0.5 text-xs text-amber-700/90 dark:text-amber-400/80">- {issue}</p>
                   ))}
                 </div>
               </div>
@@ -674,8 +674,8 @@ function ScoreBreakdownPanel({
     return null;
   }
   return (
-    <div className={`rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 ${className}`}>
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+    <div className={`rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40 ${className}`}>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
         Score breakdown
       </h4>
       <div className="mt-3 space-y-1.5">
@@ -685,23 +685,23 @@ function ScoreBreakdownPanel({
         </div>
         {breakdown.deductions.map((d, i) => (
           <div key={i} className="flex justify-between text-xs">
-            <span className="text-zinc-300">
+            <span className="text-zinc-700 dark:text-zinc-300">
               {d.reason.replace(/_/g, " ")}
             </span>
-            <span className="text-red-400">
+            <span className="text-red-700 dark:text-red-400">
               {d.impact > 0 ? "+" : ""}
               {d.impact.toFixed(1)}
             </span>
           </div>
         ))}
-        <div className="flex justify-between border-t border-zinc-800 pt-1.5 text-xs font-medium">
-          <span className="text-white">Final</span>
-          <span className="text-white">{breakdown.final.toFixed(1)}</span>
+        <div className="flex justify-between border-t border-zinc-200 pt-1.5 text-xs font-medium dark:border-zinc-800">
+          <span className="text-zinc-900 dark:text-white">Final</span>
+          <span className="text-zinc-900 dark:text-white">{breakdown.final.toFixed(1)}</span>
         </div>
         {typeof breakdown.confidence === "number" && (
           <div className="flex justify-between pt-1 text-xs">
             <span className="text-zinc-500">Confidence</span>
-            <span className="text-zinc-300">
+            <span className="text-zinc-700 dark:text-zinc-300">
               {Math.round(breakdown.confidence * 100)}%
             </span>
           </div>
@@ -741,27 +741,27 @@ function CoverageIndicators({
   return (
     <div className={`flex flex-wrap gap-2 ${className}`}>
       {truncated && textLength != null && (
-        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
           First 15,000 of {textLength.toLocaleString()} chars analyzed
         </span>
       )}
       {paragraphsCapped && (
-        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
           AI detection capped at 20 paragraphs
         </span>
       )}
       {claimsExtracted != null && (
-        <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">
+        <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
           {claimsExtracted} claim{claimsExtracted === 1 ? "" : "s"} extracted
         </span>
       )}
       {paragraphs != null && paragraphs > 0 && (
-        <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">
+        <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
           {paragraphs} paragraph{paragraphs === 1 ? "" : "s"} analyzed
         </span>
       )}
       {metadata.fallback_used && (
-        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
           Heuristic fallback used
         </span>
       )}

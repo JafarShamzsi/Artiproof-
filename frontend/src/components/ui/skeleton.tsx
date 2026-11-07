@@ -4,7 +4,7 @@ function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="skeleton"
-      className={cn("animate-pulse rounded-md bg-zinc-800/60", className)}
+      className={cn("animate-pulse rounded-md bg-zinc-200/70 dark:bg-zinc-800/60", className)}
       {...props}
     />
   );
@@ -17,7 +17,7 @@ function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
  */
 function ListRowSkeleton() {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/30 px-4 py-3">
+    <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-100/60 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
       <div className="min-w-0 flex-1 space-y-2">
         <Skeleton className="h-3.5 w-2/3" />
         <Skeleton className="h-3 w-1/4" />

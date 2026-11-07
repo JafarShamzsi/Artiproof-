@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,12 +44,12 @@ function SidebarContent({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-16 items-center gap-2 border-b border-zinc-800 px-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500">
+      <div className="flex h-16 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand">
           <Shield className="h-4 w-4 text-white" />
         </div>
         {!collapsed && (
-          <span className="text-lg font-bold text-white">ArtiProof</span>
+          <span className="text-lg font-bold text-zinc-900 dark:text-white">ArtiProof</span>
         )}
       </div>
 
@@ -66,8 +65,8 @@ function SidebarContent({
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                  ? "bg-brand/10 text-brand dark:bg-brand/15 dark:text-brand-fg"
+                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
               )}
             >
               <link.icon aria-hidden="true" className="h-5 w-5 shrink-0" />
@@ -102,11 +101,11 @@ export default function DashboardLayout({
     : "U";
 
   return (
-    <div className="flex h-[100dvh] bg-zinc-950">
+    <div className="flex h-[100dvh] bg-zinc-50 dark:bg-zinc-950">
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "hidden border-r border-zinc-800 bg-zinc-900/50 transition-all duration-300 md:flex md:flex-col",
+          "hidden border-r border-zinc-200 bg-white transition-all duration-300 md:flex md:flex-col dark:border-zinc-800 dark:bg-zinc-900/50",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -116,7 +115,7 @@ export default function DashboardLayout({
           onClick={() => setCollapsed(!collapsed)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!collapsed}
-          className="flex items-center justify-center border-t border-zinc-800 py-3 text-zinc-500 hover:text-zinc-300"
+          className="flex items-center justify-center border-t border-zinc-200 py-3 text-zinc-500 hover:text-zinc-900 dark:border-zinc-800 dark:hover:text-zinc-300"
         >
           <ChevronLeft
             aria-hidden="true"
@@ -131,19 +130,19 @@ export default function DashboardLayout({
       {/* Main Content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top Bar */}
-        <header className="flex h-16 items-center justify-between border-b border-zinc-800 bg-zinc-950/80 px-4 backdrop-blur-xl">
+        <header className="flex h-16 items-center justify-between border-b border-zinc-200 bg-white/80 px-4 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/80">
           <div className="flex items-center gap-3">
             {/* Mobile Menu */}
             <Sheet>
               <SheetTrigger
                 aria-label="Open navigation menu"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 md:hidden"
               >
                 <Menu aria-hidden="true" className="h-5 w-5" />
               </SheetTrigger>
               <SheetContent
                 side="left"
-                className="w-64 border-zinc-800 bg-zinc-900 p-0"
+                className="w-64 border-zinc-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-900"
               >
                 <SidebarContent collapsed={false} pathname={pathname} />
               </SheetContent>
@@ -154,34 +153,34 @@ export default function DashboardLayout({
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Open account menu"
-                className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-zinc-800"
+                className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
                 <Avatar className="h-9 w-9">
-                  <AvatarFallback className="bg-zinc-800 text-sm text-zinc-300">
+                  <AvatarFallback className="bg-zinc-100 text-sm text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="w-48 border-zinc-800 bg-zinc-900"
+                className="w-48 border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
               >
-                <DropdownMenuItem className="text-zinc-300">
+                <DropdownMenuItem className="text-zinc-700 dark:text-zinc-300">
                   <Link href="/settings" className="flex w-full items-center gap-2">
                     <User className="h-4 w-4" />
                     Profile
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-zinc-300">
+                <DropdownMenuItem className="text-zinc-700 dark:text-zinc-300">
                   <Link href="/settings" className="flex w-full items-center gap-2">
                     <Settings className="h-4 w-4" />
                     Settings
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-zinc-800" />
+                <DropdownMenuSeparator className="bg-zinc-200 dark:bg-zinc-800" />
                 <DropdownMenuItem
                   onClick={() => signOut({ callbackUrl: "/" })}
-                  className="flex items-center gap-2 text-zinc-300"
+                  className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
                 >
                   <LogOut className="h-4 w-4" />
                   Sign Out

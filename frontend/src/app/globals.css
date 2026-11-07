@@ -31,6 +31,7 @@
   --font-mono: var(--font-mono);
   --font-heading: var(--font-display);
   --font-display: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  --font-editorial: var(--font-editorial), var(--font-display), Georgia, serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -412,32 +413,26 @@ html[data-high-contrast="true"] .text-yellow-400 {
   color: #FF6B00 !important;
 }
 
-/* ---------- 3. Solid zinc backgrounds → black, keep text as whatever it was ---------- */
-html[data-high-contrast="true"] .bg-zinc-950,
-html[data-high-contrast="true"] .bg-zinc-900,
+/* ---------- 3. Solid zinc backgrounds → black, keep text as whatever it was ----------
+ *
+ * Substring matchers so we hit both the bare utility (`bg-zinc-950`) and the
+ * dark-variant utility (`dark:bg-zinc-950`) — Tailwind 4 keeps the colon in
+ * the class name in markup, so a plain `.bg-zinc-950` selector misses the
+ * dark-prefixed form. */
+html[data-high-contrast="true"] [class*="bg-zinc-950"],
+html[data-high-contrast="true"] [class*="bg-zinc-900"],
 html[data-high-contrast="true"] .bg-black {
   background-color: #000000 !important;
 }
 
-html[data-high-contrast="true"] .bg-zinc-800,
-html[data-high-contrast="true"] .bg-zinc-700 {
+html[data-high-contrast="true"] [class*="bg-zinc-800"],
+html[data-high-contrast="true"] [class*="bg-zinc-700"] {
   background-color: #1A1A1A !important;
 }
 
-html[data-high-contrast="true"] .bg-zinc-600,
-html[data-high-contrast="true"] .bg-zinc-500 {
+html[data-high-contrast="true"] [class*="bg-zinc-600"],
+html[data-high-contrast="true"] [class*="bg-zinc-500"] {
   background-color: #2A2A2A !important;
-}
-
-/* Opacity-variant zinc backgrounds → slight lift from pure black so cards remain visible */
-html[data-high-contrast="true"] [class*="bg-zinc-900/"],
-html[data-high-contrast="true"] [class*="bg-zinc-950/"] {
-  background-color: #0E0E0E !important;
-}
-
-html[data-high-contrast="true"] [class*="bg-zinc-800/"],
-html[data-high-contrast="true"] [class*="bg-zinc-700/"] {
-  background-color: #1A1A1A !important;
 }
 
 /* ---------- 4. Opacity-variant brand backgrounds → semi-transparent tints ---------- */
@@ -612,18 +607,42 @@ html[data-high-contrast="true"] .bg-yellow-500 > .text-white {
   color: #000000 !important;
 }
 
-/* Subtle grain overlay — fixed, pointer-events: none so it can't trap clicks.
-   Breaks the perfect-flat-digital feel without a measurable perf cost
-   because it's a single fixed pseudo-element (no scroll repaint). */
+/* ─── Manuscript paper texture — fixed, pointer-events: none.
+       Two superimposed layers: a fine grain (legibility) and a low-frequency
+       paper-fiber map (organic warmth). Together they break the digital-flat
+       feel and ground the wine palette in a tactile substrate. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.04;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.1  0 0 0 0 0.05  0 0 0 0 0.03  0 0 0 0.55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+.dark body::before {
+  opacity: 0.08;
   mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* Long-fibre paper map — extremely faint, gives a felt warmth without
+   showing a repeating tile. Only present in light mode. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.4  0 0 0 0 0.2  0 0 0 0 0.1  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23f)'/></svg>");
+}
+
+.dark body::after {
+  display: none;
 }
 
 /* Glow halo behind primary CTA buttons. Sits behind the element via a
@@ -651,4 +670,222 @@ body::before {
   .cta-glow::after {
     transition: none;
   }
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   MANUSCRIPT — typographic primitives for the editorial landing page.
+   These mirror the conventions of a peer-reviewed paper: drop caps,
+   doubled hairline rules, marginal annotations, and rubber-stamp
+   verdict badges.
+   ─────────────────────────────────────────────────────────────────── */
+
+/* Drop cap — first letter of an editorial paragraph rendered in the
+   display face, oversized, leading-tight, and floated. Used at the
+   open of each chapter / hero body. */
+.drop-cap::first-letter {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 4.25em;
+  line-height: 0.78;
+  float: left;
+  margin: 0.04em 0.08em -0.04em 0;
+  color: var(--brand-fg);
+  font-feature-settings: "ss01", "lnum";
+}
+
+/* Doubled hairline rule — two 1px lines with a sliver of space, the
+   visual signature of a research-paper section break. */
+.rule-double {
+  border: 0;
+  height: 5px;
+  background:
+    linear-gradient(to bottom,
+      var(--border-strong) 0 1px,
+      transparent 1px 4px,
+      var(--border-strong) 4px 5px);
+}
+.rule-double-soft {
+  border: 0;
+  height: 4px;
+  background:
+    linear-gradient(to bottom,
+      var(--border-default) 0 1px,
+      transparent 1px 3px,
+      var(--border-default) 3px 4px);
+}
+
+/* Single hairline rule used inside cards and aligned with body text. */
+.rule-hair {
+  height: 1px;
+  background: var(--border-default);
+  border: 0;
+}
+
+/* Editorial small-caps label — used everywhere as a section eyebrow.
+   Tight tracking, uppercase, light-weight Inter for legibility. */
+.label-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+
+/* Italic editorial voice — Newsreader italic for marginalia and
+   captions. Slightly muted color, looser leading. */
+.editorial-italic {
+  font-family: var(--font-editorial);
+  font-style: italic;
+  color: var(--fg-secondary);
+  letter-spacing: -0.005em;
+}
+
+/* Stamp — verdict badge with a slight rotation, sepia-tinted fill,
+   double-ring border. The shape suggests a rubber-stamp imprint with
+   a faint ink-spread. */
+.stamp {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+  padding: 0.35em 0.7em;
+  border-radius: 2px;
+  transform: rotate(-3deg);
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in oklab, var(--brand) 8%, transparent), transparent 60%),
+    color-mix(in oklab, var(--brand-soft) 50%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--brand) 25%, transparent);
+}
+.stamp::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid color-mix(in oklab, var(--brand) 35%, transparent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Stamp-circle — round variant for credibility scores. */
+.stamp-circle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--brand);
+  border: 2.5px solid var(--brand);
+  border-radius: 9999px;
+  transform: rotate(-6deg);
+  background: radial-gradient(circle at 30% 30%, color-mix(in oklab, var(--brand-soft) 60%, transparent), transparent 70%);
+  box-shadow:
+    inset 0 0 0 4px color-mix(in oklab, var(--surface-base) 90%, transparent),
+    inset 0 0 0 5px color-mix(in oklab, var(--brand) 25%, transparent);
+}
+.stamp-circle::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 65% 35%, color-mix(in oklab, var(--brand) 6%, transparent), transparent 55%);
+  pointer-events: none;
+}
+
+/* Marginalia connector — a hand-drawn-style angled bracket connecting a
+   margin annotation to its body reference. Pure CSS to avoid SVG bloat
+   for many instances. */
+.connector-bracket {
+  position: relative;
+  width: 28px;
+  height: 1px;
+  background: var(--border-strong);
+}
+.connector-bracket::before,
+.connector-bracket::after {
+  content: "";
+  position: absolute;
+  width: 1px;
+  background: var(--border-strong);
+  height: 6px;
+}
+.connector-bracket::before {
+  left: 0;
+  top: -3px;
+}
+.connector-bracket::after {
+  right: 0;
+  top: -3px;
+}
+
+/* Footnote / catalog superscript — tiny tabular numerals raised to
+   shoulder height, used inline next to claims and stats. */
+.footnote-mark {
+  font-family: var(--font-mono);
+  font-size: 0.6em;
+  font-feature-settings: "tnum";
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 0.15em;
+  color: var(--brand-fg);
+  letter-spacing: 0;
+}
+
+/* Editorial chapter-numeral — large roman numerals printed faintly in
+   the margin next to each chapter heading. */
+.numeral-chapter {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-style: italic;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  line-height: 0.8;
+  color: color-mix(in oklab, var(--brand) 55%, var(--surface-base));
+  opacity: 0.45;
+  font-feature-settings: "lnum";
+}
+
+/* Inked underline — a lower-positioned thicker underline that suggests
+   a fountain-pen mark under a headline span. Used on emphasized terms. */
+.ink-underline {
+  background-image: linear-gradient(to right, var(--brand) 0 100%);
+  background-repeat: no-repeat;
+  background-position: 0 95%;
+  background-size: 100% 2px;
+  padding-bottom: 0.12em;
+}
+
+/* Side-by-side double rule (vertical) for the comparison-table column
+   gutter. */
+.rule-double-vertical {
+  width: 5px;
+  background:
+    linear-gradient(to right,
+      var(--border-strong) 0 1px,
+      transparent 1px 4px,
+      var(--border-strong) 4px 5px);
+}
+
+/* Editorial measure — caps body line length to comfortable reading
+   width (~62 characters), aligned to manuscript convention. */
+.measure {
+  max-width: 38rem;
+}
+.measure-narrow {
+  max-width: 28rem;
+}
+.measure-wide {
+  max-width: 48rem;
+}
+
+/* Tabular numerals helper — used everywhere precise numbers appear. */
+.tnum {
+  font-feature-settings: "tnum", "lnum";
+  font-variant-numeric: tabular-nums lining-nums;
 }

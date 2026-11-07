@@ -26,18 +26,18 @@ export function EmptyState({
       )}
     >
       {icon && (
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800 text-zinc-400">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
           {icon}
         </div>
       )}
-      <h3 className="text-sm font-medium text-white">{title}</h3>
+      <h3 className="text-sm font-medium text-zinc-900 dark:text-white">{title}</h3>
       {description && (
         <p className="mt-1 max-w-sm text-sm text-zinc-500">{description}</p>
       )}
       {action && (
         <Link
           href={action.href}
-          className="mt-4 inline-flex h-9 items-center rounded-lg bg-emerald-500 px-4 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-colors hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+          className="mt-4 inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-sm shadow-brand/20 transition-colors hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
         >
           {action.label}
         </Link>

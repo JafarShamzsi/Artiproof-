@@ -151,11 +151,11 @@ export default function CheckSourcePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-2xl font-bold text-white">Check Source</h1>
+      <h1 className="font-display text-2xl font-bold text-zinc-900 dark:text-white">Check Source</h1>
 
-      <Card className="border-zinc-800 bg-zinc-900/50">
+      <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
         <CardHeader>
-          <CardTitle className="text-lg text-white">
+          <CardTitle className="text-lg text-zinc-900 dark:text-white">
             Verify a source for misinformation and AI content
           </CardTitle>
         </CardHeader>
@@ -168,22 +168,22 @@ export default function CheckSourcePage() {
               setSelectedFile(null);
             }}
           >
-            <TabsList className="mb-4 bg-zinc-800">
+            <TabsList className="mb-4 bg-zinc-100 dark:bg-zinc-800">
               <TabsTrigger
                 value="url"
-                className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"
+                className="data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
               >
                 <Link2 className="mr-2 h-4 w-4" /> Paste URL
               </TabsTrigger>
               <TabsTrigger
                 value="text"
-                className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"
+                className="data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
               >
                 <FileText className="mr-2 h-4 w-4" /> Paste Text
               </TabsTrigger>
               <TabsTrigger
                 value="document"
-                className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"
+                className="data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
               >
                 <Upload className="mr-2 h-4 w-4" /> Upload PDF
               </TabsTrigger>
@@ -195,7 +195,7 @@ export default function CheckSourcePage() {
                 value={activeTab === "url" ? inputValue : ""}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                className="border-zinc-700 bg-zinc-800 text-white placeholder:text-zinc-500"
+                className="border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
                 disabled={loading}
               />
             </TabsContent>
@@ -205,7 +205,7 @@ export default function CheckSourcePage() {
                 placeholder="Paste the article text here..."
                 value={activeTab === "text" ? inputValue : ""}
                 onChange={(e) => setInputValue(e.target.value)}
-                className="min-h-[200px] border-zinc-700 bg-zinc-800 text-white placeholder:text-zinc-500"
+                className="min-h-[200px] border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
                 disabled={loading}
               />
             </TabsContent>
@@ -224,10 +224,10 @@ export default function CheckSourcePage() {
               />
 
               {selectedFile ? (
-                <div className="flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3">
-                  <FileIcon className="h-8 w-8 shrink-0 text-red-400" />
+                <div className="flex items-center gap-3 rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
+                  <FileIcon className="h-8 w-8 shrink-0 text-red-600 dark:text-red-400" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-white">
+                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">
                       {selectedFile.name}
                     </p>
                     <p className="text-xs text-zinc-500">
@@ -242,7 +242,7 @@ export default function CheckSourcePage() {
                       if (fileInputRef.current) fileInputRef.current.value = "";
                     }}
                     aria-label="Remove selected file"
-                    className="h-8 w-8 p-0 text-zinc-400 hover:text-white"
+                    className="h-8 w-8 p-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
                     disabled={loading}
                   >
                     <X aria-hidden="true" className="h-4 w-4" />
@@ -253,11 +253,11 @@ export default function CheckSourcePage() {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   aria-label="Upload PDF file"
-                  className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 py-12 transition hover:border-emerald-500/50 focus-visible:border-emerald-500/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                  className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 py-12 transition hover:border-brand/50 focus-visible:border-brand/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 dark:border-zinc-700"
                   disabled={loading}
                 >
                   <Upload aria-hidden="true" className="mb-3 h-8 w-8 text-zinc-500" />
-                  <p className="text-sm text-zinc-400">
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
                     Click to select a PDF file
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
@@ -271,7 +271,7 @@ export default function CheckSourcePage() {
           <Button
             onClick={handleSubmit}
             disabled={loading || !canSubmit}
-            className="mt-4 w-full bg-emerald-500 text-white hover:bg-emerald-600"
+            className="mt-4 w-full bg-brand text-white hover:bg-brand-hover"
           >
             {loading ? (
               <>
@@ -287,7 +287,7 @@ export default function CheckSourcePage() {
           {error && (
             <div
               role="alert"
-              className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-700 dark:text-red-300"
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
@@ -303,7 +303,7 @@ export default function CheckSourcePage() {
 
       {/* Progress */}
       {loading && events.length > 0 && (
-        <Card className="border-zinc-800 bg-zinc-900/50">
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardContent className="py-6">
             <div
               role="progressbar"
@@ -311,10 +311,10 @@ export default function CheckSourcePage() {
               aria-valuenow={Math.round(progress * 100)}
               aria-valuemin={0}
               aria-valuemax={100}
-              className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+              className="mb-4 h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
             >
               <div
-                className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                className="h-full rounded-full bg-brand transition-all duration-300"
                 style={{ width: `${progress * 100}%` }}
               />
             </div>
@@ -322,15 +322,15 @@ export default function CheckSourcePage() {
               {events.map((event, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm">
                   {event.status === "done" ? (
-                    <CheckCircle className="h-4 w-4 shrink-0 text-emerald-400" />
+                    <CheckCircle className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
                   ) : event.status === "error" || event.status === "warning" ? (
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                   ) : event.status === "processing" ? (
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-400" />
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
                   ) : (
                     <Clock className="h-4 w-4 shrink-0 text-zinc-500" />
                   )}
-                  <span className="text-zinc-300">{event.detail}</span>
+                  <span className="text-zinc-700 dark:text-zinc-300">{event.detail}</span>
                 </div>
               ))}
             </div>
@@ -371,9 +371,9 @@ function PastChecks() {
   }, []);
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900/50">
+    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
       <CardHeader>
-        <CardTitle className="text-sm text-zinc-400">
+        <CardTitle className="text-sm text-zinc-600 dark:text-zinc-400">
           Past Source Checks
         </CardTitle>
       </CardHeader>
@@ -381,7 +381,7 @@ function PastChecks() {
         {!loaded ? (
           <ListSkeleton rows={3} />
         ) : loadError ? (
-          <div className="flex flex-col items-center py-8 text-sm text-red-300">
+          <div className="flex flex-col items-center py-8 text-sm text-red-700 dark:text-red-300">
             <AlertTriangle className="mb-3 h-10 w-10" />
             {loadError}
           </div>
@@ -397,10 +397,10 @@ function PastChecks() {
               <a
                 key={check.id}
                 href={`/check/${check.id}`}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/30 px-4 py-3 transition hover:border-zinc-700"
+                className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 transition hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-800/30 dark:hover:border-zinc-700"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">
+                  <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">
                     {check.input_title ||
                       check.input_type.toUpperCase()}
                   </p>
@@ -412,10 +412,10 @@ function PastChecks() {
                   <Badge
                     className={
                       check.status === "completed"
-                        ? "bg-emerald-500/20 text-emerald-400"
+                        ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400"
                         : check.status === "failed"
-                          ? "bg-red-500/20 text-red-400"
-                          : "bg-blue-500/20 text-blue-400"
+                          ? "bg-red-500/20 text-red-700 dark:text-red-400"
+                          : "bg-blue-500/20 text-blue-700 dark:text-blue-400"
                     }
                   >
                     {check.status}
