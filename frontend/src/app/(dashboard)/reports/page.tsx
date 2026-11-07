@@ -4,8 +4,16 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Download, Share2, Loader2, ExternalLink } from "lucide-react";
-import { apiFetch, backendUrl } from "@/lib/api";
+import {
+  AlertCircle,
+  Check,
+  Download,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Share2,
+} from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 interface ReportItem {
   id: string;
@@ -23,16 +31,27 @@ export default function ReportsPage() {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch("/api/reports/")
-      .then((r) => r.ok ? r.json() : { items: [] })
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load reports");
+        return r.json();
+      })
       .then((data) => setReports(data.items || []))
-      .catch(() => {})
+      .catch(() => setError("Could not load reports. Please refresh the page."))
       .finally(() => setLoading(false));
   }, []);
 
   const copyShareLink = async (token: string, reportId: string) => {
+    setError(null);
+    if (!token) {
+      setError("This report does not have a share link. Regenerate the report and try again.");
+      return;
+    }
+
     const url = `${window.location.origin}/report/${token}`;
 
     // Modern path — requires secure context.
@@ -66,23 +85,62 @@ export default function ReportsPage() {
     }
   };
 
+  const downloadReport = async (report: ReportItem) => {
+    setError(null);
+    setDownloadingId(report.id);
+
+    try {
+      const res = await apiFetch(`/api/reports/${report.id}/download`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.detail || "PDF download failed");
+      }
+
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `artiproof-report-${report.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "PDF download failed");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Reports</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-white">Reports</h1>
+        <p className="mt-1 text-sm text-zinc-300">
+          Download PDF reports or copy a public share link.
+        </p>
+      </div>
 
-      <Card className="border-zinc-800 bg-zinc-900/50">
+      <Card className="border-white bg-white text-zinc-950 shadow-xl shadow-black/20">
         <CardHeader>
-          <CardTitle className="text-sm text-zinc-400">Generated Reports</CardTitle>
+          <CardTitle className="text-sm text-zinc-700">Generated Reports</CardTitle>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-700" />
             </div>
           ) : reports.length === 0 ? (
             <div className="flex flex-col items-center py-12">
-              <FileText className="mb-3 h-10 w-10 text-zinc-600" />
-              <p className="text-sm text-zinc-500">No reports generated yet.</p>
+              <FileText className="mb-3 h-10 w-10 text-zinc-500" />
+              <p className="text-sm font-medium text-zinc-800">No reports generated yet.</p>
               <p className="mt-1 text-xs text-zinc-600">
                 Reports can be generated from source check or researcher analysis results.
               </p>
@@ -92,62 +150,70 @@ export default function ReportsPage() {
               {reports.map((report) => (
                 <div
                   key={report.id}
-                  className="rounded-lg border border-zinc-800 bg-zinc-800/30 px-4 py-4"
+                  className="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-4 shadow-sm"
                 >
-                  <div className="flex items-start justify-between">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 shrink-0 text-zinc-400" />
-                        <p className="truncate text-sm font-medium text-white">{report.title}</p>
+                        <FileText className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <p className="truncate text-sm font-semibold text-zinc-950">{report.title}</p>
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         <Badge className={
                           report.report_type === "source_verification"
-                            ? "bg-emerald-500/20 text-emerald-400"
-                            : "bg-purple-500/20 text-purple-400"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-indigo-100 text-indigo-800"
                         }>
                           {report.report_type === "source_verification" ? "Source Verification" : "Researcher Integrity"}
                         </Badge>
-                        <span className="text-xs text-zinc-500">
+                        <span className="text-xs font-medium text-zinc-600">
                           {new Date(report.created_at).toLocaleDateString()}
                         </span>
                       </div>
                       {report.summary && (
-                        <p className="mt-2 text-xs text-zinc-400 line-clamp-2">{report.summary}</p>
+                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-zinc-700">{report.summary}</p>
                       )}
                     </div>
 
-                    <div className="ml-4 flex shrink-0 gap-2">
+                    <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="border-zinc-700 text-zinc-400"
+                        className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100"
                         onClick={() => copyShareLink(report.share_token, report.id)}
                       >
-                        <Share2 className="mr-1 h-3 w-3" />
-                        {copiedId === report.id ? "Copied!" : "Share"}
+                        {copiedId === report.id ? (
+                          <Check className="mr-1 h-3 w-3" />
+                        ) : (
+                          <Share2 className="mr-1 h-3 w-3" />
+                        )}
+                        {copiedId === report.id ? "Copied" : "Share"}
                       </Button>
 
-                      <a
-                        href={backendUrl(`/api/reports/${report.id}/download`)}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <Button
+                        size="sm"
+                        className="bg-emerald-600 text-white hover:bg-emerald-700"
+                        onClick={() => downloadReport(report)}
+                        disabled={downloadingId === report.id}
                       >
-                        <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600">
-                          <Download className="mr-1 h-3 w-3" /> PDF
-                        </Button>
-                      </a>
+                        {downloadingId === report.id ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Download className="mr-1 h-3 w-3" />
+                        )}
+                        PDF
+                      </Button>
 
                       {report.source_check_id && (
                         <a href={`/check/${report.source_check_id}`}>
-                          <Button variant="outline" size="sm" className="border-zinc-700 text-zinc-400">
+                          <Button variant="outline" size="sm" className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100">
                             <ExternalLink className="h-3 w-3" />
                           </Button>
                         </a>
                       )}
                       {report.researcher_profile_id && (
                         <a href={`/researcher/${report.researcher_profile_id}`}>
-                          <Button variant="outline" size="sm" className="border-zinc-700 text-zinc-400">
+                          <Button variant="outline" size="sm" className="border-zinc-400 bg-white text-zinc-900 hover:bg-zinc-100">
                             <ExternalLink className="h-3 w-3" />
                           </Button>
                         </a>

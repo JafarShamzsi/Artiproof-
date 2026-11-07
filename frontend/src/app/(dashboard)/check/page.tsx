@@ -22,6 +22,8 @@ import {
   X,
 } from "lucide-react";
 import { apiFetch, backendUrl } from "@/lib/api";
+import { explainCredibility } from "@/lib/scoreExplanation";
+import { ScoreLabel } from "@/components/ui/score-explanation";
 
 interface ProgressEvent {
   step: string;
@@ -366,11 +368,18 @@ function PastChecks() {
                     {check.status}
                   </Badge>
                   {check.overall_credibility_score !== null && (
-                    <span
-                      className={`text-lg font-bold ${verdictColor(check.overall_credibility_score)}`}
-                    >
-                      {Math.round(check.overall_credibility_score)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <ScoreLabel
+                        explanation={explainCredibility({
+                          score: check.overall_credibility_score,
+                        })}
+                      />
+                      <span
+                        className={`text-lg font-bold ${verdictColor(check.overall_credibility_score)}`}
+                      >
+                        {Math.round(check.overall_credibility_score)}
+                      </span>
+                    </div>
                   )}
                 </div>
               </a>

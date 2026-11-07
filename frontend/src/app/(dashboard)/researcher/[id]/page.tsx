@@ -23,6 +23,9 @@ import {
 import { useTheme } from "@/contexts/ThemeContext";
 
 import { apiFetch } from "@/lib/api";
+import { useReportActions } from "@/lib/useReportActions";
+import { explainIntegrity } from "@/lib/scoreExplanation";
+import { ScoreExplanationCard } from "@/components/ui/score-explanation";
 
 interface Publication {
   id: string;
@@ -141,6 +144,38 @@ export default function ResearcherResultPage({
   const flags = ringFlags.flags || [];
 
   return (
+    <ResearcherProfileView
+      data={data}
+      integrity={integrity}
+      flags={flags}
+      graphData={graphData}
+    />
+  );
+}
+
+function ResearcherProfileView({
+  data,
+  integrity,
+  flags,
+  graphData,
+}: {
+  data: ProfileData;
+  integrity: number;
+  flags: string[];
+  graphData: { nodes: GraphNode[]; edges: GraphEdge[] } | null;
+}) {
+  const { share, download, busy, copied, error } = useReportActions({
+    researcherProfileId: data.id,
+  });
+  const explanation = explainIntegrity({
+    score: integrity,
+    selfCitationRate: data.self_citation_rate,
+    topicRelevanceScore: data.topic_relevance_score,
+    flagCount: flags.length,
+    publicationsCount: data.publications.length,
+  });
+
+  return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -151,14 +186,41 @@ export default function ResearcherResultPage({
           <h1 className="text-2xl font-bold text-white">Researcher Analysis</h1>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="border-zinc-700 text-zinc-400">
-            <Share2 className="mr-1.5 h-4 w-4" /> Share
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={share}
+            disabled={busy}
+            className="border-zinc-700 text-zinc-400"
+          >
+            {busy ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Share2 className="mr-1.5 h-4 w-4" />
+            )}
+            {copied ? "Copied!" : "Share"}
           </Button>
-          <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600">
-            <Download className="mr-1.5 h-4 w-4" /> Report
+          <Button
+            size="sm"
+            onClick={download}
+            disabled={busy}
+            className="bg-emerald-500 text-white hover:bg-emerald-600"
+          >
+            {busy ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-1.5 h-4 w-4" />
+            )}
+            Report
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* Status */}
       {data.analysis_status !== "completed" && (
@@ -266,6 +328,9 @@ export default function ResearcherResultPage({
           </CardContent>
         </Card>
       </div>
+
+      {/* Score explanation */}
+      <ScoreExplanationCard explanation={explanation} />
 
       {/* Flags */}
       {flags.length > 0 && (

@@ -27,6 +27,12 @@ import type { PdfViewerHandle } from "@/components/pdf-viewer";
 const PdfViewer = lazy(() => import("@/components/pdf-viewer"));
 
 import { apiFetch, backendUrl } from "@/lib/api";
+import { useReportActions } from "@/lib/useReportActions";
+import { explainCredibility } from "@/lib/scoreExplanation";
+import {
+  ScoreExplanationCard,
+  ScoreExplanationCompact,
+} from "@/components/ui/score-explanation";
 
 // ── Types ──
 
@@ -206,6 +212,14 @@ function SplitView({
   onFindingClick: (type: "claims" | "ai_detections" | "citations", id: string) => void;
 }) {
   const score = data.overall_credibility_score ?? 0;
+  const explanation = explainCredibility({
+    score,
+    aiPercent: data.ai_content_percentage,
+    misinfoCount: data.misinfo_claims_found,
+    citationsTotal: data.citations.length,
+    retractedCitations: data.citations.filter((c) => c.is_retracted).length,
+    brokenCitations: data.citations.filter((c) => !c.is_accessible && !c.is_retracted).length,
+  });
 
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col gap-4 lg:flex-row">
@@ -220,21 +234,24 @@ function SplitView({
 
         {/* Score */}
         <Card className="mb-4 border-zinc-800 bg-zinc-900/50">
-          <CardContent className="flex items-center gap-4 py-4">
-            <div className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-3 ${scoreColor(score)}`}>
-              <span className="text-xl font-bold">{Math.round(score)}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white">{data.input_title || "PDF Document"}</p>
-              <div className="mt-1 flex gap-2">
-                <Badge className="bg-blue-500/20 text-blue-400 text-[10px]">
-                  AI: {(data.ai_content_percentage ?? 0).toFixed(0)}%
-                </Badge>
-                <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
-                  {data.misinfo_claims_found ?? 0} misinfo
-                </Badge>
+          <CardContent className="flex flex-col gap-3 py-4">
+            <div className="flex items-center gap-4">
+              <div className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-3 ${scoreColor(score)}`}>
+                <span className="text-xl font-bold">{Math.round(score)}</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">{data.input_title || "PDF Document"}</p>
+                <div className="mt-1 flex gap-2">
+                  <Badge className="bg-blue-500/20 text-blue-400 text-[10px]">
+                    AI: {(data.ai_content_percentage ?? 0).toFixed(0)}%
+                  </Badge>
+                  <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+                    {data.misinfo_claims_found ?? 0} misinfo
+                  </Badge>
+                </div>
               </div>
             </div>
+            <ScoreExplanationCompact explanation={explanation} />
           </CardContent>
         </Card>
 
@@ -377,6 +394,17 @@ function FindingsList({
 function FullWidthView({ data }: { data: SourceCheckData }) {
   const score = data.overall_credibility_score ?? 0;
   const aiPct = data.ai_content_percentage ?? 0;
+  const explanation = explainCredibility({
+    score,
+    aiPercent: aiPct,
+    misinfoCount: data.misinfo_claims_found,
+    citationsTotal: data.citations.length,
+    retractedCitations: data.citations.filter((c) => c.is_retracted).length,
+    brokenCitations: data.citations.filter((c) => !c.is_accessible && !c.is_retracted).length,
+  });
+  const { share, download, busy, copied, error } = useReportActions({
+    sourceCheckId: data.id,
+  });
 
   return (
     <div className="space-y-6">
@@ -388,14 +416,41 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
           <h1 className="text-2xl font-bold text-white">Source Check Results</h1>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="border-zinc-700 text-zinc-400">
-            <Share2 className="mr-1.5 h-4 w-4" /> Share
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={share}
+            disabled={busy}
+            className="border-zinc-700 text-zinc-400"
+          >
+            {busy ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Share2 className="mr-1.5 h-4 w-4" />
+            )}
+            {copied ? "Copied!" : "Share"}
           </Button>
-          <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600">
-            <Download className="mr-1.5 h-4 w-4" /> Report
+          <Button
+            size="sm"
+            onClick={download}
+            disabled={busy}
+            className="bg-emerald-500 text-white hover:bg-emerald-600"
+          >
+            {busy ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-1.5 h-4 w-4" />
+            )}
+            Report
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {data.status !== "completed" && (
         <Card className="border-blue-500/30 bg-blue-500/5">
@@ -408,24 +463,27 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
 
       {/* Score Card */}
       <Card className="border-zinc-800 bg-zinc-900/50">
-        <CardContent className="flex flex-col items-center gap-6 py-8 md:flex-row">
-          <div className={`flex h-28 w-28 shrink-0 flex-col items-center justify-center rounded-full border-4 ${scoreColor(score)}`}>
-            <span className="text-3xl font-bold">{Math.round(score)}</span>
-            <span className="text-xs opacity-70">/ 100</span>
-          </div>
-          <div className="flex-1 text-center md:text-left">
-            <h2 className="text-xl font-semibold text-white">{data.input_title || "Credibility Score"}</h2>
-            {data.input_type === "url" && (
-              <p className="mt-1 flex items-center gap-1 text-sm text-zinc-500">
-                <Globe className="h-3 w-3" /> {data.input_content}
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Badge className="bg-blue-500/20 text-blue-400"><Brain className="mr-1 h-3 w-3" /> AI: {aiPct.toFixed(0)}%</Badge>
-              <Badge className="bg-amber-500/20 text-amber-400"><Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found ?? 0} misinfo</Badge>
-              <Badge className="bg-purple-500/20 text-purple-400"><BookOpen className="mr-1 h-3 w-3" /> {data.citations.length} citations</Badge>
+        <CardContent className="py-8">
+          <div className="flex flex-col items-center gap-6 md:flex-row">
+            <div className={`flex h-28 w-28 shrink-0 flex-col items-center justify-center rounded-full border-4 ${scoreColor(score)}`}>
+              <span className="text-3xl font-bold">{Math.round(score)}</span>
+              <span className="text-xs opacity-70">/ 100</span>
+            </div>
+            <div className="flex-1 text-center md:text-left">
+              <h2 className="text-xl font-semibold text-white">{data.input_title || "Credibility Score"}</h2>
+              {data.input_type === "url" && (
+                <p className="mt-1 flex items-center gap-1 text-sm text-zinc-500">
+                  <Globe className="h-3 w-3" /> {data.input_content}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge className="bg-blue-500/20 text-blue-400"><Brain className="mr-1 h-3 w-3" /> AI: {aiPct.toFixed(0)}%</Badge>
+                <Badge className="bg-amber-500/20 text-amber-400"><Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found ?? 0} misinfo</Badge>
+                <Badge className="bg-purple-500/20 text-purple-400"><BookOpen className="mr-1 h-3 w-3" /> {data.citations.length} citations</Badge>
+              </div>
             </div>
           </div>
+          <ScoreExplanationCard explanation={explanation} className="mt-6" />
         </CardContent>
       </Card>
 

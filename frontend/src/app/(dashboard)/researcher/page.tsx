@@ -24,6 +24,8 @@ interface ProgressEvent {
 }
 
 import { apiFetch, backendUrl } from "@/lib/api";
+import { explainIntegrity } from "@/lib/scoreExplanation";
+import { ScoreLabel } from "@/components/ui/score-explanation";
 
 export default function ResearcherAnalysisPage() {
   const router = useRouter();
@@ -250,13 +252,18 @@ function PastAnalyses() {
                     {a.analysis_status}
                   </Badge>
                   {a.integrity_score !== null && (
-                    <span className={`text-lg font-bold ${
-                      a.integrity_score >= 70 ? "text-emerald-400"
-                      : a.integrity_score >= 40 ? "text-amber-400"
-                      : "text-red-400"
-                    }`}>
-                      {Math.round(a.integrity_score)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <ScoreLabel
+                        explanation={explainIntegrity({ score: a.integrity_score })}
+                      />
+                      <span className={`text-lg font-bold ${
+                        a.integrity_score >= 70 ? "text-emerald-400"
+                        : a.integrity_score >= 40 ? "text-amber-400"
+                        : "text-red-400"
+                      }`}>
+                        {Math.round(a.integrity_score)}
+                      </span>
+                    </div>
                   )}
                 </div>
               </a>
