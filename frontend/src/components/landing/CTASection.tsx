@@ -4,12 +4,12 @@ export function CTASection() {
   return (
     <LampEffect>
       <div className="mx-auto max-w-2xl px-6 text-center">
-        <h2 className="text-4xl font-bold text-white">
+        <h2 className="font-display text-4xl font-bold tracking-tight text-white">
           Start Protecting Research Integrity
         </h2>
         <p className="mt-4 text-zinc-400">
-          Register and verify your first source in under 2 minutes. Free for
-          academic researchers worldwide.
+          Start with 10 free checks per month. Upgrade to Pro for full access
+          to all 5 integrity engines.
         </p>
 
         <div className="mx-auto mt-8 max-w-md">
@@ -22,7 +22,7 @@ export function CTASection() {
         </div>
 
         <p className="mt-6 text-sm text-zinc-500">
-          Built by EaP Guardians for researchers, faculty, and institutions
+          Built by the ArtiProof team for the EaP region
         </p>
       </div>
     </LampEffect>

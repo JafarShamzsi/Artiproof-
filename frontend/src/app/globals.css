@@ -9,7 +9,8 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-display);
+  --font-display: var(--font-display), var(--font-sans), system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -527,4 +528,31 @@ html[data-high-contrast="true"] .bg-orange-500 > .text-white,
 html[data-high-contrast="true"] .bg-amber-500 > .text-white,
 html[data-high-contrast="true"] .bg-yellow-500 > .text-white {
   color: #000000 !important;
+}
+
+/* Glow halo behind primary CTA buttons. Sits behind the element via a
+   pseudo-element so it doesn't affect layout. Honors reduced-motion. */
+.cta-glow {
+  position: relative;
+  isolation: isolate;
+}
+.cta-glow::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #10b981, #059669);
+  filter: blur(12px);
+  opacity: 0.4;
+  z-index: -1;
+  transition: opacity 0.3s ease;
+}
+.cta-glow:hover::after,
+.cta-glow:focus-visible::after {
+  opacity: 0.65;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cta-glow::after {
+    transition: none;
+  }
 }

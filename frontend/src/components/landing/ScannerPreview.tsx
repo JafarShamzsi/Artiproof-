@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, RotateCcw, Shield, Brain, BookOpen, FileText, AlertTriangle, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { scoreColor, scoreStroke } from "@/lib/colors";
 import { SectionHeading } from "@/components/landing/shared/SectionHeading";
 import { ScrollReveal } from "@/components/landing/shared/ScrollReveal";
 import { GlowCard } from "@/components/landing/shared/GlowCard";
@@ -62,12 +63,6 @@ const statusStyles = {
   warn: { dot: "bg-yellow-400", badge: "bg-yellow-500/20 text-yellow-400" },
   fail: { dot: "bg-red-400", badge: "bg-red-500/20 text-red-400" },
 };
-
-const scoreColor = (s: number) =>
-  s >= 70 ? "text-emerald-400" : s >= 40 ? "text-yellow-400" : "text-red-400";
-
-const scoreStroke = (s: number) =>
-  s >= 70 ? "#10b981" : s >= 40 ? "#eab308" : "#ef4444";
 
 export function ScannerPreview() {
   const [input, setInput] = useState("");

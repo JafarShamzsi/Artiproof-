@@ -244,9 +244,9 @@ const features: Feature[] = [
   },
   {
     icon: Heart,
-    title: "Open for Researchers",
+    title: "Built for the EaP Region",
     description:
-      "Free for academic researchers and institutions. Built by EaP Guardians to protect the integrity of knowledge worldwide.",
+      "Purpose-built for Azerbaijan and Eastern Partnership universities. Native Azerbaijani and Russian language support, local compliance, and pricing designed for the region.",
     visual: <APISnippet />,
     colSpan: "lg:col-span-3",
     glowColor: "emerald",

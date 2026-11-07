@@ -5,7 +5,6 @@ import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { Shield, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { InteractiveHoverButton } from "./shared/InteractiveHoverButton";
 import {
   Sheet,
   SheetTrigger,
@@ -15,11 +14,14 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 
+// Anchors are prefixed with `/` so they resolve correctly even when the navbar
+// renders on /privacy or /terms — bare `#features` would just look for that
+// anchor on the current route, which doesn't exist there.
 const navLinks = [
-  { label: "Features", href: "#features" },
-  { label: "How It Works", href: "#how-it-works" },
-  { label: "Demo", href: "#scanner" },
-  { label: "Pricing", href: "#pricing" },
+  { label: "Features", href: "/#features" },
+  { label: "How It Works", href: "/#how-it-works" },
+  { label: "Demo", href: "/#scanner" },
+  { label: "Pricing", href: "/#pricing" },
 ] as const;
 
 export function Navbar() {
@@ -78,11 +80,12 @@ export function Navbar() {
           >
             Sign In
           </Link>
-          <InteractiveHoverButton
-            text="Get Started"
+          <Link
             href="/register"
-            className="text-sm py-1.5"
-          />
+            className="inline-flex h-9 items-center rounded-lg bg-emerald-500 px-4 text-sm font-medium text-white shadow-sm shadow-emerald-500/20 transition-colors hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+          >
+            Get Started Free
+          </Link>
         </div>
 
         {/* Mobile Menu */}

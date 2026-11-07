@@ -1,34 +1,23 @@
-"use client";
+import { Shield } from "lucide-react";
 
-import { Shield, Twitter, Github, Linkedin } from "lucide-react";
-
+// Anchor hrefs are prefixed with `/` so they resolve to the home page even when
+// the footer renders on /privacy or /terms — bare `#pricing` would just look
+// for that anchor on the current route.
 const productLinks = [
-  { label: "Source Verification", href: "#features" },
-  { label: "Researcher Analysis", href: "#features" },
-  { label: "Reports", href: "#" },
-  { label: "API", href: "#" },
-  { label: "Pricing", href: "#pricing" },
+  { label: "Source Verification", href: "/#features" },
+  { label: "AI Detection", href: "/#features" },
+  { label: "Citation Analysis", href: "/#features" },
+  { label: "Pricing", href: "/#pricing" },
 ];
 
 const companyLinks = [
-  { label: "About", href: "#" },
-  { label: "Blog", href: "#" },
-  { label: "Careers", href: "#" },
-  { label: "Press Kit", href: "#" },
-  { label: "Contact", href: "#" },
+  { label: "About", href: "/#how-it-works" },
+  { label: "Contact", href: "mailto:info@example.invalid" },
 ];
 
 const legalLinks = [
-  { label: "Privacy Policy", href: "#" },
-  { label: "Terms of Service", href: "#" },
-  { label: "Cookie Policy", href: "#" },
-  { label: "Security", href: "#" },
-];
-
-const socialLinks = [
-  { icon: Twitter, label: "Twitter", href: "#" },
-  { icon: Github, label: "GitHub", href: "#" },
-  { icon: Linkedin, label: "LinkedIn", href: "#" },
+  { label: "Privacy Policy", href: "/privacy" },
+  { label: "Terms of Service", href: "/terms" },
 ];
 
 export function Footer() {
@@ -45,18 +34,9 @@ export function Footer() {
             <p className="mt-2 text-sm text-zinc-500">
               Research Integrity Platform
             </p>
-            <div className="mt-4 flex items-center gap-3">
-              {socialLinks.map((social) => (
-                <a
-                  key={social.label}
-                  href={social.href}
-                  aria-label={social.label}
-                  className="text-zinc-500 transition-colors hover:text-white"
-                >
-                  <social.icon size={18} />
-                </a>
-              ))}
-            </div>
+            <p className="mt-4 text-xs text-zinc-600">
+              Built for Azerbaijan & the EaP region
+            </p>
           </div>
 
           {/* Column 2: Product */}
@@ -113,7 +93,7 @@ export function Footer() {
           <p className="text-sm text-zinc-600">
             &copy; 2026 ArtiProof. All rights reserved.
           </p>
-          <p className="text-sm text-zinc-500">Built by EaP Guardians</p>
+          <p className="text-sm text-zinc-500">Research integrity, made transparent.</p>
         </div>
       </div>
     </footer>

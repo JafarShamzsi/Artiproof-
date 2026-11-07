@@ -1,119 +1,201 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
-import { HeroGlobe } from "./HeroGlobe";
-import { InteractiveHoverButton } from "./shared/InteractiveHoverButton";
+import { motion, useReducedMotion } from "framer-motion";
+import Link from "next/link";
+import {
+  ArrowRight,
+  Brain,
+  CheckCircle,
+  Shield,
+  Star,
+  XCircle,
+} from "lucide-react";
 
-const headlineWords = ["Research"];
-const headlineLine2Words = ["Integrity", "Platform"];
+const claimRows = [
+  {
+    icon: CheckCircle,
+    color: "text-emerald-400",
+    text: "Verified — Nature 2024 retraction archive",
+  },
+  {
+    icon: XCircle,
+    color: "text-red-400",
+    text: "False — citation 7 doesn't support claim",
+  },
+  {
+    icon: Brain,
+    color: "text-amber-400",
+    text: "AI-likely — paragraphs 3, 5, 11 (>0.7)",
+  },
+];
 
 export function HeroSection() {
-  const animationProps = (delay: number) => ({
-    initial: { opacity: 0, y: 40 } as const,
-    animate: { opacity: 1, y: 0 } as const,
-    transition: { duration: 0.5, delay, ease: "easeOut" as const },
+  const reduce = useReducedMotion();
+
+  const fade = (delay: number) => ({
+    initial: { opacity: 0, y: reduce ? 0 : 20 },
+    animate: { opacity: 1, y: 0 },
+    transition: {
+      duration: reduce ? 0 : 0.5,
+      delay: reduce ? 0 : delay,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
   });
 
-  const wordDelay = (index: number, lineOffset: number = 0) =>
-    0.1 + (lineOffset + index) * 0.08;
-
   return (
-    <section className="relative min-h-screen flex items-center overflow-hidden">
-      {/* Subtle background gradient */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-900" />
+    <section className="relative flex min-h-screen items-center overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-zinc-950 via-zinc-950 to-zinc-900/40" />
 
       <div className="relative mx-auto w-full max-w-7xl px-6 py-20">
-        <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
-          {/* Left — Text Content */}
+        <div className="grid grid-cols-1 items-center gap-16 lg:grid-cols-2">
+          {/* Left — Copy + CTA */}
           <div>
-            {/* Eyebrow */}
             <motion.p
-              {...animationProps(0)}
-              className="text-xs uppercase tracking-[0.2em] text-emerald-400"
+              {...fade(0)}
+              className="text-xs font-medium uppercase tracking-wider text-emerald-400"
             >
-              Protecting Academic Integrity
+              Research integrity, automated
             </motion.p>
 
-            {/* Headline Line 1 */}
-            <h1 className="mt-6 text-5xl font-bold leading-tight text-white md:text-6xl lg:text-7xl">
-              <span className="block">
-                {headlineWords.map((word, i) => (
-                  <motion.span
-                    key={word}
-                    className="inline-block mr-[0.25em]"
-                    {...animationProps(wordDelay(i))}
-                  >
-                    {word}
-                  </motion.span>
-                ))}
-              </span>
-
-              {/* Headline Line 2 */}
-              <span className="block">
-                {headlineLine2Words.map((word, i) => (
-                  <motion.span
-                    key={word}
-                    className={cn(
-                      "inline-block mr-[0.25em]",
-                      word === "Platform" &&
-                        "text-emerald-400"
-                    )}
-                    {...animationProps(wordDelay(i, headlineWords.length))}
-                  >
-                    {word}
-                  </motion.span>
-                ))}
-              </span>
-            </h1>
-
-            {/* Subheadline */}
-            <motion.p
-              {...animationProps(0.6)}
-              className="mt-6 max-w-lg text-xl text-zinc-400"
+            <motion.h1
+              {...fade(0.1)}
+              className="mt-6 font-display text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl"
             >
-              Verify sources for misinformation, detect AI-generated content,
-              and expose citation manipulation in academic research. Protect the
-              integrity of knowledge.
+              Know if you can{" "}
+              <span className="text-emerald-400">trust the research</span>.
+            </motion.h1>
+
+            <motion.p
+              {...fade(0.25)}
+              className="mt-6 max-w-xl text-lg text-zinc-400 sm:text-xl"
+            >
+              Five integrity checks in one platform — AI detection, plagiarism,
+              citation rings, fact-checking, and researcher scoring. Built for
+              universities across Azerbaijan and the EaP region.
             </motion.p>
 
-            {/* CTA Buttons */}
             <motion.div
-              {...animationProps(0.75)}
-              className="mt-8 flex flex-col gap-4 sm:flex-row"
+              {...fade(0.4)}
+              className="mt-8 flex flex-col items-start gap-3"
             >
-              <InteractiveHoverButton
-                text="Check a Source"
+              <Link
                 href="/register"
-                className="py-3 text-base"
-              />
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center justify-center rounded-full border border-zinc-700 px-6 py-3 font-semibold text-zinc-300 transition-all hover:border-zinc-500 hover:text-white"
+                className="cta-glow group inline-flex h-14 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-8 text-base font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
               >
-                Learn How It Works
-              </a>
+                Start free analysis
+                <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+              <p className="text-xs text-zinc-500">
+                No credit card required · 10 free checks per month
+              </p>
             </motion.div>
 
-            {/* Social Proof */}
-            <motion.p
-              {...animationProps(0.9)}
-              className="mt-12 text-sm text-zinc-500"
-            >
-              Built for{" "}
-              <span className="text-zinc-400">researchers</span>,{" "}
-              <span className="text-zinc-400">faculty</span>, and{" "}
-              <span className="text-zinc-400">institutions</span> worldwide
-            </motion.p>
+            {/* Star-rating social proof */}
+            <motion.div {...fade(0.55)} className="mt-10 flex items-center gap-4">
+              <div className="flex items-center gap-0.5" aria-hidden="true">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <Star
+                    key={i}
+                    className="h-4 w-4 fill-amber-400 text-amber-400"
+                  />
+                ))}
+              </div>
+              <p className="text-sm text-zinc-400">
+                <span className="text-zinc-200">
+                  Targeting 51 universities
+                </span>{" "}
+                ·{" "}
+                <span className="text-zinc-200">222,809 students</span>
+              </p>
+            </motion.div>
           </div>
 
-          {/* Right — Animated Globe */}
-          <div className="flex items-center justify-center">
-            <HeroGlobe />
-          </div>
+          {/* Right — Product browser mockup */}
+          <motion.div
+            {...fade(0.5)}
+            className="relative"
+          >
+            <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/50">
+              {/* Browser chrome */}
+              <div className="flex items-center gap-1.5 border-b border-zinc-800 px-4 py-3">
+                <div className="h-3 w-3 rounded-full bg-red-500/60" />
+                <div className="h-3 w-3 rounded-full bg-yellow-500/60" />
+                <div className="h-3 w-3 rounded-full bg-green-500/60" />
+                <span className="ml-3 truncate text-xs text-zinc-500">
+                  app.example.invalid/check/results
+                </span>
+              </div>
+
+              {/* Mock results page */}
+              <div className="space-y-4 p-5">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-3 border-emerald-500 text-emerald-400"
+                    aria-hidden="true"
+                  >
+                    <span className="text-lg font-bold">92</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-white">
+                      A Review of Climate Sensitivity Estimates (2024)
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Credibility: high · 2 minor issues
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {claimRows.map((row, i) => {
+                    const Icon = row.icon;
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-start gap-2.5 rounded-md border border-zinc-800 bg-zinc-950/40 px-3 py-2"
+                      >
+                        <Icon
+                          className={`mt-0.5 h-4 w-4 shrink-0 ${row.color}`}
+                          aria-hidden="true"
+                        />
+                        <p className="text-xs text-zinc-300">{row.text}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* AI bar mock */}
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-xs font-medium text-zinc-400">
+                      AI-likely content
+                    </span>
+                    <span className="text-xs text-zinc-500">14%</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                    <div
+                      className="h-full rounded-full bg-emerald-500"
+                      style={{ width: "14%" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Floating credibility badge */}
+            <div className="absolute -bottom-4 -left-4 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 shadow-xl">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20">
+                  <Shield className="h-4 w-4 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-white">High confidence</p>
+                  <p className="text-[10px] text-zinc-500">Verified by 3 sources</p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </div>
     </section>
   );
 }
-
