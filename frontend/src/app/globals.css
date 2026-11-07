@@ -95,7 +95,7 @@
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.82 0 0);
+  --muted-foreground: oklch(0.92 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
@@ -131,34 +131,119 @@
 
 /*
  * Presentation contrast boost (big-screen / projector readability).
- * Default dim zinc text fails to stay readable on a projector where
- * zinc-950 blacks crush and gamma is off. We bump each tier up one
- * step so hierarchy is preserved but nothing falls below ~5:1 on the
- * default bg. Descendant overrides restore original dark values
+ * All dim text tiers — zinc, emerald, red/amber/blue/purple — get
+ * pushed one or two steps brighter so the site reads clearly on a
+ * projector. Descendant overrides restore original dark values
  * inside light-bg cards (reports page, share-token page) so
  * dark-on-white still reads correctly. High-contrast mode below
  * still overrides via its html[data-high-contrast] prefix.
+ * Wrapped in @layer utilities so !important wins over Tailwind.
  */
-.text-zinc-400 { color: #e4e4e7 !important; }
-.text-zinc-500 { color: #d4d4d8 !important; }
-.text-zinc-600 { color: #a1a1aa !important; }
-.text-zinc-700 { color: #a1a1aa !important; }
+@layer utilities {
+  /* ----- Zinc (body text) — pushed toward white ----- */
+  .text-zinc-300 { color: #f4f4f5 !important; } /* zinc-100 */
+  .text-zinc-400 { color: #f4f4f5 !important; } /* zinc-100 */
+  .text-zinc-500 { color: #e4e4e7 !important; } /* zinc-200 */
+  .text-zinc-600 { color: #d4d4d8 !important; } /* zinc-300 */
+  .text-zinc-700 { color: #d4d4d8 !important; } /* zinc-300 */
 
-.bg-white .text-zinc-400,
-.bg-zinc-50 .text-zinc-400,
-.bg-zinc-100 .text-zinc-400 { color: #a1a1aa !important; }
+  /* ----- Emerald / green (brand) — one tier brighter ----- */
+  .text-emerald-400 { color: #6ee7b7 !important; } /* emerald-300 */
+  .text-emerald-500 { color: #6ee7b7 !important; } /* emerald-300 */
+  .text-emerald-600 { color: #34d399 !important; } /* emerald-400 */
+  .text-green-400 { color: #86efac !important; } /* green-300 */
+  .text-green-500 { color: #86efac !important; } /* green-300 */
 
-.bg-white .text-zinc-500,
-.bg-zinc-50 .text-zinc-500,
-.bg-zinc-100 .text-zinc-500 { color: #71717a !important; }
+  /* ----- Semantic accents — one tier brighter ----- */
+  .text-red-400 { color: #fca5a5 !important; } /* red-300 */
+  .text-red-500 { color: #fca5a5 !important; } /* red-300 */
+  .text-amber-400 { color: #fcd34d !important; } /* amber-300 */
+  .text-amber-500 { color: #fcd34d !important; } /* amber-300 */
+  .text-yellow-400 { color: #fde047 !important; } /* yellow-300 */
+  .text-yellow-500 { color: #fde047 !important; } /* yellow-300 */
+  .text-orange-400 { color: #fdba74 !important; } /* orange-300 */
+  .text-orange-500 { color: #fdba74 !important; } /* orange-300 */
+  .text-blue-400 { color: #93c5fd !important; } /* blue-300 */
+  .text-blue-500 { color: #93c5fd !important; } /* blue-300 */
+  .text-purple-400 { color: #d8b4fe !important; } /* purple-300 */
+  .text-purple-500 { color: #d8b4fe !important; } /* purple-300 */
+  .text-indigo-400 { color: #a5b4fc !important; } /* indigo-300 */
+  .text-teal-400 { color: #5eead4 !important; } /* teal-300 */
+  .text-cyan-400 { color: #67e8f9 !important; } /* cyan-300 */
+  .text-pink-400 { color: #f9a8d4 !important; } /* pink-300 */
+  .text-rose-400 { color: #fda4af !important; } /* rose-300 */
+  .text-sky-400 { color: #7dd3fc !important; } /* sky-300 */
 
-.bg-white .text-zinc-600,
-.bg-zinc-50 .text-zinc-600,
-.bg-zinc-100 .text-zinc-600 { color: #52525b !important; }
+  /* ----- Light-bg card descendants — keep original darker values ----- */
+  .bg-white .text-zinc-300,
+  .bg-zinc-50 .text-zinc-300,
+  .bg-zinc-100 .text-zinc-300 { color: #d4d4d8 !important; }
 
-.bg-white .text-zinc-700,
-.bg-zinc-50 .text-zinc-700,
-.bg-zinc-100 .text-zinc-700 { color: #3f3f46 !important; }
+  .bg-white .text-zinc-400,
+  .bg-zinc-50 .text-zinc-400,
+  .bg-zinc-100 .text-zinc-400 { color: #a1a1aa !important; }
+
+  .bg-white .text-zinc-500,
+  .bg-zinc-50 .text-zinc-500,
+  .bg-zinc-100 .text-zinc-500 { color: #71717a !important; }
+
+  .bg-white .text-zinc-600,
+  .bg-zinc-50 .text-zinc-600,
+  .bg-zinc-100 .text-zinc-600 { color: #52525b !important; }
+
+  .bg-white .text-zinc-700,
+  .bg-zinc-50 .text-zinc-700,
+  .bg-zinc-100 .text-zinc-700 { color: #3f3f46 !important; }
+
+  .bg-white .text-emerald-400,
+  .bg-zinc-50 .text-emerald-400,
+  .bg-zinc-100 .text-emerald-400,
+  .bg-emerald-50 .text-emerald-400,
+  .bg-emerald-100 .text-emerald-400 { color: #10b981 !important; } /* emerald-500 */
+
+  .bg-white .text-emerald-500,
+  .bg-zinc-50 .text-emerald-500,
+  .bg-zinc-100 .text-emerald-500,
+  .bg-emerald-50 .text-emerald-500,
+  .bg-emerald-100 .text-emerald-500 { color: #059669 !important; } /* emerald-600 */
+
+  .bg-white .text-emerald-600,
+  .bg-zinc-50 .text-emerald-600,
+  .bg-zinc-100 .text-emerald-600,
+  .bg-emerald-50 .text-emerald-600,
+  .bg-emerald-100 .text-emerald-600 { color: #047857 !important; } /* emerald-700 */
+
+  .bg-white .text-red-400,
+  .bg-zinc-50 .text-red-400,
+  .bg-zinc-100 .text-red-400,
+  .bg-red-50 .text-red-400,
+  .bg-red-100 .text-red-400 { color: #ef4444 !important; } /* red-500 */
+
+  .bg-white .text-red-500,
+  .bg-zinc-50 .text-red-500,
+  .bg-zinc-100 .text-red-500,
+  .bg-red-50 .text-red-500,
+  .bg-red-100 .text-red-500 { color: #dc2626 !important; } /* red-600 */
+
+  .bg-white .text-amber-400,
+  .bg-zinc-50 .text-amber-400,
+  .bg-zinc-100 .text-amber-400,
+  .bg-amber-50 .text-amber-400,
+  .bg-amber-100 .text-amber-400 { color: #f59e0b !important; } /* amber-500 */
+
+  /* ----- Placeholder ----- */
+  .placeholder\:text-zinc-500::placeholder {
+    color: #e4e4e7 !important;
+    opacity: 1 !important;
+  }
+
+  .bg-white .placeholder\:text-zinc-500::placeholder,
+  .bg-zinc-50 .placeholder\:text-zinc-500::placeholder,
+  .bg-zinc-100 .placeholder\:text-zinc-500::placeholder {
+    color: #71717a !important;
+    opacity: 1 !important;
+  }
+}
 
 /*
  * WCAG 2.1 AAA high-contrast mode
