@@ -2,19 +2,45 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, RotateCcw, Shield, Brain, BookOpen, FileText, AlertTriangle, CheckCircle } from "lucide-react";
+import {
+  RotateCcw,
+  Shield,
+  Brain,
+  BookOpen,
+  FileText,
+  AlertTriangle,
+  CheckCircle,
+  ArrowRight,
+} from "lucide-react";
+import Link from "next/link";
+
 import { cn } from "@/lib/utils";
 import { scoreColor, scoreStroke } from "@/lib/colors";
-import { SectionHeading } from "@/components/landing/shared/SectionHeading";
 import { ScrollReveal } from "@/components/landing/shared/ScrollReveal";
-import { GlowCard } from "@/components/landing/shared/GlowCard";
 
 type ScanState = "idle" | "scanning" | "complete";
 
+/**
+ * Pre-recorded example outputs. The demo is intentionally locked to these
+ * three URLs — the input is read-only and only the example chips trigger
+ * a scan. We used to allow free paste, then fall back to canned data for
+ * any URL we didn't recognize, which let users post their own URL and see
+ * fake results. A research-integrity tool faking its own demo is the
+ * worst-possible brand contradiction; the lockdown removes it.
+ */
 const exampleSources = [
-  "https://example-news.com/climate-article",
-  "https://blog.example.org/vaccine-study",
-  "https://medium.com/ai-revolution-2025",
+  {
+    url: "example-news.com/climate-article",
+    label: "Mixed credibility (climate news)",
+  },
+  {
+    url: "blog.example.org/vaccine-study",
+    label: "Low credibility (anti-vax blog)",
+  },
+  {
+    url: "medium.com/ai-revolution-2025",
+    label: "AI-generated (Medium post)",
+  },
 ] as const;
 
 interface CheckResult {
@@ -26,69 +52,73 @@ interface CheckResult {
 }
 
 const scanResults: Record<string, CheckResult[]> = {
-  "https://example-news.com/climate-article": [
-    { name: "Claim #1", icon: CheckCircle, status: "pass", label: "TRUE", detail: "CO2 levels data matches NOAA records" },
-    { name: "Claim #2", icon: AlertTriangle, status: "fail", label: "FALSE", detail: "Temperature rise figure exaggerated by 40%" },
-    { name: "AI Detection", icon: Brain, status: "pass", label: "8% AI", detail: "Article appears mostly human-written" },
-    { name: "Citation #1", icon: BookOpen, status: "pass", label: "VALID", detail: "Nature 2024 paper accessible and current" },
-    { name: "Citation #2", icon: BookOpen, status: "warn", label: "RETRACTED", detail: "This source was retracted in Jan 2025" },
-    { name: "Origin Trace", icon: FileText, status: "warn", label: "TRACED", detail: "False claim originated on social media" },
+  "example-news.com/climate-article": [
+    { name: "Claim 1", icon: CheckCircle, status: "pass", label: "True", detail: "CO2 levels match NOAA records" },
+    { name: "Claim 2", icon: AlertTriangle, status: "fail", label: "False", detail: "Temperature rise figure off by 40%" },
+    { name: "AI detection", icon: Brain, status: "pass", label: "8% AI", detail: "Mostly human-written" },
+    { name: "Citation 1", icon: BookOpen, status: "pass", label: "Valid", detail: "Nature 2024 — accessible" },
+    { name: "Citation 2", icon: BookOpen, status: "warn", label: "Retracted", detail: "Withdrawn Jan 2025" },
+    { name: "Origin trace", icon: FileText, status: "warn", label: "Traced", detail: "False claim seeded on social" },
   ],
-  "https://blog.example.org/vaccine-study": [
-    { name: "Claim #1", icon: AlertTriangle, status: "fail", label: "FALSE", detail: "Study cited was retracted in 2023" },
-    { name: "Claim #2", icon: AlertTriangle, status: "fail", label: "MISLEADING", detail: "Statistics taken out of context" },
-    { name: "AI Detection", icon: Brain, status: "warn", label: "72% AI", detail: "High probability of AI-generated content" },
-    { name: "Citation #1", icon: BookOpen, status: "fail", label: "RETRACTED", detail: "Wakefield study — retracted 2010" },
-    { name: "Citation #2", icon: BookOpen, status: "fail", label: "INACCESSIBLE", detail: "Link returns 404 error" },
-    { name: "Origin Trace", icon: FileText, status: "fail", label: "DISINFO", detail: "Claims trace to known disinfo network" },
+  "blog.example.org/vaccine-study": [
+    { name: "Claim 1", icon: AlertTriangle, status: "fail", label: "False", detail: "Cited study retracted in 2023" },
+    { name: "Claim 2", icon: AlertTriangle, status: "fail", label: "Misleading", detail: "Statistics out of context" },
+    { name: "AI detection", icon: Brain, status: "warn", label: "72% AI", detail: "High AI probability" },
+    { name: "Citation 1", icon: BookOpen, status: "fail", label: "Retracted", detail: "Wakefield 1998 — retracted 2010" },
+    { name: "Citation 2", icon: BookOpen, status: "fail", label: "Inaccessible", detail: "Link returns 404" },
+    { name: "Origin trace", icon: FileText, status: "fail", label: "Disinfo", detail: "Known disinfo network origin" },
   ],
-  "https://medium.com/ai-revolution-2025": [
-    { name: "Claim #1", icon: CheckCircle, status: "pass", label: "TRUE", detail: "GPT-4 benchmark data verified" },
-    { name: "Claim #2", icon: CheckCircle, status: "pass", label: "TRUE", detail: "Market size figure matches Statista" },
-    { name: "AI Detection", icon: Brain, status: "fail", label: "95% AI", detail: "Almost entirely AI-generated content" },
-    { name: "Citation #1", icon: BookOpen, status: "pass", label: "VALID", detail: "arXiv paper accessible and current" },
-    { name: "Citation #2", icon: BookOpen, status: "pass", label: "VALID", detail: "OpenAI blog post verified" },
-    { name: "Source Quality", icon: Shield, status: "warn", label: "MEDIUM", detail: "Medium blog — non-peer-reviewed source" },
+  "medium.com/ai-revolution-2025": [
+    { name: "Claim 1", icon: CheckCircle, status: "pass", label: "True", detail: "GPT-4 benchmark verified" },
+    { name: "Claim 2", icon: CheckCircle, status: "pass", label: "True", detail: "Market size matches Statista" },
+    { name: "AI detection", icon: Brain, status: "fail", label: "95% AI", detail: "Almost entirely AI-generated" },
+    { name: "Citation 1", icon: BookOpen, status: "pass", label: "Valid", detail: "arXiv paper accessible" },
+    { name: "Citation 2", icon: BookOpen, status: "pass", label: "Valid", detail: "OpenAI blog verified" },
+    { name: "Source quality", icon: Shield, status: "warn", label: "Medium", detail: "Non-peer-reviewed source" },
   ],
 };
 
 const scores: Record<string, number> = {
-  "https://example-news.com/climate-article": 72,
-  "https://blog.example.org/vaccine-study": 15,
-  "https://medium.com/ai-revolution-2025": 58,
+  "example-news.com/climate-article": 72,
+  "blog.example.org/vaccine-study": 15,
+  "medium.com/ai-revolution-2025": 58,
 };
 
 const statusStyles = {
-  pass: { dot: "bg-emerald-400", badge: "bg-emerald-500/20 text-emerald-400" },
-  warn: { dot: "bg-yellow-400", badge: "bg-yellow-500/20 text-yellow-400" },
-  fail: { dot: "bg-red-400", badge: "bg-red-500/20 text-red-400" },
-};
+  pass: "border-emerald-500/30 bg-emerald-500/5 text-emerald-300",
+  warn: "border-amber-500/30 bg-amber-500/5 text-amber-300",
+  fail: "border-red-500/30 bg-red-500/5 text-red-300",
+} as const;
 
 export function ScannerPreview() {
-  const [input, setInput] = useState("");
   const [state, setState] = useState<ScanState>("idle");
   const [progress, setProgress] = useState(0);
-  const [activeUrl, setActiveUrl] = useState("");
+  const [activeUrl, setActiveUrl] = useState<string>("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cleanup = useCallback(() => {
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
   }, []);
 
-  useEffect(() => { return cleanup; }, [cleanup]);
+  useEffect(() => cleanup, [cleanup]);
 
   const startScan = useCallback(
     (url: string) => {
       cleanup();
       setActiveUrl(url);
-      setInput(url);
       setProgress(0);
 
       timeoutRef.current = setTimeout(() => {
         setState("scanning");
-        const totalDuration = 2500;
+        const totalDuration = 2200;
         const steps = 50;
         let currentStep = 0;
 
@@ -96,76 +126,75 @@ export function ScannerPreview() {
           currentStep++;
           setProgress((currentStep / steps) * 100);
           if (currentStep >= steps) {
-            if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = null;
+            }
             setState("complete");
           }
         }, totalDuration / steps);
-      }, 300);
+      }, 250);
     },
-    [cleanup]
+    [cleanup],
   );
 
   const handleReset = useCallback(() => {
     cleanup();
     setState("idle");
-    setInput("");
     setActiveUrl("");
     setProgress(0);
   }, [cleanup]);
 
-  const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      if (input.trim() && state === "idle") startScan(input.trim());
-    },
-    [input, state, startScan]
-  );
-
-  const score = scores[activeUrl] ?? 55;
-  const results = scanResults[activeUrl] ?? scanResults["https://example-news.com/climate-article"];
+  const score = scores[activeUrl] ?? 0;
+  const results = scanResults[activeUrl];
 
   return (
-    <section id="scanner" className="py-24">
+    <section id="how-it-works" className="py-24">
       <div className="mx-auto max-w-4xl px-6">
-        <SectionHeading eyebrow="LIVE DEMO" title="See It In Action" gradient="Action" />
+        <div className="mb-10 max-w-2xl">
+          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            How it works
+          </p>
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Three pre-recorded examples. Real scoring rubric.
+          </h2>
+          <p className="mt-4 text-sm leading-relaxed text-zinc-400">
+            Pick a sample URL below to see the kind of report a real
+            submission produces. The output you see is canned for the
+            examples; the rubric (claim verdicts, AI probability,
+            citation status, credibility score) is what you'll get on
+            real content after registering.
+          </p>
+        </div>
 
         <ScrollReveal>
           <AnimatePresence mode="wait">
             {state === "idle" && (
               <motion.div
                 key="idle"
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25 }}
               >
-                <form onSubmit={handleSubmit}>
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-500" />
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      placeholder="Paste an article URL to verify..."
-                      className="w-full rounded-xl border border-zinc-700/50 bg-zinc-900 p-4 pl-12 pr-14 text-white placeholder-zinc-500 outline-none transition-colors focus:border-emerald-500/50"
-                    />
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  {exampleSources.map((ex) => (
                     <button
-                      type="submit"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg bg-emerald-500 p-2 text-white transition-all hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/20"
-                    >
-                      <Search className="size-4" />
-                    </button>
-                  </div>
-                </form>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {exampleSources.map((url) => (
-                    <button
-                      key={url}
+                      key={ex.url}
                       type="button"
-                      onClick={() => startScan(url)}
-                      className="cursor-pointer rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-emerald-500/50 hover:text-emerald-400"
+                      onClick={() => startScan(ex.url)}
+                      className="group rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-left transition-colors hover:border-emerald-500/40 hover:bg-zinc-900/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
                     >
-                      {url}
+                      <p className="text-xs uppercase tracking-wider text-zinc-500">
+                        {ex.label}
+                      </p>
+                      <p className="mt-2 truncate font-mono text-sm text-zinc-200">
+                        {ex.url}
+                      </p>
+                      <p className="mt-3 inline-flex items-center gap-1 text-xs text-emerald-400 transition-transform group-hover:translate-x-0.5">
+                        Run example
+                        <ArrowRight className="h-3 w-3" />
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -175,128 +204,159 @@ export function ScannerPreview() {
             {state === "scanning" && (
               <motion.div
                 key="scanning"
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3 }}
-                className="space-y-6"
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25 }}
+                className="space-y-5"
+                aria-live="polite"
               >
-                <div className="rounded-xl border border-zinc-700/50 bg-zinc-900 p-4">
-                  <p className="text-sm text-zinc-400">Verifying:</p>
-                  <p className="mt-1 font-medium text-white">{activeUrl}</p>
-                </div>
-                <div className="space-y-3">
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-                    <motion.div
-                      className="h-full rounded-full bg-emerald-500"
-                      style={{ width: `${progress}%` }}
-                      transition={{ duration: 0.05 }}
-                    />
-                  </div>
-                  <p className="text-center text-sm text-zinc-400">
-                    Extracting claims, checking facts, detecting AI content...
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wider text-zinc-500">
+                    Verifying
+                  </p>
+                  <p className="mt-1 truncate font-mono text-sm text-zinc-200">
+                    {activeUrl}
                   </p>
                 </div>
+                <div
+                  role="progressbar"
+                  aria-valuenow={Math.round(progress)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800"
+                >
+                  <motion.div
+                    className="h-full rounded-full bg-emerald-500"
+                    style={{ width: `${progress}%` }}
+                    transition={{ duration: 0.05 }}
+                  />
+                </div>
+                <p className="text-center text-sm text-zinc-500">
+                  Extracting claims, checking facts, detecting AI content...
+                </p>
               </motion.div>
             )}
 
-            {state === "complete" && (
+            {state === "complete" && results && (
               <motion.div
                 key="complete"
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3 }}
-                className="space-y-6"
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25 }}
+                className="space-y-8"
               >
-                <div className="rounded-xl border border-zinc-700/50 bg-zinc-900 p-4">
-                  <p className="text-sm text-zinc-400">Verification complete:</p>
-                  <p className="mt-1 font-medium text-white">{activeUrl}</p>
-                </div>
-
-                <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center sm:gap-8">
-                  <div className="relative flex h-28 w-28 shrink-0 items-center justify-center">
-                    <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 120 120">
-                      <circle cx="60" cy="60" r="52" fill="none" stroke="currentColor" strokeWidth="8" className="text-zinc-800" />
+                <div className="flex flex-col items-center gap-6 rounded-xl border border-zinc-800 bg-zinc-900/40 p-6 sm:flex-row sm:gap-8">
+                  <div className="relative flex h-24 w-24 shrink-0 items-center justify-center">
+                    <svg
+                      className="absolute inset-0 h-full w-full -rotate-90"
+                      viewBox="0 0 120 120"
+                    >
+                      <circle
+                        cx="60"
+                        cy="60"
+                        r="52"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="8"
+                        className="text-zinc-800"
+                      />
                       <motion.circle
-                        cx="60" cy="60" r="52" fill="none"
+                        cx="60"
+                        cy="60"
+                        r="52"
+                        fill="none"
                         stroke={scoreStroke(score)}
-                        strokeWidth="8" strokeLinecap="round"
+                        strokeWidth="8"
+                        strokeLinecap="round"
                         strokeDasharray={2 * Math.PI * 52}
                         initial={{ strokeDashoffset: 2 * Math.PI * 52 }}
-                        animate={{ strokeDashoffset: 2 * Math.PI * 52 * (1 - score / 100) }}
-                        transition={{ duration: 1, ease: "easeOut" }}
+                        animate={{
+                          strokeDashoffset:
+                            2 * Math.PI * 52 * (1 - score / 100),
+                        }}
+                        transition={{ duration: 0.9, ease: "easeOut" }}
                       />
                     </svg>
                     <div className="text-center">
-                      <motion.span
-                        className={cn("text-3xl font-bold", scoreColor(score))}
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+                      <span
+                        className={cn("font-display text-3xl font-bold", scoreColor(score))}
                       >
                         {score}
-                      </motion.span>
-                      <p className="text-xs text-zinc-500">Credibility</p>
+                      </span>
+                      <p className="text-[10px] uppercase tracking-wider text-zinc-500">
+                        Credibility
+                      </p>
                     </div>
+                  </div>
+                  <div className="min-w-0 flex-1 text-center sm:text-left">
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">
+                      Verified
+                    </p>
+                    <p className="mt-1 truncate font-mono text-sm text-zinc-200">
+                      {activeUrl}
+                    </p>
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Example output — your real submissions get the full
+                      report with sources and remediation.
+                    </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {results.map((check, index) => {
-                    const style = statusStyles[check.status];
                     const Icon = check.icon;
                     return (
                       <motion.div
                         key={check.name}
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.4, delay: index * 0.1 }}
+                        transition={{ duration: 0.3, delay: index * 0.06 }}
+                        className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4"
                       >
-                        <GlowCard className="p-4" glowColor="emerald">
-                          <div className="flex items-center gap-2">
-                            <span className="relative flex h-2 w-2">
-                              <span className={cn("absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping", style.dot)} />
-                              <span className={cn("relative inline-flex h-2 w-2 rounded-full", style.dot)} />
-                            </span>
-                            <Icon className="h-4 w-4 text-zinc-400" />
-                            <span className="text-sm font-medium text-white">{check.name}</span>
-                          </div>
-                          <div className="mt-2">
-                            <span className={cn("inline-block rounded-full px-2 py-0.5 text-xs uppercase", style.badge)}>
-                              {check.label}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-xs text-zinc-500">{check.detail}</p>
-                        </GlowCard>
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4 text-zinc-500" aria-hidden="true" />
+                          <span className="text-sm font-medium text-white">
+                            {check.name}
+                          </span>
+                          <span
+                            className={cn(
+                              "ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+                              statusStyles[check.status],
+                            )}
+                          >
+                            {check.label}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                          {check.detail}
+                        </p>
                       </motion.div>
                     );
                   })}
                 </div>
 
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-4">
                   <button
                     type="button"
                     onClick={handleReset}
-                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 transition hover:border-zinc-500 hover:text-white"
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-500 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
                   >
-                    <RotateCcw className="size-4" />
-                    Try another source
+                    <RotateCcw className="h-4 w-4" />
+                    Try another example
                   </button>
+                  <Link
+                    href="/register"
+                    className="inline-flex items-center gap-2 text-sm text-emerald-400 transition-colors hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:rounded-md"
+                  >
+                    Run on your own source
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
-
-          <div className="mt-8 text-center">
-            <p className="text-sm text-zinc-500">
-              This is a preview. Register for full source verification with detailed reports.
-            </p>
-            <a
-              href="/register"
-              className="mt-4 inline-flex items-center justify-center rounded-lg bg-emerald-500 px-6 py-3 text-sm font-medium text-white transition-all hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Start Checking Sources
-            </a>
-          </div>
         </ScrollReveal>
       </div>
     </section>
