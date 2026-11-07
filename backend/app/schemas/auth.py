@@ -54,6 +54,9 @@ class UserResponse(BaseModel):
     full_name: str
     institution: Optional[str] = None
     role: str
+    tier: str = "free"
+    locale: str = "en"
+    deactivated_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -69,3 +72,41 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _new_password_within_bcrypt_limit(cls, v: str) -> str:
+        return _validate_bcrypt_length(v)
+
+
+class NotificationPreferences(BaseModel):
+    """All keys default-true/false to match DEFAULT_NOTIFICATION_PREFERENCES.
+    Adding a key here without matching the constant will produce a stable
+    response shape (existing rows fall back to defaults), so consumers can
+    safely treat new fields as optional."""
+
+    email_on_completion: bool = True
+    email_on_low_credibility: bool = True
+    email_weekly_digest: bool = False
+    email_product_updates: bool = False
+
+
+class LocaleUpdate(BaseModel):
+    locale: str  # validated against constants.SUPPORTED_LOCALES in the route
+
+
+class AccountDeactivateRequest(BaseModel):
+    """Confirm with the current password — same UX as deletion."""
+    current_password: str
+
+
+class AccountDeleteRequest(BaseModel):
+    """Confirm with the current password and a typed phrase to prevent fat-finger
+    deletion from the dashboard. Frontend asks the user to type DELETE."""
+    current_password: str
+    confirm: str  # must equal "DELETE"

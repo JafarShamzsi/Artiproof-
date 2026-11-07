@@ -46,6 +46,55 @@ async def get_current_user(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    if user.deleted_at is not None:
+        # Soft-deleted account — treat the JWT as invalid even if it hasn't
+        # expired yet. Frontend sees this as a 401 and sends the user to /login.
+        raise HTTPException(status_code=401, detail="Account deleted")
+    if user.deactivated_at is not None:
+        # Suspended account — block every route except /api/auth/me/reactivate
+        # and /api/auth/me (so the user can see their own state and reactivate).
+        # 423 Locked is more honest than 401: the credentials are valid, the
+        # resource just isn't available.
+        raise HTTPException(
+            status_code=423,
+            detail="Account deactivated. Reactivate via /api/auth/me/reactivate.",
+        )
+    return user
+
+
+async def get_current_user_allow_deactivated(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Like get_current_user but accepts deactivated accounts.
+
+    Used only by the reactivate / fetch-self endpoints so a deactivated user
+    can see their own state and lift the suspension. Still rejects deleted
+    accounts.
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = await db.get(User, user_id)
+    if not user or user.deleted_at is not None:
+        raise HTTPException(status_code=401, detail="User not found")
     return user
 
 
