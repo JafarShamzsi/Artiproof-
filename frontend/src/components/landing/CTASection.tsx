@@ -5,7 +5,7 @@ export function CTASection() {
   return (
     <section className="border-t border-zinc-900 py-32">
       <div className="mx-auto max-w-2xl px-6 text-center">
-        <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+        <h2 className="font-display text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
           Ten free checks. No credit card.
         </h2>
         <p className="mx-auto mt-4 max-w-lg text-lg text-zinc-400">

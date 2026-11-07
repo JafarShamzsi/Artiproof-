@@ -58,7 +58,7 @@ export function HeroSection() {
 
             <motion.h1
               {...fade(0.1)}
-              className="mt-6 font-display text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl"
+              className="mt-6 font-display text-4xl font-bold leading-[1.05] tracking-tight text-balance text-white sm:text-5xl md:text-6xl lg:text-7xl"
             >
               Know if you can{" "}
               <span className="text-emerald-400">trust the research</span>.

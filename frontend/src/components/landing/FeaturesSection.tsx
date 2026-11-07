@@ -271,7 +271,7 @@ export function FeaturesSection() {
           <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
             Five engines
           </p>
-          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
             Each engine returns evidence, not a verdict
           </h2>
         </div>

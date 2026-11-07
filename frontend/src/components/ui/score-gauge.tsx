@@ -85,7 +85,7 @@ export function ScoreGauge({
           x={cx}
           y={cy - 4}
           textAnchor="middle"
-          className="fill-white font-bold"
+          className="fill-white font-bold tabular-nums"
           style={{ fontSize: Math.round(size * 0.28) }}
         >
           {isUnknown ? "—" : Math.round(clampedScore)}

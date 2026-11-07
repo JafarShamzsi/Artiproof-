@@ -127,6 +127,14 @@
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+  }
+  /* Honor user motion preference: stop smooth scroll if it has been
+     opted out of system-wide. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 
   /* Standardize Lucide icon stroke weight site-wide. The default 2.0 is a
@@ -542,6 +550,20 @@ html[data-high-contrast="true"] .bg-orange-500 > .text-white,
 html[data-high-contrast="true"] .bg-amber-500 > .text-white,
 html[data-high-contrast="true"] .bg-yellow-500 > .text-white {
   color: #000000 !important;
+}
+
+/* Subtle grain overlay — fixed, pointer-events: none so it can't trap clicks.
+   Breaks the perfect-flat-digital feel without a measurable perf cost
+   because it's a single fixed pseudo-element (no scroll repaint). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
 
 /* Glow halo behind primary CTA buttons. Sits behind the element via a

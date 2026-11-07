@@ -155,7 +155,7 @@ export function ScannerPreview() {
           <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
             How it works
           </p>
-          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
             Three pre-recorded examples. Real scoring rubric.
           </h2>
           <p className="mt-4 text-sm leading-relaxed text-zinc-400">
@@ -183,7 +183,7 @@ export function ScannerPreview() {
                       key={ex.url}
                       type="button"
                       onClick={() => startScan(ex.url)}
-                      className="group rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-left transition-colors hover:border-emerald-500/40 hover:bg-zinc-900/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                      className="group rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-left transition-all hover:border-emerald-500/40 hover:bg-zinc-900/60 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
                     >
                       <p className="text-xs uppercase tracking-wider text-zinc-500">
                         {ex.label}
@@ -281,7 +281,7 @@ export function ScannerPreview() {
                     </svg>
                     <div className="text-center">
                       <span
-                        className={cn("font-display text-3xl font-bold", scoreColor(score))}
+                        className={cn("font-display text-3xl font-bold tabular-nums", scoreColor(score))}
                       >
                         {score}
                       </span>
@@ -341,7 +341,7 @@ export function ScannerPreview() {
                   <button
                     type="button"
                     onClick={handleReset}
-                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-500 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition-all hover:border-zinc-500 hover:bg-zinc-800 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
                   >
                     <RotateCcw className="h-4 w-4" />
                     Try another example

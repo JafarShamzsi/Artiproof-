@@ -26,7 +26,12 @@ const features: FeatureRow[] = [
 function CellContent({ value, primary }: { value: Cell; primary: boolean }) {
   if (typeof value === "string") {
     return (
-      <span className={primary ? "font-semibold text-white" : "text-zinc-400"}>
+      <span
+        className={
+          "tabular-nums " +
+          (primary ? "font-semibold text-white" : "text-zinc-400")
+        }
+      >
         {value}
       </span>
     );
@@ -51,7 +56,7 @@ export function ComparisonSection() {
           <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
             How we compare
           </p>
-          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
             Five integrity engines. One workflow. One bill.
           </h2>
         </div>

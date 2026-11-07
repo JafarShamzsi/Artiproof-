@@ -110,7 +110,7 @@ export function PricingSection() {
           <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
             Pricing
           </p>
-          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
             Free for the first 10 checks. $20 if you keep going.
           </h2>
         </div>
@@ -147,7 +147,7 @@ export function PricingSection() {
             <ScrollReveal key={plan.name} delay={idx * 0.05}>
               <div
                 className={cn(
-                  "relative h-full rounded-xl border bg-zinc-900/40 p-7 transition-colors",
+                  "relative flex h-full flex-col rounded-xl border bg-zinc-900/40 p-7 transition-colors",
                   plan.popular
                     ? "border-emerald-500/40"
                     : "border-zinc-800 hover:border-zinc-700",
@@ -164,7 +164,7 @@ export function PricingSection() {
                 </h3>
 
                 <div className="mt-3 flex items-baseline gap-1">
-                  <span className="font-display text-4xl font-bold text-white">
+                  <span className="font-display text-4xl font-bold tabular-nums text-white">
                     {billing === "monthly"
                       ? plan.monthlyPrice
                       : plan.yearlyPrice}
@@ -176,7 +176,10 @@ export function PricingSection() {
 
                 <div className="my-6 border-t border-zinc-800/70" />
 
-                <ul className="space-y-3">
+                {/* flex-1 pushes the CTA block down so all three tier
+                    buttons align horizontally regardless of feature list
+                    line-wrap differences. */}
+                <ul className="flex-1 space-y-3">
                   {plan.features.map((feature) => (
                     <li
                       key={feature.text}
@@ -208,20 +211,22 @@ export function PricingSection() {
                   ))}
                 </ul>
 
-                <a
-                  href={plan.ctaHref}
-                  className={cn(
-                    "mt-7 inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-all active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50",
-                    plan.popular
-                      ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                      : "border border-zinc-700 text-zinc-200 hover:bg-zinc-800",
-                  )}
-                >
-                  {plan.cta}
-                </a>
-                <p className="mt-3 text-center text-xs text-zinc-500">
-                  {plan.riskReducer}
-                </p>
+                <div className="mt-7">
+                  <a
+                    href={plan.ctaHref}
+                    className={cn(
+                      "inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-all active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50",
+                      plan.popular
+                        ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                        : "border border-zinc-700 text-zinc-200 hover:bg-zinc-800",
+                    )}
+                  >
+                    {plan.cta}
+                  </a>
+                  <p className="mt-3 text-center text-xs text-zinc-500">
+                    {plan.riskReducer}
+                  </p>
+                </div>
               </div>
             </ScrollReveal>
           ))}
