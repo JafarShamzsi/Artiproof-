@@ -7,13 +7,25 @@ import logging
 import re
 from typing import Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+
 from app.config import settings
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
 
 MAX_PARAGRAPHS = 20
+
+_client: "genai.Client | None" = None
+
+
+def _gemini_client() -> "genai.Client | None":
+    """Lazy module-level singleton — one Client per process, not per call."""
+    global _client
+    if _client is None and settings.GEMINI_API_KEY:
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
 
 DETECTION_PROMPT = """You are an AI-generated content detector. Analyze each paragraph below and estimate the probability that it was written by an AI language model (0.0 = definitely human, 1.0 = definitely AI).
 
@@ -39,15 +51,18 @@ Return ONLY the JSON array, no other text."""
 
 @with_retry(max_retries=2, exceptions=GEMINI_RETRY_EXCEPTIONS)
 async def _call_gemini(prompt: str) -> str:
-    model = genai.GenerativeModel(settings.GEMINI_MODEL)
-    response = await model.generate_content_async(
-        prompt,
-        generation_config=genai.types.GenerationConfig(
+    client = _gemini_client()
+    if client is None:
+        return ""  # caller already guarded on settings.GEMINI_API_KEY
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
             temperature=0.1,
             max_output_tokens=4096,
         ),
     )
-    return response.text.strip()
+    return (response.text or "").strip()
 
 
 def _split_paragraphs(text: str) -> list[str]:
@@ -90,7 +105,6 @@ async def detect_ai_content(text: str, warnings: Optional[list] = None) -> list[
             warnings.append({"type": "fallback_heuristic", "module": "ai_detector"})
         return _heuristic_detection(capped)
 
-    genai.configure(api_key=settings.GEMINI_API_KEY)
     formatted = "\n\n".join(
         f"[Paragraph {i}]: {p[:500]}" for i, p in enumerate(capped)
     )

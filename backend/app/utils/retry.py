@@ -1,7 +1,7 @@
 """Retry decorator with exponential backoff for external API calls.
 
 Each call site picks which exceptions to retry on, since httpx and
-google-generativeai (google.api_core) raise different types.
+google-genai raise different types.
 
 Example:
 
@@ -33,17 +33,18 @@ HTTP_RETRY_EXCEPTIONS: Tuple[Type[BaseException], ...] = (
 
 
 def _gemini_retry_exceptions() -> Tuple[Type[BaseException], ...]:
-    """Build the Gemini retry tuple lazily — google.api_core is optional."""
+    """Build the Gemini retry tuple lazily — google-genai is optional at import time.
+
+    The new SDK groups transient + 4xx + 5xx under a single ``APIError`` class
+    that exposes ``.code`` (HTTP status). The ``with_retry`` decorator already
+    distinguishes retryable vs terminal HTTP statuses for ``httpx.HTTPStatusError``;
+    for Gemini, we just retry on the class and let the higher-level caller
+    handle terminal failures.
+    """
     extras: list[Type[BaseException]] = []
     try:
-        from google.api_core import exceptions as gax  # type: ignore
-        extras.extend([
-            gax.ResourceExhausted,    # 429
-            gax.ServiceUnavailable,   # 503
-            gax.DeadlineExceeded,     # timeout
-            gax.InternalServerError,  # 500
-            gax.GatewayTimeout,       # 504
-        ])
+        from google.genai import errors as genai_errors  # type: ignore
+        extras.append(genai_errors.APIError)
     except ImportError:
         pass
     return HTTP_RETRY_EXCEPTIONS + tuple(extras)

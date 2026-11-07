@@ -5,10 +5,22 @@ Narrative generator — uses Gemini to write human-readable report summaries.
 import json
 import logging
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+_client: "genai.Client | None" = None
+
+
+def _gemini_client() -> "genai.Client | None":
+    """Lazy module-level singleton — one Client per process, not per call."""
+    global _client
+    if _client is None and settings.GEMINI_API_KEY:
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
 
 SOURCE_CHECK_PROMPT = """You are writing an executive summary for a source verification report. Write a clear, professional 3-4 paragraph narrative.
 
@@ -116,18 +128,20 @@ async def _generate(prompt: str) -> str:
     if not settings.GEMINI_API_KEY:
         return "Report narrative unavailable — AI service not configured."
 
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel(settings.GEMINI_MODEL)
+    client = _gemini_client()
+    if client is None:
+        return "Report narrative unavailable — AI service not configured."
 
     try:
-        response = await model.generate_content_async(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 temperature=0.4,
                 max_output_tokens=2048,
             ),
         )
-        return response.text.strip()
+        return (response.text or "").strip()
     except Exception:
         logger.exception("Narrative generation failed")
         return "Report narrative generation encountered an error."

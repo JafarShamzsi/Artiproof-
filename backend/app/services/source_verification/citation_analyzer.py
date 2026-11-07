@@ -7,11 +7,68 @@ import logging
 from urllib.parse import urlparse
 
 import httpx
+from google import genai
+from google.genai import types
 
 from app.config import settings
-from app.utils.retry import HTTP_RETRY_EXCEPTIONS, with_retry
+from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, HTTP_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
+
+
+_client: "genai.Client | None" = None
+
+
+def _gemini_client() -> "genai.Client | None":
+    """Lazy module-level singleton — one Client per process, not per call."""
+    global _client
+    if _client is None and settings.GEMINI_API_KEY:
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
+
+
+# Cap how often we ask Gemini for an alternative — only retracted / inaccessible
+# citations qualify, and even then we keep the prompt short.
+_SUGGEST_ALTERNATIVE_PROMPT = (
+    "A citation in a research article has been flagged as {issue}. "
+    "Suggest one alternative that is reputable, accessible, and on the same "
+    "topic. Reply with one short sentence (under 25 words). If you can't "
+    "confidently suggest one, reply exactly: NONE.\n\n"
+    "Original citation: \"{citation}\"\n"
+)
+
+
+@with_retry(max_retries=1, exceptions=GEMINI_RETRY_EXCEPTIONS)
+async def _suggest_alternative_via_gemini(citation_text: str, issue: str) -> str | None:
+    """Best-effort short alternative suggestion from Gemini. None on failure."""
+    if not settings.GEMINI_API_KEY or not citation_text:
+        return None
+
+    client = _gemini_client()
+    if client is None:
+        return None
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=_SUGGEST_ALTERNATIVE_PROMPT.format(
+                issue=issue, citation=citation_text[:200]
+            ),
+            config=types.GenerateContentConfig(
+                temperature=0.4,
+                max_output_tokens=120,
+            ),
+        )
+        text = (response.text or "").strip()
+        if not text or text.upper().startswith("NONE"):
+            return None
+        # Strip any quotes/markdown the model might add
+        if text.startswith(("\"", "'")) and text.endswith(("\"", "'")):
+            text = text[1:-1].strip()
+        return text[:240] or None
+    except Exception:
+        logger.debug("Alternative-citation suggestion failed", exc_info=True)
+        return None
 
 # Known high-credibility domains
 HIGH_CREDIBILITY_DOMAINS = {
@@ -175,6 +232,12 @@ async def analyze_citation(citation: dict) -> dict:
         if domain in LOW_CREDIBILITY_DOMAINS:
             issues.append(f"Source domain ({domain}) has low credibility rating")
 
+    suggested_alternative: str | None = None
+    if is_retracted:
+        suggested_alternative = await _suggest_alternative_via_gemini(text, "retracted")
+    elif not is_accessible:
+        suggested_alternative = await _suggest_alternative_via_gemini(text, "inaccessible")
+
     return {
         "original_citation": text,
         "citation_url": url or None,
@@ -182,7 +245,7 @@ async def analyze_citation(citation: dict) -> dict:
         "is_retracted": is_retracted,
         "credibility_score": credibility_score,
         "issues": issues if issues else None,
-        "suggested_alternative": None,  # TODO: use Gemini to suggest alternatives
+        "suggested_alternative": suggested_alternative,
     }
 
 

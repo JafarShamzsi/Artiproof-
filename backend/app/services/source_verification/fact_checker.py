@@ -7,11 +7,23 @@ import logging
 from typing import Optional
 
 import httpx
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+
 from app.config import settings
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, HTTP_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
+
+_client: "genai.Client | None" = None
+
+
+def _gemini_client() -> "genai.Client | None":
+    """Lazy module-level singleton — one Client per process, not per call."""
+    global _client
+    if _client is None and settings.GEMINI_API_KEY:
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
 
 VERIFICATION_PROMPT = """You are an expert fact-checker. Verify the following claim and provide your analysis.
 
@@ -130,7 +142,6 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
             "sources": [],
         }
 
-    genai.configure(api_key=settings.GEMINI_API_KEY)
     context_snippet = article_context[:500] if article_context else "No additional context available."
 
     try:
@@ -201,12 +212,15 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
 
 @with_retry(max_retries=2, exceptions=GEMINI_RETRY_EXCEPTIONS)
 async def _call_gemini_verify(prompt: str) -> str:
-    model = genai.GenerativeModel(settings.GEMINI_MODEL)
-    response = await model.generate_content_async(
-        prompt,
-        generation_config=genai.types.GenerationConfig(
+    client = _gemini_client()
+    if client is None:
+        return ""  # caller already guarded on settings.GEMINI_API_KEY
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
             temperature=0.1,
             max_output_tokens=2048,
         ),
     )
-    return response.text.strip()
+    return (response.text or "").strip()

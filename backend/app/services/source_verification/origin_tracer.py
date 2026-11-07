@@ -5,10 +5,39 @@ Origin tracer — traces the origin and spread of misinformation claims using Ge
 import json
 import logging
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+
 from app.config import settings
+from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
+
+_client: "genai.Client | None" = None
+
+
+def _gemini_client() -> "genai.Client | None":
+    """Lazy module-level singleton — one Client per process, not per call."""
+    global _client
+    if _client is None and settings.GEMINI_API_KEY:
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
+
+
+@with_retry(max_retries=2, exceptions=GEMINI_RETRY_EXCEPTIONS)
+async def _call_gemini_trace(prompt: str) -> str:
+    client = _gemini_client()
+    if client is None:
+        return ""  # caller already guarded on settings.GEMINI_API_KEY
+    response = await client.aio.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=2048,
+        ),
+    )
+    return (response.text or "").strip()
 
 TRACE_PROMPT = """You are a misinformation analyst. A claim has been identified as FALSE or MISLEADING. Trace its likely origin and spread.
 
@@ -52,23 +81,15 @@ async def trace_origin(claim_text: str, verdict: str, explanation: str) -> dict 
         logger.warning("GEMINI_API_KEY not set, skipping origin trace")
         return None
 
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel(settings.GEMINI_MODEL)
-
     try:
-        response = await model.generate_content_async(
+        raw = await _call_gemini_trace(
             TRACE_PROMPT.format(
                 claim_text=claim_text,
                 verdict=verdict,
                 explanation=explanation[:500],
-            ),
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=2048,
-            ),
+            )
         )
 
-        raw = response.text.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         if raw.endswith("```"):
