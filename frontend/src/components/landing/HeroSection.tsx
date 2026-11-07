@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { HeroGlobe } from "./HeroGlobe";
 import { InteractiveHoverButton } from "./shared/InteractiveHoverButton";
@@ -10,16 +9,11 @@ const headlineWords = ["Research"];
 const headlineLine2Words = ["Integrity", "Platform"];
 
 export function HeroSection() {
-  const prefersReducedMotion = useReducedMotion();
-
-  const animationProps = (delay: number) =>
-    prefersReducedMotion
-      ? {}
-      : {
-          initial: { opacity: 0, y: 40 } as const,
-          animate: { opacity: 1, y: 0 } as const,
-          transition: { duration: 0.5, delay, ease: "easeOut" as const },
-        };
+  const animationProps = (delay: number) => ({
+    initial: { opacity: 0, y: 40 } as const,
+    animate: { opacity: 1, y: 0 } as const,
+    transition: { duration: 0.5, delay, ease: "easeOut" as const },
+  });
 
   const wordDelay = (index: number, lineOffset: number = 0) =>
     0.1 + (lineOffset + index) * 0.08;
