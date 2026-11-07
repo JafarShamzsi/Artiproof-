@@ -26,8 +26,7 @@ import type { PdfViewerHandle } from "@/components/pdf-viewer";
 
 const PdfViewer = lazy(() => import("@/components/pdf-viewer"));
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { apiFetch, backendUrl } from "@/lib/api";
 
 // ── Types ──
 
@@ -126,7 +125,7 @@ export default function SourceCheckResultPage({
   const pdfViewerRef = useRef<PdfViewerHandle>(null);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/source-check/${id}`)
+    apiFetch(`/api/source-check/${id}`)
       .then((r) => {
         if (!r.ok) throw new Error("Not found");
         return r.json();
@@ -135,7 +134,7 @@ export default function SourceCheckResultPage({
         setData(d);
         // Load position map if PDF
         if (d.has_pdf) {
-          fetch(`${BACKEND_URL}/api/source-check/${id}/position-map`)
+          apiFetch(`/api/source-check/${id}/position-map`)
             .then((r) => r.ok ? r.json() : null)
             .then(setPositionMap)
             .catch(() => {});
@@ -178,9 +177,9 @@ export default function SourceCheckResultPage({
 
   const isPdf = data.has_pdf;
   const pdfUrl = data.has_annotated_pdf
-    ? `${BACKEND_URL}/api/source-check/${id}/pdf/annotated`
+    ? backendUrl(`/api/source-check/${id}/pdf/annotated`)
     : data.has_pdf
-      ? `${BACKEND_URL}/api/source-check/${id}/pdf/original`
+      ? backendUrl(`/api/source-check/${id}/pdf/original`)
       : null;
 
   // Split-view for PDFs, full-width for URL/text
@@ -209,9 +208,9 @@ function SplitView({
   const score = data.overall_credibility_score ?? 0;
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] gap-4">
-      {/* Left Panel — Report (40%) */}
-      <div className="w-[40%] shrink-0 overflow-y-auto pr-2">
+    <div className="flex h-[calc(100vh-7rem)] flex-col gap-4 lg:flex-row">
+      {/* Left Panel — Report. Full width on mobile, 40% on lg+ */}
+      <div className="w-full shrink-0 overflow-y-auto pr-2 lg:w-[40%]">
         <div className="mb-4 flex items-center gap-3">
           <Link href="/check" className="text-zinc-400 hover:text-white">
             <ArrowLeft className="h-5 w-5" />
@@ -243,8 +242,8 @@ function SplitView({
         <FindingsList data={data} positionMap={positionMap} onFindingClick={onFindingClick} />
       </div>
 
-      {/* Right Panel — PDF Viewer (60%) */}
-      <div className="flex-1 overflow-hidden rounded-lg border border-zinc-800">
+      {/* Right Panel — PDF Viewer. Full height on mobile (stacked below), 60% on lg+ */}
+      <div className="min-h-[60vh] flex-1 overflow-hidden rounded-lg border border-zinc-800 lg:min-h-0">
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center bg-zinc-950">

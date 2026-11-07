@@ -8,6 +8,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
 from app.models.researcher import ResearcherProfile, PublicationAnalysis
+from app.models.user import User
 from app.schemas.researcher import (
     ResearcherAnalyzeRequest,
     ResearcherProfileResponse,
@@ -17,6 +18,7 @@ from app.schemas.researcher import (
     CitationGraphResponse,
 )
 from app.services.academic_integrity.orchestrator import AcademicIntegrityOrchestrator
+from app.utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/researcher", tags=["researcher"])
@@ -63,9 +65,10 @@ def _profile_to_response(profile: ResearcherProfile, publications=None) -> Resea
 async def analyze_researcher(
     data: ResearcherAnalyzeRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Submit a researcher for analysis."""
-    user_id = "demo-user"  # TODO: extract from JWT
+    user_id = current_user.id
     if not any([data.researcher_name, data.scopus_id, data.google_scholar_id, data.orcid]):
         raise HTTPException(status_code=400, detail="Provide at least one identifier")
 
@@ -89,9 +92,10 @@ async def list_researcher_analyses(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """List user's past researcher analyses (paginated)."""
-    user_id = "demo-user"  # TODO: extract from JWT
+    user_id = current_user.id
     total_q = await db.execute(
         select(func.count(ResearcherProfile.id)).where(ResearcherProfile.user_id == user_id)
     )

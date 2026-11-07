@@ -5,15 +5,20 @@ from sqlalchemy import select, func, cast, Date
 from app.database import get_db
 from app.models.source_check import SourceCheck
 from app.models.researcher import ResearcherProfile
+from app.models.user import User
 from app.schemas.dashboard import DashboardStats, DashboardOverview, TrendResponse, TrendPoint, RecentActivityItem
+from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("/stats", response_model=DashboardStats)
-async def get_stats(db: AsyncSession = Depends(get_db)):
+async def get_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """User's overall stats."""
-    user_id = "demo-user"
+    user_id = current_user.id
 
     # Total source checks
     sc_count_q = await db.execute(
@@ -54,9 +59,12 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/recent-activity", response_model=list[RecentActivityItem])
-async def get_recent_activity(db: AsyncSession = Depends(get_db)):
+async def get_recent_activity(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Recent source checks and researcher analyses."""
-    user_id = "demo-user"
+    user_id = current_user.id
 
     # Recent source checks
     sc_q = await db.execute(
@@ -103,9 +111,12 @@ async def get_recent_activity(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/trends", response_model=TrendResponse)
-async def get_trends(db: AsyncSession = Depends(get_db)):
+async def get_trends(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Credibility trends over time."""
-    user_id = "demo-user"
+    user_id = current_user.id
 
     result = await db.execute(
         select(

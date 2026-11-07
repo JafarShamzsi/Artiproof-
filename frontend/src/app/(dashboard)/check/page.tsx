@@ -21,6 +21,7 @@ import {
   File as FileIcon,
   X,
 } from "lucide-react";
+import { apiFetch, backendUrl } from "@/lib/api";
 
 interface ProgressEvent {
   step: string;
@@ -28,8 +29,6 @@ interface ProgressEvent {
   detail: string;
   progress: number;
 }
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 export default function CheckSourcePage() {
   const router = useRouter();
@@ -42,7 +41,7 @@ export default function CheckSourcePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startSSE = useCallback((checkId: string) => {
-    const es = new EventSource(`${BACKEND_URL}/api/source-check/${checkId}/stream`);
+    const es = new EventSource(backendUrl(`/api/source-check/${checkId}/stream`));
 
     es.onmessage = (e) => {
       try {
@@ -81,7 +80,7 @@ export default function CheckSourcePage() {
         const formData = new FormData();
         formData.append("file", selectedFile);
 
-        const res = await fetch(`${BACKEND_URL}/api/source-check/upload`, {
+        const res = await apiFetch("/api/source-check/upload", {
           method: "POST",
           body: formData,
         });
@@ -106,9 +105,8 @@ export default function CheckSourcePage() {
       setProgress(0);
 
       try {
-        const res = await fetch(`${BACKEND_URL}/api/source-check/`, {
+        const res = await apiFetch("/api/source-check/", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             input_type: activeTab,
             input_content: inputValue.trim(),
@@ -307,7 +305,7 @@ function PastChecks() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/source-check/`)
+    apiFetch("/api/source-check/")
       .then((r) => (r.ok ? r.json() : { items: [] }))
       .then((data) => setChecks(data.items || []))
       .catch(() => {})

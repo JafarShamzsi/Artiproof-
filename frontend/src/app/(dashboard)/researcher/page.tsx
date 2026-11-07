@@ -23,7 +23,7 @@ interface ProgressEvent {
   progress: number;
 }
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { apiFetch, backendUrl } from "@/lib/api";
 
 export default function ResearcherAnalysisPage() {
   const router = useRouter();
@@ -44,9 +44,8 @@ export default function ResearcherAnalysisPage() {
     setProgress(0);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/researcher/analyze`, {
+      const res = await apiFetch("/api/researcher/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           researcher_name: name || null,
           scopus_id: scopusId || null,
@@ -64,7 +63,7 @@ export default function ResearcherAnalysisPage() {
       const profileId = data.id;
 
       // Start SSE stream
-      const es = new EventSource(`${BACKEND_URL}/api/researcher/${profileId}/stream`);
+      const es = new EventSource(backendUrl(`/api/researcher/${profileId}/stream`));
 
       es.onmessage = (e) => {
         try {
@@ -208,7 +207,7 @@ function PastAnalyses() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/researcher/`)
+    apiFetch("/api/researcher/")
       .then((r) => r.ok ? r.json() : { items: [] })
       .then((data) => setAnalyses(data.items || []))
       .catch(() => {})

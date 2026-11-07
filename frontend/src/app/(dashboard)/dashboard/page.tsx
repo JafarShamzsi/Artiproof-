@@ -15,8 +15,8 @@ import {
   Loader2,
   AlertTriangle,
 } from "lucide-react";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { useTheme } from "@/contexts/ThemeContext";
+import { apiFetch } from "@/lib/api";
 
 interface Stats {
   total_source_checks: number;
@@ -54,9 +54,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch(`${BACKEND_URL}/api/dashboard/stats`).then((r) => r.ok ? r.json() : null),
-      fetch(`${BACKEND_URL}/api/dashboard/recent-activity`).then((r) => r.ok ? r.json() : []),
-      fetch(`${BACKEND_URL}/api/dashboard/trends`).then((r) => r.ok ? r.json() : { data: [] }),
+      apiFetch("/api/dashboard/stats").then((r) => r.ok ? r.json() : null),
+      apiFetch("/api/dashboard/recent-activity").then((r) => r.ok ? r.json() : []),
+      apiFetch("/api/dashboard/trends").then((r) => r.ok ? r.json() : { data: [] }),
     ])
       .then(([s, a, t]) => {
         setStats(s);
@@ -203,6 +203,7 @@ export default function DashboardPage() {
 }
 
 function TrendChart({ data }: { data: TrendPoint[] }) {
+  const { highContrast } = useTheme();
   const W = 600, H = 180, PAD = 35;
   const plotW = W - PAD * 2, plotH = H - PAD * 2;
   const n = data.length;
@@ -215,33 +216,42 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
   const areaD = `${pathD} L ${points[n - 1].x} ${PAD + plotH} L ${points[0].x} ${PAD + plotH} Z`;
 
+  const gridStroke = highContrast ? "#FFFFFF" : "#27272a";
+  const gridLabel = highContrast ? "#FFFFFF" : "#52525b";
+  const line = highContrast ? "#FFEB00" : "#10b981";
+  const pointStroke = highContrast ? "#000000" : "#09090b";
+  const scoreLabel = highContrast ? "#FFFFFF" : "#a1a1aa";
+  const dateLabel = highContrast ? "#FFFFFF" : "#52525b";
+  const gridWidth = highContrast ? 2 : 1;
+  const lineWidth = highContrast ? 3 : 2;
+
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 200 }}>
       {[0, 25, 50, 75, 100].map((v) => {
         const y = PAD + plotH - (v / 100) * plotH;
         return (
           <g key={v}>
-            <line x1={PAD} y1={y} x2={W - PAD} y2={y} stroke="#27272a" strokeWidth={1} />
-            <text x={PAD - 6} y={y + 4} textAnchor="end" fill="#52525b" fontSize={9}>{v}</text>
+            <line x1={PAD} y1={y} x2={W - PAD} y2={y} stroke={gridStroke} strokeWidth={gridWidth} />
+            <text x={PAD - 6} y={y + 4} textAnchor="end" fill={gridLabel} fontSize={9}>{v}</text>
           </g>
         );
       })}
-      <path d={areaD} fill="url(#trendFill)" opacity={0.12} />
+      <path d={areaD} fill="url(#trendFill)" opacity={highContrast ? 0.25 : 0.12} />
       <defs>
         <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#10b981" />
+          <stop offset="0%" stopColor={line} />
           <stop offset="100%" stopColor="transparent" />
         </linearGradient>
       </defs>
-      <path d={pathD} fill="none" stroke="#10b981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <path d={pathD} fill="none" stroke={line} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" />
       {points.map((p, i) => (
         <g key={i}>
-          <circle cx={p.x} cy={p.y} r={3.5} fill="#10b981" stroke="#09090b" strokeWidth={2} />
-          <text x={p.x} y={p.y - 8} textAnchor="middle" fill="#a1a1aa" fontSize={9} fontWeight={600}>
+          <circle cx={p.x} cy={p.y} r={highContrast ? 4.5 : 3.5} fill={line} stroke={pointStroke} strokeWidth={2} />
+          <text x={p.x} y={p.y - 8} textAnchor="middle" fill={scoreLabel} fontSize={9} fontWeight={600}>
             {p.score.toFixed(0)}
           </text>
           {(i === 0 || i === n - 1 || n <= 6) && (
-            <text x={p.x} y={H - 4} textAnchor="middle" fill="#52525b" fontSize={8}>
+            <text x={p.x} y={H - 4} textAnchor="middle" fill={dateLabel} fontSize={8}>
               {new Date(p.date).toLocaleDateString("en", { month: "short", day: "numeric" })}
             </text>
           )}

@@ -10,7 +10,9 @@ from app.database import get_db
 from app.models.report import Report
 from app.models.source_check import SourceCheck, ClaimAnalysis, AIDetectionResult, CitationCheck
 from app.models.researcher import ResearcherProfile, PublicationAnalysis
+from app.models.user import User
 from app.schemas.report import ReportGenerateRequest, ReportResponse, ReportListResponse
+from app.utils.auth import get_current_user
 from app.services.report_engine.narrative_generator import (
     generate_source_check_narrative,
     generate_researcher_narrative,
@@ -37,9 +39,13 @@ def _report_response(r: Report) -> ReportResponse:
 
 
 @router.post("/generate", response_model=ReportResponse, status_code=201)
-async def generate_report(data: ReportGenerateRequest, db: AsyncSession = Depends(get_db)):
+async def generate_report(
+    data: ReportGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Generate PDF report for a source check or researcher analysis."""
-    user_id = "demo-user"
+    user_id = current_user.id
 
     if data.source_check_id:
         # Source verification report
@@ -149,9 +155,10 @@ async def list_reports(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """List user's reports."""
-    user_id = "demo-user"
+    user_id = current_user.id
     total_q = await db.execute(select(func.count(Report.id)).where(Report.user_id == user_id))
     total = total_q.scalar() or 0
 

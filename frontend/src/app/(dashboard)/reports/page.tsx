@@ -5,8 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FileText, Download, Share2, Loader2, ExternalLink } from "lucide-react";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { apiFetch, backendUrl } from "@/lib/api";
 
 interface ReportItem {
   id: string;
@@ -26,7 +25,7 @@ export default function ReportsPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/reports/`)
+    apiFetch("/api/reports/")
       .then((r) => r.ok ? r.json() : { items: [] })
       .then((data) => setReports(data.items || []))
       .catch(() => {})
@@ -103,7 +102,7 @@ export default function ReportsPage() {
                       </Button>
 
                       {report.pdf_path && (
-                        <a href={`${BACKEND_URL}/api/reports/${report.id}/download`}>
+                        <a href={backendUrl(`/api/reports/${report.id}/download`)}>
                           <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600">
                             <Download className="mr-1 h-3 w-3" /> PDF
                           </Button>

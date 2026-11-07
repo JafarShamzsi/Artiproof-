@@ -2,8 +2,21 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import GitHubProvider from "next-auth/providers/github";
-import bcrypt from "bcryptjs";
-import { prisma } from "./prisma";
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+interface BackendTokenResponse {
+  access_token: string;
+  token_type: string;
+  user: {
+    id: string;
+    email: string;
+    full_name: string;
+    institution: string | null;
+    role: string;
+    created_at: string;
+  };
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -18,28 +31,28 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email and password are required");
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+        const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: credentials.email,
+            password: credentials.password,
+          }),
         });
 
-        if (!user || !user.hashedPassword) {
+        if (!res.ok) {
           throw new Error("Invalid email or password");
         }
 
-        const isValid = await bcrypt.compare(
-          credentials.password,
-          user.hashedPassword
-        );
-
-        if (!isValid) {
-          throw new Error("Invalid email or password");
-        }
+        const data = (await res.json()) as BackendTokenResponse;
 
         return {
-          id: user.id,
-          email: user.email,
-          name: user.fullName,
-          role: user.role,
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.full_name,
+          role: data.user.role,
+          institution: data.user.institution,
+          accessToken: data.access_token,
         };
       },
     }),
@@ -63,16 +76,20 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
+        token.id = user.id as string;
         token.role = (user as { role?: string }).role || "researcher";
+        token.institution = (user as { institution?: string | null }).institution ?? null;
+        token.accessToken = (user as { accessToken?: string }).accessToken;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { id?: string }).id = token.id as string;
-        (session.user as { role?: string }).role = token.role as string;
+        session.user.id = token.id as string;
+        session.user.role = (token.role as string) || "researcher";
+        session.user.institution = (token.institution as string | null) ?? null;
       }
+      session.accessToken = token.accessToken as string | undefined;
       return session;
     },
   },

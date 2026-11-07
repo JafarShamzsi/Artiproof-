@@ -30,7 +30,9 @@ PyMuPDF>=1.24.0
 weasyprint>=63.0
 
 # Auth
+# Pin bcrypt<5 — passlib 1.7.4's wrap-bug probe exceeds the 72-byte limit bcrypt 5 enforces.
 passlib[bcrypt]>=1.7.4
+bcrypt<5
 python-jose[cryptography]>=3.3.0
 
 # Graph analysis (Module 2)

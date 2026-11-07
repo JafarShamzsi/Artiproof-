@@ -20,8 +20,9 @@ import {
   XCircle,
   ExternalLink,
 } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { apiFetch } from "@/lib/api";
 
 interface Publication {
   id: string;
@@ -96,11 +97,11 @@ export default function ResearcherResultPage({
 
   useEffect(() => {
     Promise.all([
-      fetch(`${BACKEND_URL}/api/researcher/${id}`).then((r) => {
+      apiFetch(`/api/researcher/${id}`).then((r) => {
         if (!r.ok) throw new Error("Not found");
         return r.json();
       }),
-      fetch(`${BACKEND_URL}/api/researcher/${id}/citation-graph`).then((r) =>
+      apiFetch(`/api/researcher/${id}/citation-graph`).then((r) =>
         r.ok ? r.json() : { nodes: [], edges: [] }
       ),
     ])
@@ -372,8 +373,33 @@ export default function ResearcherResultPage({
  * SVG-based force-directed citation graph visualization.
  */
 function CitationGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[] }) {
+  const { highContrast } = useTheme();
   const svgRef = useRef<SVGSVGElement>(null);
   const W = 700, H = 400;
+
+  const colors = highContrast
+    ? {
+        target: "#FFEB00",
+        targetStroke: "#FFFFFF",
+        citer: "#00E5FF",
+        citerStroke: "#FFFFFF",
+        suspicious: "#FF6B00",
+        suspiciousStroke: "#FFFFFF",
+        edge: "#FFFFFF",
+        edgeSuspicious: "#FF6B00",
+        label: "#FFFFFF",
+      }
+    : {
+        target: "#a855f7",
+        targetStroke: "#c084fc",
+        citer: "#10b981",
+        citerStroke: "#34d399",
+        suspicious: "#ef4444",
+        suspiciousStroke: "#f87171",
+        edge: "#3f3f46",
+        edgeSuspicious: "#ef4444",
+        label: "#a1a1aa",
+      };
 
   // Simple circular layout — target in center, citers around
   const target = nodes.find((n) => n.type === "target");
@@ -416,9 +442,9 @@ function CitationGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[
               key={i}
               x1={from.x} y1={from.y}
               x2={to.x} y2={to.y}
-              stroke={isSuspicious ? "#ef4444" : "#3f3f46"}
-              strokeWidth={thickness}
-              strokeOpacity={isSuspicious ? 0.8 : 0.4}
+              stroke={isSuspicious ? colors.edgeSuspicious : colors.edge}
+              strokeWidth={highContrast ? thickness + 1 : thickness}
+              strokeOpacity={highContrast ? 1 : isSuspicious ? 0.8 : 0.4}
             />
           );
         })}
@@ -439,19 +465,19 @@ function CitationGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[
                 cx={pos.x}
                 cy={pos.y}
                 r={radius}
-                fill={isTarget ? "#a855f7" : isSuspicious ? "#ef4444" : "#10b981"}
-                fillOpacity={isTarget ? 1 : 0.7}
-                stroke={isTarget ? "#c084fc" : isSuspicious ? "#f87171" : "#34d399"}
-                strokeWidth={isTarget ? 3 : 1.5}
+                fill={isTarget ? colors.target : isSuspicious ? colors.suspicious : colors.citer}
+                fillOpacity={highContrast ? 1 : isTarget ? 1 : 0.7}
+                stroke={isTarget ? colors.targetStroke : isSuspicious ? colors.suspiciousStroke : colors.citerStroke}
+                strokeWidth={isTarget ? 3 : highContrast ? 2 : 1.5}
               />
               {/* Label */}
               <text
                 x={pos.x}
                 y={pos.y + radius + 14}
                 textAnchor="middle"
-                fill="#a1a1aa"
+                fill={colors.label}
                 fontSize={isTarget ? 11 : 9}
-                fontWeight={isTarget ? 600 : 400}
+                fontWeight={isTarget ? 600 : highContrast ? 600 : 400}
               >
                 {node.name.length > 18 ? node.name.slice(0, 16) + "..." : node.name}
               </text>
@@ -467,12 +493,12 @@ function CitationGraph({ nodes, edges }: { nodes: GraphNode[]; edges: GraphEdge[
 
         {/* Legend */}
         <g transform={`translate(16, ${H - 60})`}>
-          <circle cx={0} cy={0} r={6} fill="#a855f7" />
-          <text x={12} y={4} fill="#a1a1aa" fontSize={9}>Target Researcher</text>
-          <circle cx={0} cy={18} r={5} fill="#10b981" />
-          <text x={12} y={22} fill="#a1a1aa" fontSize={9}>Citing Author</text>
-          <circle cx={0} cy={36} r={5} fill="#ef4444" />
-          <text x={12} y={40} fill="#a1a1aa" fontSize={9}>Suspicious (5+ cites)</text>
+          <circle cx={0} cy={0} r={6} fill={colors.target} />
+          <text x={12} y={4} fill={colors.label} fontSize={9}>Target Researcher</text>
+          <circle cx={0} cy={18} r={5} fill={colors.citer} />
+          <text x={12} y={22} fill={colors.label} fontSize={9}>Citing Author</text>
+          <circle cx={0} cy={36} r={5} fill={colors.suspicious} />
+          <text x={12} y={40} fill={colors.label} fontSize={9}>Suspicious (5+ cites)</text>
         </g>
       </svg>
     </div>

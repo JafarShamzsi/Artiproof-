@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/shared/SessionProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -26,7 +27,9 @@ export default function RootLayout({
         className={`${inter.variable} min-h-screen bg-zinc-950 font-sans text-zinc-50 antialiased`}
       >
         <SessionProvider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <ThemeProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </ThemeProvider>
         </SessionProvider>
       </body>
     </html>

@@ -128,3 +128,287 @@
     @apply font-sans;
   }
 }
+
+/*
+ * WCAG 2.1 AAA high-contrast mode
+ * Activated by data-high-contrast="true" on <html>.
+ * Palette: black bg, white text, #FFEB00 (success/brand), #00E5FF (info),
+ * #FF6B00 (destructive), 2px white borders.
+ *
+ * Cascade strategy:
+ *   1. shadcn CSS vars reset first.
+ *   2. Text color rules (so defaults set, can be overridden by bg-color rules that need black-on-bright).
+ *   3. Opacity-variant backgrounds kept as *semi-transparent tints* over black — preserves
+ *      visual hierarchy and lets nearby colored text stay readable.
+ *   4. Solid backgrounds LAST so their `color: #000 !important` wins over any text-color rule
+ *      on the same element (button with `bg-emerald-500 text-white` → yellow+black).
+ */
+
+/* ---------- 1. shadcn tokens ---------- */
+html[data-high-contrast="true"] {
+  --background: #000000;
+  --foreground: #FFFFFF;
+  --card: #0A0A0A;
+  --card-foreground: #FFFFFF;
+  --popover: #0A0A0A;
+  --popover-foreground: #FFFFFF;
+  --primary: #FFEB00;
+  --primary-foreground: #000000;
+  --secondary: #1A1A1A;
+  --secondary-foreground: #FFFFFF;
+  --muted: #1A1A1A;
+  --muted-foreground: #FFFFFF;
+  --accent: #FFEB00;
+  --accent-foreground: #000000;
+  --destructive: #FF6B00;
+  --border: #FFFFFF;
+  --input: #FFFFFF;
+  --ring: #FFEB00;
+  --sidebar: #000000;
+  --sidebar-foreground: #FFFFFF;
+  --sidebar-primary: #FFEB00;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #1A1A1A;
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: #FFFFFF;
+  --sidebar-ring: #FFEB00;
+}
+
+html[data-high-contrast="true"] body {
+  background: #000000 !important;
+  color: #FFFFFF !important;
+}
+
+/* ---------- 2. Text colors (apply first, may be overridden by solid-bg rules below) ---------- */
+html[data-high-contrast="true"] .text-white,
+html[data-high-contrast="true"] .text-zinc-50,
+html[data-high-contrast="true"] .text-zinc-200,
+html[data-high-contrast="true"] .text-zinc-300,
+html[data-high-contrast="true"] .text-zinc-400,
+html[data-high-contrast="true"] .text-zinc-500,
+html[data-high-contrast="true"] .text-zinc-600 {
+  color: #FFFFFF !important;
+}
+
+html[data-high-contrast="true"] .text-zinc-800 {
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .text-emerald-300,
+html[data-high-contrast="true"] .text-emerald-400,
+html[data-high-contrast="true"] .text-emerald-500,
+html[data-high-contrast="true"] .text-green-400 {
+  color: #FFEB00 !important;
+}
+
+html[data-high-contrast="true"] .text-blue-400,
+html[data-high-contrast="true"] .text-purple-400 {
+  color: #00E5FF !important;
+}
+
+html[data-high-contrast="true"] .text-red-400,
+html[data-high-contrast="true"] .text-orange-400,
+html[data-high-contrast="true"] .text-amber-400,
+html[data-high-contrast="true"] .text-yellow-400 {
+  color: #FF6B00 !important;
+}
+
+/* ---------- 3. Solid zinc backgrounds → black, keep text as whatever it was ---------- */
+html[data-high-contrast="true"] .bg-zinc-950,
+html[data-high-contrast="true"] .bg-zinc-900,
+html[data-high-contrast="true"] .bg-black {
+  background-color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .bg-zinc-800,
+html[data-high-contrast="true"] .bg-zinc-700 {
+  background-color: #1A1A1A !important;
+}
+
+html[data-high-contrast="true"] .bg-zinc-600,
+html[data-high-contrast="true"] .bg-zinc-500 {
+  background-color: #2A2A2A !important;
+}
+
+/* Opacity-variant zinc backgrounds → slight lift from pure black so cards remain visible */
+html[data-high-contrast="true"] [class*="bg-zinc-900/"],
+html[data-high-contrast="true"] [class*="bg-zinc-950/"] {
+  background-color: #0E0E0E !important;
+}
+
+html[data-high-contrast="true"] [class*="bg-zinc-800/"],
+html[data-high-contrast="true"] [class*="bg-zinc-700/"] {
+  background-color: #1A1A1A !important;
+}
+
+/* ---------- 4. Opacity-variant brand backgrounds → semi-transparent tints ---------- */
+/* These keep surrounding colored text readable. */
+html[data-high-contrast="true"] [class*="bg-emerald-500/"],
+html[data-high-contrast="true"] [class*="bg-emerald-400/"],
+html[data-high-contrast="true"] [class*="bg-emerald-300/"],
+html[data-high-contrast="true"] [class*="bg-green-500/"] {
+  background-color: rgba(255, 235, 0, 0.18) !important;
+}
+
+html[data-high-contrast="true"] [class*="bg-blue-500/"],
+html[data-high-contrast="true"] [class*="bg-blue-400/"],
+html[data-high-contrast="true"] [class*="bg-purple-500/"],
+html[data-high-contrast="true"] [class*="bg-purple-600/"] {
+  background-color: rgba(0, 229, 255, 0.18) !important;
+}
+
+html[data-high-contrast="true"] [class*="bg-red-500/"],
+html[data-high-contrast="true"] [class*="bg-red-400/"],
+html[data-high-contrast="true"] [class*="bg-orange-500/"],
+html[data-high-contrast="true"] [class*="bg-orange-400/"],
+html[data-high-contrast="true"] [class*="bg-amber-500/"],
+html[data-high-contrast="true"] [class*="bg-yellow-500/"],
+html[data-high-contrast="true"] [class*="bg-yellow-400/"] {
+  background-color: rgba(255, 107, 0, 0.22) !important;
+}
+
+/* ---------- 5. Borders — white 2px everywhere for visual separation ---------- */
+html[data-high-contrast="true"] [class*="border-zinc-"],
+html[data-high-contrast="true"] .border-white {
+  border-color: #FFFFFF !important;
+}
+
+html[data-high-contrast="true"] .border-emerald-400,
+html[data-high-contrast="true"] .border-emerald-500 {
+  border-color: #FFEB00 !important;
+}
+
+html[data-high-contrast="true"] .border-blue-500,
+html[data-high-contrast="true"] .border-purple-500 {
+  border-color: #00E5FF !important;
+}
+
+html[data-high-contrast="true"] .border-red-500,
+html[data-high-contrast="true"] .border-amber-500,
+html[data-high-contrast="true"] .border-yellow-500 {
+  border-color: #FF6B00 !important;
+}
+
+html[data-high-contrast="true"] .border,
+html[data-high-contrast="true"] .border-t,
+html[data-high-contrast="true"] .border-b,
+html[data-high-contrast="true"] .border-l,
+html[data-high-contrast="true"] .border-r,
+html[data-high-contrast="true"] .border-x,
+html[data-high-contrast="true"] .border-y {
+  border-width: 2px !important;
+}
+
+/* ---------- 6. Rings, focus, placeholders, gradients, shadows ---------- */
+html[data-high-contrast="true"] [class*="ring-emerald-"] {
+  --tw-ring-color: #FFEB00 !important;
+}
+
+html[data-high-contrast="true"] *:focus-visible {
+  outline: 3px solid #FFEB00 !important;
+  outline-offset: 2px !important;
+}
+
+html[data-high-contrast="true"] .placeholder-zinc-500::placeholder,
+html[data-high-contrast="true"] [class*="placeholder:text-zinc-"]::placeholder {
+  color: #CCCCCC !important;
+  opacity: 1 !important;
+}
+
+html[data-high-contrast="true"] [class*="from-emerald-"],
+html[data-high-contrast="true"] [class*="to-emerald-"],
+html[data-high-contrast="true"] [class*="via-zinc-"],
+html[data-high-contrast="true"] [class*="from-zinc-"],
+html[data-high-contrast="true"] [class*="to-zinc-"] {
+  --tw-gradient-from: transparent !important;
+  --tw-gradient-to: transparent !important;
+  --tw-gradient-via: transparent !important;
+  background-image: none !important;
+}
+
+html[data-high-contrast="true"] .stroke-zinc-700 {
+  stroke: #FFFFFF !important;
+}
+
+html[data-high-contrast="true"] [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+html[data-high-contrast="true"] [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+}
+
+html[data-high-contrast="true"] input:disabled {
+  opacity: 0.7 !important;
+  color: #FFFFFF !important;
+}
+
+/* ---------- 7. Solid brand backgrounds LAST — so their text-color override wins ---------- */
+html[data-high-contrast="true"] .bg-emerald-300,
+html[data-high-contrast="true"] .bg-emerald-400,
+html[data-high-contrast="true"] .bg-emerald-500,
+html[data-high-contrast="true"] .bg-emerald-600,
+html[data-high-contrast="true"] .bg-green-400,
+html[data-high-contrast="true"] .bg-green-500 {
+  background-color: #FFEB00 !important;
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .bg-blue-400,
+html[data-high-contrast="true"] .bg-blue-500,
+html[data-high-contrast="true"] .bg-purple-500,
+html[data-high-contrast="true"] .bg-purple-600 {
+  background-color: #00E5FF !important;
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .bg-red-400,
+html[data-high-contrast="true"] .bg-red-500,
+html[data-high-contrast="true"] .bg-orange-400,
+html[data-high-contrast="true"] .bg-orange-500,
+html[data-high-contrast="true"] .bg-amber-500,
+html[data-high-contrast="true"] .bg-yellow-400,
+html[data-high-contrast="true"] .bg-yellow-500 {
+  background-color: #FF6B00 !important;
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .bg-white {
+  background-color: #FFFFFF !important;
+  color: #000000 !important;
+}
+
+/* Icons inside solid-bg elements: inherit the element's color (black on bright bg) */
+html[data-high-contrast="true"] .bg-emerald-300 svg,
+html[data-high-contrast="true"] .bg-emerald-400 svg,
+html[data-high-contrast="true"] .bg-emerald-500 svg,
+html[data-high-contrast="true"] .bg-emerald-600 svg,
+html[data-high-contrast="true"] .bg-green-400 svg,
+html[data-high-contrast="true"] .bg-green-500 svg,
+html[data-high-contrast="true"] .bg-blue-400 svg,
+html[data-high-contrast="true"] .bg-blue-500 svg,
+html[data-high-contrast="true"] .bg-purple-500 svg,
+html[data-high-contrast="true"] .bg-purple-600 svg,
+html[data-high-contrast="true"] .bg-red-400 svg,
+html[data-high-contrast="true"] .bg-red-500 svg,
+html[data-high-contrast="true"] .bg-orange-400 svg,
+html[data-high-contrast="true"] .bg-orange-500 svg,
+html[data-high-contrast="true"] .bg-amber-500 svg,
+html[data-high-contrast="true"] .bg-yellow-400 svg,
+html[data-high-contrast="true"] .bg-yellow-500 svg,
+html[data-high-contrast="true"] .bg-white svg {
+  color: #000000 !important;
+}
+
+/* Direct children text overrides (e.g., <span class="text-white"> inside a <button class="bg-emerald-500">) */
+html[data-high-contrast="true"] .bg-emerald-500 > .text-white,
+html[data-high-contrast="true"] .bg-emerald-600 > .text-white,
+html[data-high-contrast="true"] .bg-emerald-400 > .text-white,
+html[data-high-contrast="true"] .bg-blue-500 > .text-white,
+html[data-high-contrast="true"] .bg-purple-500 > .text-white,
+html[data-high-contrast="true"] .bg-red-500 > .text-white,
+html[data-high-contrast="true"] .bg-orange-500 > .text-white,
+html[data-high-contrast="true"] .bg-amber-500 > .text-white,
+html[data-high-contrast="true"] .bg-yellow-500 > .text-white {
+  color: #000000 !important;
+}

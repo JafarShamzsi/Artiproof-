@@ -11,6 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
 from app.models.source_check import SourceCheck, ClaimAnalysis, AIDetectionResult, CitationCheck
+from app.models.user import User
 from app.schemas.source_check import (
     SourceCheckCreate,
     SourceCheckResponse,
@@ -21,6 +22,7 @@ from app.schemas.source_check import (
     CitationCheckResponse,
 )
 from app.services.source_verification.orchestrator import SourceVerificationOrchestrator
+from app.utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/source-check", tags=["source-check"])
@@ -76,9 +78,10 @@ def _check_to_response(check: SourceCheck, claims=None, ai_detections=None, cita
 async def create_source_check(
     data: SourceCheckCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Submit a new source check (URL or text)."""
-    user_id = "demo-user"
+    user_id = current_user.id
     orchestrator = SourceVerificationOrchestrator(db)
     check_id = await orchestrator.create_check(user_id, data.input_type, data.input_content)
     result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
@@ -89,9 +92,10 @@ async def create_source_check(
 async def upload_pdf_source_check(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Upload a PDF document for source checking."""
-    user_id = "demo-user"
+    user_id = current_user.id
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -126,9 +130,10 @@ async def list_source_checks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """List user's past source checks (paginated)."""
-    user_id = "demo-user"
+    user_id = current_user.id
     total_q = await db.execute(
         select(func.count(SourceCheck.id)).where(SourceCheck.user_id == user_id)
     )
