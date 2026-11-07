@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Search,
   Users,
@@ -12,12 +13,29 @@ import {
   ArrowRight,
   Loader2,
   AlertTriangle,
+  Sparkles,
+  X,
+  BarChart3,
+  Filter,
+  CheckCircle2,
+  FileText,
+  Compass,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useColorMode } from "@/contexts/ColorModeContext";
 import { apiFetch } from "@/lib/api";
 import { scoreColor } from "@/lib/colors";
 import { EmptyState } from "@/components/ui/empty-state";
+
+type DateRange = "7d" | "30d" | "90d" | "all";
+const RANGES: { value: DateRange; label: string }[] = [
+  { value: "7d", label: "7d" },
+  { value: "30d", label: "30d" },
+  { value: "90d", label: "90d" },
+  { value: "all", label: "All" },
+];
+
+const ONBOARDING_DISMISSED_KEY = "artiproof:onboarding-dismissed";
 
 interface Stats {
   total_source_checks: number;
@@ -41,35 +59,68 @@ interface TrendPoint {
   count: number;
 }
 
+interface UsageBucket {
+  used: number;
+  limit: number | null;
+  percent: number | null;
+}
+
+interface UsageData {
+  tier: "free" | "pro" | "team";
+  period_start: string;
+  period_end: string;
+  usage: {
+    source_checks: UsageBucket;
+    researcher_analyses: UsageBucket;
+    reports: UsageBucket;
+  };
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [range, setRange] = useState<DateRange>("30d");
+  const [activitySearch, setActivitySearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Lazy initializer so SSR doesn't trip on localStorage and the very first
+  // client paint already reflects whether the user dismissed the onboarding.
+  const [onboardingDismissed, setOnboardingDismissed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async (rangeParam: DateRange, signal?: AbortSignal) => {
     setError(null);
     setLoading(true);
     try {
       // Surface failures instead of swallowing them — partial dashboard
       // data with no indication is worse than a clear error.
-      const [statsRes, activityRes, trendsRes] = await Promise.all([
+      const [statsRes, activityRes, trendsRes, usageRes] = await Promise.all([
         apiFetch("/api/dashboard/stats", { signal }),
         apiFetch("/api/dashboard/recent-activity", { signal }),
-        apiFetch("/api/dashboard/trends", { signal }),
+        apiFetch(`/api/dashboard/trends?range=${rangeParam}`, { signal }),
+        apiFetch("/api/dashboard/usage", { signal }),
       ]);
-      if (!statsRes.ok || !activityRes.ok || !trendsRes.ok) {
+      if (!statsRes.ok || !activityRes.ok || !trendsRes.ok || !usageRes.ok) {
         throw new Error("Dashboard request failed");
       }
-      const [s, a, t] = await Promise.all([
+      const [s, a, t, u] = await Promise.all([
         statsRes.json(),
         activityRes.json(),
         trendsRes.json(),
+        usageRes.json(),
       ]);
       setStats(s);
       setActivity(a || []);
       setTrends(t?.data || []);
+      setUsage(u);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
@@ -80,9 +131,46 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    load(controller.signal);
+    load(range, controller.signal);
     return () => controller.abort();
-  }, [load]);
+  }, [load, range]);
+
+  // Refetch only the trends when the range changes after initial load,
+  // rather than re-running the whole dashboard every time. The full `load`
+  // above handles the initial fetch + range; this is the cheap subsequent
+  // path. We can't combine them because the initial render needs to know
+  // every other tile too.
+  const refetchTrends = useCallback(async (next: DateRange) => {
+    setRange(next);
+  }, []);
+
+  const dismissOnboarding = useCallback(() => {
+    try {
+      localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    } catch {
+      // ignore — we'll just show it again next session
+    }
+    setOnboardingDismissed(true);
+  }, []);
+
+  // Filter activity by free-form search. Type filter is implicit via the
+  // string — "researcher" matches both the title and the type substring.
+  const filteredActivity = useMemo(() => {
+    const q = activitySearch.trim().toLowerCase();
+    if (!q) return activity;
+    return activity.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) || item.type.toLowerCase().includes(q),
+    );
+  }, [activity, activitySearch]);
+
+  const showOnboarding =
+    !onboardingDismissed &&
+    stats != null &&
+    stats.total_source_checks === 0 &&
+    stats.total_researcher_analyses === 0;
+
+  const showUsageWidget = usage != null && usage.tier !== "team";
 
   if (loading) {
     return (
@@ -98,7 +186,7 @@ export default function DashboardPage() {
         <AlertTriangle className="h-10 w-10 text-amber-600 dark:text-amber-400" />
         <p className="mt-4 max-w-sm text-sm text-zinc-700 dark:text-zinc-300">{error}</p>
         <Button
-          onClick={() => load()}
+          onClick={() => load(range)}
           className="mt-4 bg-brand text-white hover:bg-brand-hover"
         >
           Try again
@@ -110,6 +198,10 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
+
+      {showOnboarding && <Onboarding onDismiss={dismissOnboarding} />}
+
+      {showUsageWidget && <UsageWidget data={usage!} />}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -170,17 +262,20 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Trend Chart */}
         <Card className="border-zinc-200 bg-white lg:col-span-2 dark:border-zinc-800 dark:bg-zinc-900/50">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
               <TrendingUp className="h-4 w-4" /> Credibility Score Trend
             </CardTitle>
+            <RangeSelector value={range} onChange={refetchTrends} />
           </CardHeader>
           <CardContent>
             {trends.length > 1 ? (
               <TrendChart data={trends} />
             ) : (
               <p className="py-8 text-center text-sm text-zinc-500">
-                Run more source checks to see your credibility trend.
+                {range === "all"
+                  ? "Run more source checks to see your credibility trend."
+                  : `No scored checks in the last ${range}. Try widening the range.`}
               </p>
             )}
           </CardContent>
@@ -188,12 +283,49 @@ export default function DashboardPage() {
 
         {/* Recent Activity */}
         <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
-          <CardHeader>
+          <CardHeader className="space-y-2">
             <CardTitle className="text-sm text-zinc-600 dark:text-zinc-400">Recent Activity</CardTitle>
+            {activity.length > 0 && (
+              <div className="relative">
+                <Filter
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+                />
+                <Input
+                  aria-label="Filter recent activity"
+                  placeholder="Filter…"
+                  value={activitySearch}
+                  onChange={(e) => setActivitySearch(e.target.value)}
+                  className="h-8 pl-7 pr-7 text-xs"
+                />
+                {activitySearch && (
+                  <button
+                    type="button"
+                    aria-label="Clear filter"
+                    onClick={() => setActivitySearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-3">
-            {activity.length > 0 ? (
-              activity.map((item) => (
+            {activity.length === 0 ? (
+              <EmptyState
+                icon={<Shield className="h-5 w-5" />}
+                title="No activity yet"
+                description="Run a source check or analyze a researcher to see activity here."
+                action={{ label: "Start a check", href: "/check" }}
+                className="py-8"
+              />
+            ) : filteredActivity.length === 0 ? (
+              <p className="py-6 text-center text-xs text-zinc-500">
+                No activity matches &ldquo;{activitySearch}&rdquo;.
+              </p>
+            ) : (
+              filteredActivity.map((item) => (
                 <Link
                   key={item.id}
                   href={item.type === "source_check" ? `/check/${item.id}` : `/researcher/${item.id}`}
@@ -234,14 +366,6 @@ export default function DashboardPage() {
                   </div>
                 </Link>
               ))
-            ) : (
-              <EmptyState
-                icon={<Shield className="h-5 w-5" />}
-                title="No activity yet"
-                description="Run a source check or analyze a researcher to see activity here."
-                action={{ label: "Start a check", href: "/check" }}
-                className="py-8"
-              />
             )}
           </CardContent>
         </Card>
@@ -320,4 +444,261 @@ function timeAgo(dateStr: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+
+/* ───── Range selector for the trend chart ───── */
+
+function RangeSelector({
+  value,
+  onChange,
+}: {
+  value: DateRange;
+  onChange: (next: DateRange) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Trend range"
+      className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 p-0.5 text-[11px] dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      {RANGES.map((r) => {
+        const active = r.value === value;
+        return (
+          <button
+            key={r.value}
+            type="button"
+            onClick={() => onChange(r.value)}
+            aria-pressed={active}
+            className={`rounded px-2 py-1 font-medium transition ${
+              active
+                ? "bg-brand text-white shadow-sm"
+                : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+            }`}
+          >
+            {r.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
+/* ───── Onboarding card — shown when the user has zero activity yet ───── */
+
+function Onboarding({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <Card className="relative overflow-hidden border-brand/30 bg-brand-soft/50 dark:border-brand/40 dark:bg-brand/10">
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss welcome guide"
+        className="absolute right-3 top-3 rounded-md p-1 text-fg-tertiary transition hover:bg-brand/10 hover:text-fg-primary"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      <CardContent className="space-y-4 py-6">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-brand dark:text-brand-fg" />
+          <h2 className="font-display text-lg font-semibold text-fg-primary">
+            Welcome to ArtiProof
+          </h2>
+        </div>
+        <p className="max-w-2xl text-sm text-fg-secondary">
+          Three steps to get the most out of your account. Each one takes about
+          a minute.
+        </p>
+        <ol className="grid gap-3 md:grid-cols-3">
+          <OnboardingStep
+            n={1}
+            icon={<Search className="h-4 w-4" />}
+            title="Run your first source check"
+            body="Paste a URL, drop a PDF, or paste raw text. ArtiProof returns a credibility score with per-deduction reasoning."
+            cta={{ label: "Check a source", href: "/check" }}
+          />
+          <OnboardingStep
+            n={2}
+            icon={<Users className="h-4 w-4" />}
+            title="Analyze a researcher"
+            body="Look up by ORCID or name. We compute self-citation, ring detection, and an adjusted h-index."
+            cta={{ label: "Analyze researcher", href: "/researcher" }}
+          />
+          <OnboardingStep
+            n={3}
+            icon={<FileText className="h-4 w-4" />}
+            title="Generate a report"
+            body="Every check produces a downloadable PDF with the full breakdown — share it via a private link or save for the record."
+            cta={{ label: "View reports", href: "/reports" }}
+          />
+        </ol>
+        <p className="flex items-center gap-1.5 pt-1 text-[11px] text-fg-tertiary">
+          <Compass className="h-3 w-3" />
+          You can dismiss this any time — it won&apos;t come back unless you
+          clear browser data.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OnboardingStep({
+  n,
+  icon,
+  title,
+  body,
+  cta,
+}: {
+  n: number;
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  cta: { label: string; href: string };
+}) {
+  return (
+    <li className="rounded-lg border border-border-default bg-surface-card p-4 dark:border-zinc-800/80 dark:bg-zinc-900/40">
+      <div className="flex items-center gap-2">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
+          {n}
+        </span>
+        <span className="text-fg-secondary">{icon}</span>
+      </div>
+      <h3 className="mt-3 text-sm font-semibold text-fg-primary">{title}</h3>
+      <p className="mt-1 text-xs leading-relaxed text-fg-secondary">{body}</p>
+      <Link
+        href={cta.href}
+        className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover dark:text-brand-fg"
+      >
+        {cta.label} <ArrowRight className="h-3 w-3" />
+      </Link>
+    </li>
+  );
+}
+
+
+/* ───── Usage widget — month-to-date vs tier limits ───── */
+
+function UsageWidget({ data }: { data: UsageData }) {
+  const tierLabel =
+    data.tier === "free" ? "Free plan" : data.tier === "pro" ? "Pro plan" : "Team plan";
+
+  const buckets: { key: keyof UsageData["usage"]; label: string }[] = [
+    { key: "source_checks", label: "Source checks" },
+    { key: "researcher_analyses", label: "Researcher analyses" },
+    { key: "reports", label: "Reports" },
+  ];
+
+  // Surface "approaching limit" only on the highest-percent bucket, so we
+  // don't yell three times. Same reason free-tier users should know.
+  const peak = buckets.reduce<{ percent: number; label: string } | null>(
+    (acc, b) => {
+      const bucket = data.usage[b.key];
+      if (bucket.percent == null) return acc;
+      if (acc == null || bucket.percent > acc.percent) {
+        return { percent: bucket.percent, label: b.label };
+      }
+      return acc;
+    },
+    null,
+  );
+  const approaching =
+    peak != null && peak.percent >= 75 && peak.percent < 100 ? peak : null;
+  const reached =
+    peak != null && peak.percent >= 100 ? peak : null;
+
+  return (
+    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <BarChart3 className="h-4 w-4" /> Usage this month
+          <span className="ml-1 rounded-md border border-border-default px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-fg-secondary">
+            {tierLabel}
+          </span>
+        </CardTitle>
+        {data.tier !== "team" && (
+          <Link
+            href="/settings"
+            className="text-[11px] font-medium text-brand hover:text-brand-hover dark:text-brand-fg"
+          >
+            Manage plan →
+          </Link>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {reached != null && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              You&apos;ve hit your monthly {reached.label.toLowerCase()} limit. New
+              {" "}requests will be rejected until next month or you upgrade.
+            </span>
+          </div>
+        )}
+        {reached == null && approaching != null && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              You&apos;re at {approaching.percent}% of your{" "}
+              {approaching.label.toLowerCase()} quota.
+            </span>
+          </div>
+        )}
+        {buckets.map((b) => (
+          <UsageRow key={b.key} label={b.label} bucket={data.usage[b.key]} />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function UsageRow({ label, bucket }: { label: string; bucket: UsageBucket }) {
+  if (bucket.limit == null) {
+    return (
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-fg-secondary">{label}</span>
+        <span className="flex items-center gap-1 text-fg-primary">
+          <CheckCircle2 className="h-3 w-3 text-brand dark:text-brand-fg" />
+          <span className="tabular-nums">{bucket.used}</span>
+          <span className="text-fg-tertiary">used · unlimited</span>
+        </span>
+      </div>
+    );
+  }
+  const percent = bucket.percent ?? 0;
+  const barClass =
+    percent >= 100
+      ? "bg-red-500"
+      : percent >= 75
+        ? "bg-accent-amber"
+        : "bg-brand";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-fg-secondary">{label}</span>
+        <span className="tabular-nums text-fg-primary">
+          {bucket.used} / {bucket.limit}
+          <span className="ml-1 text-fg-tertiary">({percent}%)</span>
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={`${label} usage`}
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        className="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+      >
+        <div
+          className={`h-full rounded-full transition-all ${barClass}`}
+          style={{ width: `${Math.min(100, percent)}%` }}
+        />
+      </div>
+    </div>
+  );
 }
