@@ -2,6 +2,9 @@
 
 import { Check, Minus } from "lucide-react";
 
+import { cn } from "@/lib/utils";
+import { ChapterHeading } from "@/components/landing/shared/ChapterHeading";
+
 type Cell = boolean | string;
 
 interface FeatureRow {
@@ -35,7 +38,7 @@ function CellContent({ value, primary }: { value: Cell; primary: boolean }) {
     return (
       <span
         className={cn(
-          "tabular-nums",
+          "tabular-nums font-mono text-[13px]",
           primary ? "font-semibold text-fg-primary" : "text-fg-secondary",
         )}
       >
@@ -46,104 +49,144 @@ function CellContent({ value, primary }: { value: Cell; primary: boolean }) {
   return value ? (
     <Check
       className={cn(
-        "mx-auto h-5 w-5",
+        "mx-auto h-4 w-4",
         primary ? "text-brand-fg" : "text-fg-tertiary",
       )}
-      strokeWidth={primary ? 2 : 1.5}
+      strokeWidth={primary ? 2.25 : 1.5}
       aria-label="Yes"
     />
   ) : (
-    <Minus className="mx-auto h-4 w-4 text-border-strong" strokeWidth={1.5} aria-label="No" />
+    <Minus
+      className="mx-auto h-3 w-3 text-border-strong"
+      strokeWidth={1.5}
+      aria-label="No"
+    />
   );
 }
 
-import { cn } from "@/lib/utils";
-
 export function ComparisonSection() {
   return (
-    <section id="compare" className="py-24 sm:py-28">
+    <section id="compare" className="py-28 sm:py-32">
       <div className="mx-auto max-w-5xl px-6">
-        <div className="mb-12 max-w-2xl">
-          <p className="text-xs font-medium uppercase tracking-[0.18em] text-fg-tertiary">
-            How we compare
-          </p>
-          <h2 className="mt-3 font-display text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-fg-primary sm:text-5xl">
-            Five integrity engines.{" "}
-            <span className="italic text-brand-fg">One workflow. One bill.</span>
-          </h2>
-        </div>
+        <ChapterHeading
+          numeral="IV"
+          eyebrow="A comparative reading"
+          title={
+            <>
+              Five integrity engines.{" "}
+              <span className="italic text-brand-fg">One workflow. One bill.</span>
+            </>
+          }
+          subtitle="The same submission, read five ways. Other tools each do one — you'd pay three of them and still miss the rings, the self-citation inflation, and the per-paragraph AI signal."
+        />
 
-        {/* Desktop / tablet — full feature table */}
-        <div className="hidden overflow-x-auto rounded-xl border border-border-default md:block">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border-default bg-surface-card">
-                <th className="px-4 py-3.5 text-left font-medium text-fg-tertiary">
-                  Feature
-                </th>
-                <th className="px-4 py-3.5 text-center">
-                  <span className="font-display font-semibold text-fg-primary">
-                    ArtiProof
-                  </span>
-                </th>
-                <th className="px-4 py-3.5 text-center font-medium text-fg-tertiary">
-                  Turnitin
-                </th>
-                <th className="px-4 py-3.5 text-center font-medium text-fg-tertiary">
-                  GPTZero
-                </th>
-                <th className="px-4 py-3.5 text-center font-medium text-fg-tertiary">
-                  Originality
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {features.map((row) => (
-                <tr
-                  key={row.name}
-                  className="border-b border-border-subtle transition-colors last:border-b-0 hover:bg-surface-card"
-                >
-                  <td className="px-4 py-3.5 text-fg-primary">
-                    <span className="inline-flex items-center gap-2">
-                      {row.name}
-                      {row.unique && (
-                        <span className="inline-flex items-center rounded-full border border-brand/30 bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand-fg">
-                          Only here
-                        </span>
-                      )}
+        {/* Desktop / tablet — editorial spec table */}
+        <div className="mt-16 hidden md:block">
+          <div className="relative overflow-hidden">
+            {/* Top doubled rule */}
+            <hr className="rule-double" />
+
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="px-3 py-5 text-left">
+                    <span className="label-eyebrow text-fg-tertiary">
+                      Method
                     </span>
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <CellContent value={row.artiproof} primary />
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <CellContent value={row.turnitin} primary={false} />
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <CellContent value={row.gptzero} primary={false} />
-                  </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <CellContent value={row.originality} primary={false} />
+                  </th>
+                  <th className="bg-brand-soft/40 px-3 py-5 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="font-display text-base font-semibold tracking-tight text-fg-primary">
+                        ArtiProof
+                      </span>
+                      <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-brand-fg">
+                        ◆ House finding
+                      </span>
+                    </div>
+                  </th>
+                  {COMPETITORS.map((c) => (
+                    <th
+                      key={c.key}
+                      className="px-3 py-5 text-center"
+                    >
+                      <span className="font-display text-base font-medium text-fg-secondary">
+                        {c.name}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={5}>
+                    <hr className="rule-hair" />
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+                {features.map((row, idx) => (
+                  <tr
+                    key={row.name}
+                    className={cn(
+                      "border-b border-border-subtle transition-colors last:border-b-0",
+                      idx % 2 === 0
+                        ? "hover:bg-surface-card/60"
+                        : "hover:bg-surface-card/60",
+                    )}
+                  >
+                    <td className="px-3 py-4 align-middle">
+                      <span className="inline-flex items-center gap-2.5">
+                        <span className="font-mono text-[10px] tracking-wider text-fg-tertiary">
+                          {String(idx + 1).padStart(2, "0")}
+                        </span>
+                        <span className="text-fg-primary">{row.name}</span>
+                        {row.unique && (
+                          <span className="inline-flex items-center rounded-sm border border-brand/30 bg-brand-soft px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-brand-fg">
+                            Only here
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="bg-brand-soft/30 px-3 py-4 text-center">
+                      <CellContent value={row.artiproof} primary />
+                    </td>
+                    <td className="px-3 py-4 text-center">
+                      <CellContent value={row.turnitin} primary={false} />
+                    </td>
+                    <td className="px-3 py-4 text-center">
+                      <CellContent value={row.gptzero} primary={false} />
+                    </td>
+                    <td className="px-3 py-4 text-center">
+                      <CellContent value={row.originality} primary={false} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Bottom doubled rule */}
+            <hr className="rule-double" />
+          </div>
+
+          {/* Footer caption — editorial italic */}
+          <p className="editorial-italic mt-5 text-sm text-fg-tertiary">
+            Comparison drawn from publicly listed feature pages and pricing
+            tiers as of Spring 2026. Cross-checked against a mock submission
+            run on each platform.
+          </p>
         </div>
 
         {/* Mobile — summary cards + ArtiProof-only feature list. */}
-        <div className="md:hidden">
+        <div className="mt-12 md:hidden">
           <div className="space-y-3">
-            <div className="rounded-xl border border-brand/40 bg-brand-soft p-4">
+            <div className="rounded-sm border border-brand/40 bg-brand-soft p-5">
               <div className="flex items-center gap-2">
-                <span className="font-display font-semibold text-fg-primary">
+                <span className="font-display text-base font-semibold text-fg-primary">
                   ArtiProof
                 </span>
-                <span className="ml-auto tabular-nums text-sm text-brand-fg">
+                <span className="ml-auto font-mono text-sm tabular-nums text-brand-fg">
                   $20/mo
                 </span>
               </div>
-              <p className="mt-1 text-xs text-brand-fg">
+              <p className="editorial-italic mt-1.5 text-xs text-brand-fg">
                 7 of 7 integrity features
               </p>
             </div>
@@ -159,17 +202,17 @@ export function ComparisonSection() {
               return (
                 <div
                   key={c.key}
-                  className="rounded-xl border border-border-default bg-surface-card p-4"
+                  className="rounded-sm border border-border-default bg-surface-card p-5"
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-fg-primary">{c.name}</span>
                     {price && typeof price === "string" && (
-                      <span className="ml-auto tabular-nums text-sm text-fg-secondary">
+                      <span className="ml-auto font-mono text-sm tabular-nums text-fg-secondary">
                         {price}
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-xs text-fg-tertiary">
+                  <p className="editorial-italic mt-1.5 text-xs text-fg-tertiary">
                     {present} of {total} integrity features
                   </p>
                 </div>
@@ -177,15 +220,15 @@ export function ComparisonSection() {
             })}
           </div>
 
-          <div className="mt-6 rounded-xl border border-border-default p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-brand-fg">
+          <div className="mt-6 rounded-sm border border-border-default p-5">
+            <span className="label-eyebrow text-brand-fg">
               Only on ArtiProof
-            </p>
-            <ul className="mt-3 space-y-2 text-sm text-fg-primary">
+            </span>
+            <ul className="mt-4 space-y-2.5 text-sm text-fg-primary">
               {features
                 .filter((f) => f.unique)
                 .map((f) => (
-                  <li key={f.name} className="flex items-center gap-2">
+                  <li key={f.name} className="flex items-center gap-2.5">
                     <Check
                       className="h-4 w-4 shrink-0 text-brand-fg"
                       strokeWidth={2}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Fraunces, JetBrains_Mono } from "next/font/google";
+import { Inter, Fraunces, JetBrains_Mono, Newsreader } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/shared/SessionProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,7 +15,17 @@ const fraunces = Fraunces({
   variable: "--font-display",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700", "800"],
-  style: ["normal"],
+  style: ["normal", "italic"],
+});
+
+/** Newsreader (italic) is the editorial / marginalia voice — softer, more
+ *  literary than Fraunces, used for figure captions, footnotes, marginal
+ *  annotations, and pull-quotes. The pairing reads as "research paper". */
+const newsreader = Newsreader({
+  variable: "--font-editorial",
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  style: ["italic"],
 });
 
 const jetbrains = JetBrains_Mono({
@@ -69,7 +79,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: NO_FOUC_SCRIPT }} />
       </head>
       <body
-        className={`${inter.variable} ${fraunces.variable} ${jetbrains.variable} min-h-[100dvh] bg-surface-base font-sans text-fg-primary antialiased`}
+        className={`${inter.variable} ${fraunces.variable} ${newsreader.variable} ${jetbrains.variable} min-h-[100dvh] bg-surface-base font-sans text-fg-primary antialiased`}
       >
         {/* Skip-to-content — only visible when keyboard-focused.
             Targets #main-content rendered by each route's layout. */}

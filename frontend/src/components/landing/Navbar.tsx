@@ -24,24 +24,27 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 const navLinks = [
   { label: "How it works", href: "/#how-it-works", id: "how-it-works" },
-  { label: "Features", href: "/#features", id: "features" },
+  { label: "Engines", href: "/#features", id: "features" },
   { label: "Compare", href: "/#compare", id: "compare" },
   { label: "Pricing", href: "/#pricing", id: "pricing" },
 ] as const;
 
-/** Brand wordmark — small wine-filled circle with a serif `A` cut into it.
- *  Pure SVG so it scales and themes via currentColor where useful. */
+/** Editorial brand mark — a serif "A" inside a doubled circle, the way
+ *  a colophon stamp would set a single-letter house emblem. */
 function BrandMark({ className }: { className?: string }) {
   return (
     <span
       aria-hidden="true"
       className={cn(
-        "inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand text-[13px] font-bold leading-none text-white",
-        "font-display",
+        "relative inline-flex h-7 w-7 items-center justify-center rounded-full border border-brand bg-brand/8 font-display text-[14px] font-semibold leading-none text-brand",
         className,
       )}
     >
       A
+      <span
+        aria-hidden="true"
+        className="absolute inset-0.5 rounded-full border border-brand/35"
+      />
     </span>
   );
 }
@@ -92,17 +95,25 @@ export function Navbar() {
       animate={{ y: hidden ? "-100%" : 0, opacity: 1 }}
       transition={{ duration: reduce ? 0 : 0.3, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "fixed top-0 left-0 right-0 z-50 h-14 md:h-16 transition-[background-color,border-color,backdrop-filter] duration-300",
+        "fixed top-0 left-0 right-0 z-50 h-14 transition-[background-color,border-color,backdrop-filter] duration-300 md:h-16",
         scrolled
-          ? "border-b border-border-subtle bg-surface-base/80 backdrop-blur-xl"
-          : "border-b border-transparent bg-transparent",
+          ? "bg-surface-base/85 backdrop-blur-xl"
+          : "bg-transparent",
       )}
     >
       <nav className="mx-auto flex h-full max-w-7xl items-center justify-between px-6">
-        <Link href="/" className="flex shrink-0 items-center gap-2.5">
+        <Link
+          href="/"
+          className="flex shrink-0 items-center gap-3 transition-opacity hover:opacity-90"
+        >
           <BrandMark />
-          <span className="font-display text-lg font-semibold tracking-tight text-fg-primary">
-            ArtiProof
+          <span className="flex items-baseline gap-2">
+            <span className="font-display text-lg font-semibold tracking-tight text-fg-primary">
+              ArtiProof
+            </span>
+            <span className="hidden font-mono text-[9px] uppercase tracking-[0.22em] text-fg-tertiary sm:inline">
+              edition I
+            </span>
           </span>
         </Link>
 
@@ -114,7 +125,7 @@ export function Navbar() {
                 <a
                   href={link.href}
                   className={cn(
-                    "inline-flex items-center rounded-md px-3 py-2 text-sm transition-colors duration-200",
+                    "inline-flex items-center rounded-sm px-3 py-2 text-sm transition-colors duration-200",
                     isActive
                       ? "text-fg-primary"
                       : "text-fg-secondary hover:text-fg-primary",
@@ -128,7 +139,11 @@ export function Navbar() {
                       layoutId="nav-active-indicator"
                       aria-hidden="true"
                       className="absolute -bottom-0.5 left-3 right-3 h-px bg-brand"
-                      transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 380,
+                        damping: 32,
+                      }}
                     />
                   )}
                 </AnimatePresence>
@@ -141,22 +156,22 @@ export function Navbar() {
           <ThemeToggle />
           <Link
             href="/login"
-            className="inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary"
+            className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-sm font-medium text-fg-secondary transition-colors hover:text-fg-primary"
           >
             Sign in
           </Link>
           <Link
             href="/register"
-            className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-sm shadow-[color:var(--brand)]/25 transition-all hover:bg-brand-hover active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+            className="inline-flex h-9 items-center rounded-sm bg-brand px-4 text-sm font-medium text-white shadow-[0_4px_14px_-4px_color-mix(in_oklab,var(--brand)_60%,transparent)] transition-all hover:bg-brand-hover active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
           >
-            Get started
+            Begin a reading
           </Link>
         </div>
 
         <div className="flex items-center gap-2 md:hidden">
           <ThemeToggle />
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger className="inline-flex h-9 w-9 items-center justify-center rounded-md text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary">
+            <SheetTrigger className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary">
               <Menu className="size-5" strokeWidth={1.5} />
               <span className="sr-only">Open menu</span>
             </SheetTrigger>
@@ -165,14 +180,14 @@ export function Navbar() {
               className="w-full max-w-xs border-border-default bg-surface-base"
             >
               <SheetHeader>
-                <SheetTitle className="flex items-center gap-2 font-display text-fg-primary">
+                <SheetTitle className="flex items-center gap-3 font-display text-fg-primary">
                   <BrandMark />
                   ArtiProof
                 </SheetTitle>
               </SheetHeader>
 
               <motion.div
-                className="mt-4 flex flex-col gap-1 px-4"
+                className="mt-6 flex flex-col gap-1 px-4"
                 initial="hidden"
                 animate="visible"
                 variants={{
@@ -191,7 +206,7 @@ export function Navbar() {
                   >
                     <SheetClose
                       render={<a href={link.href} />}
-                      className="flex w-full rounded-md px-3 py-2.5 text-sm text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary"
+                      className="flex w-full rounded-sm px-3 py-2.5 text-sm text-fg-secondary transition-colors hover:bg-surface-card hover:text-fg-primary"
                     >
                       {link.label}
                     </SheetClose>
@@ -202,21 +217,30 @@ export function Navbar() {
               <div className="mt-8 flex flex-col gap-3 px-4">
                 <SheetClose
                   render={<Link href="/login" />}
-                  className="inline-flex items-center justify-center rounded-lg border border-border-default px-4 py-2.5 text-sm font-medium text-fg-primary transition-colors hover:bg-surface-card"
+                  className="inline-flex items-center justify-center rounded-sm border border-border-strong px-4 py-2.5 text-sm font-medium text-fg-primary transition-colors hover:bg-surface-card"
                 >
                   Sign in
                 </SheetClose>
                 <SheetClose
                   render={<Link href="/register" />}
-                  className="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-brand-hover"
+                  className="inline-flex items-center justify-center rounded-sm bg-brand px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-brand-hover"
                 >
-                  Get started
+                  Begin a reading
                 </SheetClose>
               </div>
             </SheetContent>
           </Sheet>
         </div>
       </nav>
+
+      {/* Doubled hairline rule under the navbar when scrolled — a research
+          paper masthead's signature underline. */}
+      {scrolled && (
+        <span aria-hidden="true" className="block">
+          <span className="block h-px bg-border-default" />
+          <span className="mt-[2px] block h-px bg-border-default" />
+        </span>
+      )}
     </motion.header>
   );
 }

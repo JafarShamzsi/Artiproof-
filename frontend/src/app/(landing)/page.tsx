@@ -8,28 +8,16 @@ import { PricingSection } from "@/components/landing/PricingSection";
 import { CTASection } from "@/components/landing/CTASection";
 import { Footer } from "@/components/landing/Footer";
 
-const SectionDivider = () => (
-  <div
-    aria-hidden="true"
-    className="h-px bg-gradient-to-r from-transparent via-border-default to-transparent"
-  />
-);
-
 export default function LandingPage() {
   return (
     <>
       <Navbar />
       <main id="main-content" tabIndex={-1} className="relative z-10">
         <HeroSection />
-        <SectionDivider />
         <TrustSection />
-        <SectionDivider />
         <ScannerPreview />
-        <SectionDivider />
-        <ComparisonSection />
-        <SectionDivider />
         <FeaturesSection />
-        <SectionDivider />
+        <ComparisonSection />
         <PricingSection />
         <CTASection />
       </main>

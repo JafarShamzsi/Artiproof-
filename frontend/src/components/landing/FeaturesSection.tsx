@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, useReducedMotion } from "framer-motion";
 import {
   Shield,
   Brain,
@@ -13,6 +13,8 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ScrollReveal } from "@/components/landing/shared/ScrollReveal";
+import { ChapterHeading } from "@/components/landing/shared/ChapterHeading";
+import { FigurePlate } from "@/components/landing/shared/FigurePlate";
 
 // ─── Mini-visualizations (one per engine) ─────────────────────────────
 
@@ -28,8 +30,8 @@ function CredibilityGauge() {
     <div className="flex flex-col items-center">
       <svg
         ref={ref}
-        width="180"
-        height="100"
+        width="220"
+        height="120"
         viewBox="0 0 140 90"
         className="overflow-visible"
         aria-hidden="true"
@@ -53,12 +55,32 @@ function CredibilityGauge() {
           animate={inView ? { strokeDashoffset: circumference - progress } : {}}
           transition={{ duration: 1.0, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
         />
+        {/* Tick marks */}
+        {[0, 25, 50, 75, 100].map((p, i) => {
+          const angle = Math.PI - (p / 100) * Math.PI;
+          const x1 = 70 + Math.cos(angle) * 60;
+          const y1 = 70 - Math.sin(angle) * 60;
+          const x2 = 70 + Math.cos(angle) * 56;
+          const y2 = 70 - Math.sin(angle) * 56;
+          return (
+            <line
+              key={i}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke="currentColor"
+              strokeWidth="0.6"
+              className="text-fg-tertiary"
+            />
+          );
+        })}
       </svg>
-      <span className="-mt-7 font-display text-4xl font-semibold tabular-nums text-emerald-500 dark:text-emerald-400">
+      <span className="-mt-9 font-display text-5xl font-semibold tabular-nums tracking-tight text-emerald-500 dark:text-emerald-400">
         {score}
       </span>
-      <span className="mt-1 text-[10px] uppercase tracking-wider text-fg-tertiary">
-        Credibility score
+      <span className="label-eyebrow mt-2 text-fg-tertiary">
+        Credibility · 0 to 100
       </span>
     </div>
   );
@@ -66,22 +88,64 @@ function CredibilityGauge() {
 
 function ClaimVerdicts() {
   const verdicts = [
-    { label: "Climate data accurate", v: "True", c: "text-emerald-700 dark:text-emerald-300", bar: "bg-emerald-500" },
-    { label: "Vaccine claim disputed", v: "False", c: "text-red-700 dark:text-red-300", bar: "bg-red-500" },
-    { label: "Source outdated (2017)", v: "Misleading", c: "text-amber-700 dark:text-amber-300", bar: "bg-amber-500" },
+    {
+      label: "Climate data accurate",
+      v: "True",
+      tone: "emerald",
+      quote: "matches NOAA 2024 record",
+    },
+    {
+      label: "Vaccine claim disputed",
+      v: "False",
+      tone: "red",
+      quote: "study retracted Apr 2023",
+    },
+    {
+      label: "Source outdated (2017)",
+      v: "Misleading",
+      tone: "amber",
+      quote: "context lost in revision",
+    },
   ];
+  const toneColor = {
+    emerald: "text-emerald-700 dark:text-emerald-300",
+    red: "text-red-700 dark:text-red-300",
+    amber: "text-amber-700 dark:text-amber-300",
+  };
+  const toneDot = {
+    emerald: "bg-emerald-500",
+    red: "bg-red-500",
+    amber: "bg-amber-500",
+  };
   return (
     <div className="space-y-2.5">
       {verdicts.map((v) => (
         <div
           key={v.label}
-          className="flex items-center gap-3 rounded-md border border-border-default bg-surface-base px-3 py-2.5"
+          className="rounded-sm border border-border-default bg-surface-base px-4 py-3"
         >
-          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", v.bar)} />
-          <span className="flex-1 truncate text-xs text-fg-primary">{v.label}</span>
-          <span className={cn("text-[10px] uppercase tracking-wider", v.c)}>
-            {v.v}
-          </span>
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                toneDot[v.tone as keyof typeof toneDot],
+              )}
+            />
+            <span className="flex-1 truncate text-sm text-fg-primary">
+              {v.label}
+            </span>
+            <span
+              className={cn(
+                "font-mono text-[10px] uppercase tracking-[0.18em]",
+                toneColor[v.tone as keyof typeof toneColor],
+              )}
+            >
+              {v.v}
+            </span>
+          </div>
+          <p className="editorial-italic mt-1.5 pl-4 text-xs text-fg-tertiary">
+            {v.quote}
+          </p>
         </div>
       ))}
     </div>
@@ -100,10 +164,12 @@ function AIDetectionBars() {
     { label: "P6", prob: 0.21 },
   ];
   return (
-    <div ref={ref} className="space-y-2 font-mono">
+    <div ref={ref} className="space-y-2.5 font-mono">
       {paragraphs.map((p, i) => (
-        <div key={p.label} className="flex items-center gap-2">
-          <span className="w-6 text-[10px] text-fg-tertiary">{p.label}</span>
+        <div key={p.label} className="flex items-center gap-3">
+          <span className="w-7 text-[10px] tracking-wider text-fg-tertiary">
+            {p.label}
+          </span>
           <div className="h-2 flex-1 overflow-hidden rounded-full bg-border-subtle">
             <motion.div
               className={cn(
@@ -119,7 +185,7 @@ function AIDetectionBars() {
               }}
             />
           </div>
-          <span className="w-9 text-right text-[10px] tabular-nums text-fg-tertiary">
+          <span className="w-10 text-right text-[10px] tabular-nums tracking-wider text-fg-tertiary">
             {Math.round(p.prob * 100)}%
           </span>
         </div>
@@ -133,17 +199,17 @@ function CitationNetwork() {
   const inView = useInView(ref, { once: true, amount: 0.5 });
 
   return (
-    <div ref={ref} className="rounded-xl border border-border-default bg-surface-base p-4">
-      <svg viewBox="0 0 280 140" className="h-full w-full" aria-hidden="true">
+    <div ref={ref}>
+      <svg viewBox="0 0 320 180" className="h-auto w-full" aria-hidden="true">
         {[
-          { x1: 140, y1: 70, x2: 60, y2: 36, suspicious: false },
-          { x1: 140, y1: 70, x2: 60, y2: 104, suspicious: false },
-          { x1: 140, y1: 70, x2: 220, y2: 36, suspicious: false },
-          { x1: 140, y1: 70, x2: 220, y2: 104, suspicious: false },
-          { x1: 60, y1: 36, x2: 60, y2: 104, suspicious: false },
-          { x1: 60, y1: 36, x2: 220, y2: 36, suspicious: true },
-          { x1: 60, y1: 104, x2: 220, y2: 104, suspicious: true },
-          { x1: 220, y1: 36, x2: 220, y2: 104, suspicious: true },
+          { x1: 160, y1: 90, x2: 70, y2: 46, suspicious: false },
+          { x1: 160, y1: 90, x2: 70, y2: 134, suspicious: false },
+          { x1: 160, y1: 90, x2: 250, y2: 46, suspicious: false },
+          { x1: 160, y1: 90, x2: 250, y2: 134, suspicious: false },
+          { x1: 70, y1: 46, x2: 70, y2: 134, suspicious: false },
+          { x1: 70, y1: 46, x2: 250, y2: 46, suspicious: true },
+          { x1: 70, y1: 134, x2: 250, y2: 134, suspicious: true },
+          { x1: 250, y1: 46, x2: 250, y2: 134, suspicious: true },
         ].map((line, i) => (
           <motion.line
             key={i}
@@ -153,18 +219,23 @@ function CitationNetwork() {
             y2={line.y2}
             stroke={line.suspicious ? "#ef4444" : "currentColor"}
             strokeWidth={line.suspicious ? 1.5 : 1}
+            strokeDasharray={line.suspicious ? "0" : "3 3"}
             className={line.suspicious ? "" : "text-border-strong"}
             initial={{ pathLength: 0, opacity: 0 }}
-            animate={inView ? { pathLength: 1, opacity: line.suspicious ? 0.7 : 0.5 } : {}}
+            animate={
+              inView
+                ? { pathLength: 1, opacity: line.suspicious ? 0.85 : 0.55 }
+                : {}
+            }
             transition={{ delay: 0.2 + i * 0.05, duration: 0.6 }}
           />
         ))}
         {[
-          { cx: 140, cy: 70, r: 7, color: "var(--brand)" },
-          { cx: 60, cy: 36, r: 5, color: "currentColor", className: "text-fg-tertiary" },
-          { cx: 60, cy: 104, r: 5, color: "currentColor", className: "text-fg-tertiary" },
-          { cx: 220, cy: 36, r: 5, color: "#ef4444" },
-          { cx: 220, cy: 104, r: 5, color: "#ef4444" },
+          { cx: 160, cy: 90, r: 8, color: "var(--brand)", label: "P" },
+          { cx: 70, cy: 46, r: 5, color: "currentColor", className: "text-fg-tertiary" },
+          { cx: 70, cy: 134, r: 5, color: "currentColor", className: "text-fg-tertiary" },
+          { cx: 250, cy: 46, r: 5, color: "#ef4444", label: "R" },
+          { cx: 250, cy: 134, r: 5, color: "#ef4444", label: "R" },
         ].map((node, i) => (
           <motion.circle
             key={i}
@@ -176,7 +247,7 @@ function CitationNetwork() {
             initial={{ scale: 0 }}
             animate={inView ? { scale: 1 } : {}}
             transition={{
-              delay: 0.6 + i * 0.05,
+              delay: 0.6 + i * 0.06,
               duration: 0.4,
               ease: [0.16, 1, 0.3, 1],
             }}
@@ -191,43 +262,51 @@ function CitationNetwork() {
 function IntegrityDelta() {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.5 });
+  const reduce = useReducedMotion();
 
   return (
-    <div
-      ref={ref}
-      className="space-y-4 rounded-xl border border-border-default bg-surface-base p-5 font-mono"
-    >
+    <div ref={ref} className="space-y-5 font-mono">
       <div className="flex items-baseline justify-between">
-        <span className="text-xs text-fg-tertiary">Reported h-index</span>
+        <span className="label-eyebrow text-fg-tertiary">
+          h-index · reported
+        </span>
         <motion.span
-          className="text-xl font-bold tabular-nums text-fg-secondary line-through decoration-border-strong"
+          className="text-2xl font-bold tabular-nums text-fg-secondary line-through decoration-border-strong decoration-1"
           initial={{ opacity: 0 }}
           animate={inView ? { opacity: 1 } : {}}
-          transition={{ delay: 0.2, duration: 0.4 }}
+          transition={{ delay: reduce ? 0 : 0.2, duration: 0.4 }}
         >
           42
         </motion.span>
       </div>
+
       <div className="border-t border-border-subtle" />
+
       <div className="flex items-baseline justify-between">
-        <span className="text-xs text-brand-fg">Adjusted</span>
+        <span className="label-eyebrow text-brand-fg">
+          h-index · adjusted
+        </span>
         <motion.span
-          className="font-display text-3xl font-semibold tabular-nums text-brand-fg"
-          initial={{ opacity: 0 }}
-          animate={inView ? { opacity: 1 } : {}}
-          transition={{ delay: 0.5, duration: 0.4 }}
+          className="font-display text-4xl font-semibold tabular-nums tracking-tight text-brand-fg"
+          initial={{ opacity: 0, y: reduce ? 0 : 8 }}
+          animate={inView ? { opacity: 1, y: 0 } : {}}
+          transition={{ delay: reduce ? 0 : 0.5, duration: 0.4 }}
         >
           27
         </motion.span>
       </div>
-      <p className="text-[10px] leading-relaxed text-fg-tertiary">
-        After removing 312 self-citations and 84 ring citations across 18 papers.
+
+      <p className="editorial-italic font-sans text-xs leading-relaxed text-fg-tertiary">
+        After removing 312 self-citations and 84 ring citations across 18
+        papers — the number you would defend on a tenure committee.
       </p>
     </div>
   );
 }
 
 // ─── Engine spec ────────────────────────────────────────────────────────
+
+const romans = ["I", "II", "III", "IV", "V"] as const;
 
 interface Engine {
   icon: LucideIcon;
@@ -236,6 +315,7 @@ interface Engine {
   description: string;
   metric: string;
   visual: React.ReactNode;
+  caption: string;
 }
 
 const engines: Engine[] = [
@@ -247,6 +327,7 @@ const engines: Engine[] = [
       "Each factual claim is extracted, fact-checked, and scored against external databases. The credibility number is a sum of recorded deductions, not a black box.",
     metric: "Verifies claims against the Google Fact Check API",
     visual: <CredibilityGauge />,
+    caption: "Credibility shown as a gauge, scaled 0 to 100. Higher is more defensible.",
   },
   {
     icon: BookOpen,
@@ -256,6 +337,7 @@ const engines: Engine[] = [
       "True, false, misleading, partially true, or unverified. Each verdict ships with the source that backs it. No bulk score, just specific calls you can defend in writing.",
     metric: "Up to 15 claims per submission",
     visual: <ClaimVerdicts />,
+    caption: "Three claim verdicts with the supporting evidence quoted in italic beneath.",
   },
   {
     icon: Brain,
@@ -265,6 +347,7 @@ const engines: Engine[] = [
       "A document is rarely all-AI or all-human. We score each paragraph separately so you can see exactly where the boundary lives, with a confidence level on each call.",
     metric: "Analyzes up to 20 paragraphs per document",
     visual: <AIDetectionBars />,
+    caption: "Paragraph-by-paragraph AI signal, in mono — bars over 70% are flagged red.",
   },
   {
     icon: GitBranch,
@@ -274,6 +357,7 @@ const engines: Engine[] = [
       "Groups of researchers who inflate each other's citation counts through circular references. We surface the network and which authors anchor it.",
     metric: "Detects rings of 5+ papers with mutual citations",
     visual: <CitationNetwork />,
+    caption: "A five-paper network. Red edges trace mutual citations forming a closed ring.",
   },
   {
     icon: Users,
@@ -283,6 +367,7 @@ const engines: Engine[] = [
       "h-index and total citation counts recomputed after removing self-citations and ring citations. The number you'd defend on a tenure committee.",
     metric: "Adjusts h-index for self-citation inflation",
     visual: <IntegrityDelta />,
+    caption: "Reported vs adjusted h-index — the delta is the integrity correction.",
   },
 ];
 
@@ -290,34 +375,44 @@ const engines: Engine[] = [
 
 export function FeaturesSection() {
   return (
-    <section id="features" className="py-24 sm:py-28">
+    <section id="features" className="py-28 sm:py-32">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-20 max-w-2xl">
-          <p className="text-xs font-medium uppercase tracking-[0.18em] text-fg-tertiary">
-            Five engines
-          </p>
-          <h2 className="mt-3 font-display text-4xl font-semibold leading-[1.05] tracking-tight text-balance text-fg-primary sm:text-5xl">
-            Each engine returns{" "}
-            <span className="italic text-brand-fg">evidence,</span> not a
-            verdict.
-          </h2>
-        </div>
+        <ChapterHeading
+          numeral="III"
+          eyebrow="Five engines"
+          title={
+            <>
+              Each engine returns{" "}
+              <span className="italic text-brand-fg">evidence,</span> not a verdict.
+            </>
+          }
+          subtitle="Five readings of the same submission, returned as five separately-defensible findings. Read each chapter the way you'd read a peer review."
+        />
 
-        <div className="space-y-24 md:space-y-32">
+        <div className="mt-24 space-y-28 md:space-y-36">
           {engines.map((engine, i) => (
-            <EngineRow key={engine.eyebrow} engine={engine} flip={i % 2 === 1} />
+            <EngineRow
+              key={engine.eyebrow}
+              engine={engine}
+              flip={i % 2 === 1}
+              chapterNumeral={romans[i]}
+              chapterIndex={i + 1}
+            />
           ))}
         </div>
 
-        {/* Regional commitment — typographic statement, not a card. */}
+        {/* Regional commitment — typographic statement, framed as a colophon. */}
         <ScrollReveal delay={0.1} className="mt-32">
           <div className="border-t border-border-subtle pt-12">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-brand-fg">
-              Built for the EaP region
-            </p>
-            <p className="mt-3 max-w-3xl font-display text-2xl font-medium leading-snug text-balance text-fg-primary sm:text-3xl">
+            <div className="flex items-center gap-3">
+              <span aria-hidden="true" className="h-px w-7 bg-border-strong" />
+              <span className="label-eyebrow text-brand-fg">
+                Built for the EaP region
+              </span>
+            </div>
+            <p className="mt-5 max-w-3xl font-display text-2xl font-medium leading-snug text-balance text-fg-primary sm:text-3xl">
               Native Azerbaijani and Russian. Local compliance. Pricing that
-              works for a regional university budget, not a US R1.
+              works for a regional university budget — <span className="italic text-brand-fg">not a US R1.</span>
             </p>
           </div>
         </ScrollReveal>
@@ -326,41 +421,72 @@ export function FeaturesSection() {
   );
 }
 
-function EngineRow({ engine, flip }: { engine: Engine; flip: boolean }) {
+function EngineRow({
+  engine,
+  flip,
+  chapterNumeral,
+  chapterIndex,
+}: {
+  engine: Engine;
+  flip: boolean;
+  chapterNumeral: string;
+  chapterIndex: number;
+}) {
   const Icon = engine.icon;
   return (
     <ScrollReveal>
       <div
         className={cn(
-          "grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16",
+          "grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-20",
           flip && "lg:[&>:first-child]:order-2",
         )}
       >
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="relative">
+          {/* Faint chapter numeral floating in the margin */}
+          <span
+            aria-hidden="true"
+            className="numeral-chapter pointer-events-none absolute -top-12 -left-1 select-none lg:-left-12 lg:-top-8"
+          >
+            {chapterNumeral}
+          </span>
+
+          <div className="flex items-center gap-3">
             <Icon
               className="h-4 w-4 text-brand-fg"
               strokeWidth={1.5}
               aria-hidden="true"
             />
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-brand-fg">
-              {engine.eyebrow}
-            </p>
+            <span className="label-eyebrow text-brand-fg">
+              Chapter {chapterNumeral} · {engine.eyebrow}
+            </span>
           </div>
-          <h3 className="mt-3 font-display text-3xl font-semibold leading-[1.1] tracking-tight text-balance text-fg-primary sm:text-4xl">
+
+          <h3 className="mt-4 font-display text-3xl font-semibold leading-[1.05] tracking-[-0.01em] text-balance text-fg-primary sm:text-4xl md:text-[2.65rem]">
             {engine.title}
           </h3>
-          <p className="mt-5 max-w-md text-base leading-relaxed text-fg-secondary">
+
+          <p className="measure mt-6 text-base leading-[1.7] text-fg-secondary sm:text-[17px]">
             {engine.description}
           </p>
-          <p className="mt-6 inline-flex items-center gap-2 rounded-full border border-border-default bg-surface-card px-3 py-1.5 text-xs text-fg-primary">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand" />
-            {engine.metric}
+
+          <p className="mt-7 inline-flex items-center gap-2.5 rounded-sm border border-border-default bg-surface-card px-3 py-1.5 text-xs text-fg-primary">
+            <span className="h-1 w-1 rounded-full bg-brand" />
+            <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-fg-tertiary">
+              Method ·
+            </span>
+            <span className="text-fg-primary">{engine.metric}</span>
           </p>
         </div>
 
         <div className="flex items-center justify-center">
-          <div className="w-full max-w-md">{engine.visual}</div>
+          <FigurePlate
+            index={`Plate ${chapterNumeral}`}
+            caption={engine.caption}
+            source={`Fig. ${chapterIndex} · synthesized output`}
+            className="w-full max-w-md"
+          >
+            {engine.visual}
+          </FigurePlate>
         </div>
       </div>
     </ScrollReveal>
