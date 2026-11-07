@@ -44,6 +44,10 @@ class ResearcherProfileResponse(BaseModel):
     last_analyzed_at: Optional[datetime]
     created_at: datetime
     publications: List[PublicationAnalysisResponse] = []
+    # Transparent integrity scoring — shaped per app.schemas.breakdown.IntegrityBreakdown.
+    integrity_breakdown: Optional[Any] = None
+    # Per-analysis governance — model used, fallbacks, processing warnings.
+    model_metadata: Optional[Any] = None
 
     model_config = {"from_attributes": True}
 

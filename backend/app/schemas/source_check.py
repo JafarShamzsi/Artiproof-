@@ -62,6 +62,11 @@ class SourceCheckResponse(BaseModel):
     claims: List[ClaimAnalysisResponse] = []
     ai_detections: List[AIDetectionResponse] = []
     citations: List[CitationCheckResponse] = []
+    # Transparent scoring — JSON blob shaped per app.schemas.breakdown.ScoreBreakdown.
+    # Optional Any to avoid coupling the response schema to the breakdown's internal shape.
+    score_breakdown: Optional[Any] = None
+    # Per-analysis governance record — model used, fallbacks, processing warnings.
+    model_metadata: Optional[Any] = None
 
     model_config = {"from_attributes": True}
 
