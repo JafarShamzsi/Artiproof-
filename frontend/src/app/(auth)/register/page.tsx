@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Shield, Loader2 } from "lucide-react";
+import { Chrome, Shield, Loader2 } from "lucide-react";
 
 const ROLES = [
   { value: "researcher", label: "Researcher" },
@@ -31,6 +31,7 @@ export default function RegisterPage() {
   const [role, setRole] = useState("researcher");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,6 +170,28 @@ export default function RegisterPage() {
           >
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Create Account
+          </Button>
+          <div className="flex w-full items-center gap-3">
+            <div className="h-px flex-1 bg-zinc-800" />
+            <span className="text-xs uppercase tracking-wider text-zinc-500">or</span>
+            <div className="h-px flex-1 bg-zinc-800" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={googleLoading}
+            onClick={() => {
+              setGoogleLoading(true);
+              void signIn("google", { callbackUrl: "/dashboard" });
+            }}
+            className="w-full border-zinc-700 bg-zinc-900 text-white hover:bg-zinc-800 hover:text-white"
+          >
+            {googleLoading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Chrome className="mr-2 h-4 w-4" />
+            )}
+            Sign up with Google
           </Button>
           <p className="text-sm text-zinc-400">
             Already have an account?{" "}

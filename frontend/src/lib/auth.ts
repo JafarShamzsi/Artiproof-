@@ -56,7 +56,7 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
-    ...(process.env.GOOGLE_CLIENT_ID
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ? [
           GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -74,12 +74,30 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user) {
         token.id = user.id as string;
         token.role = (user as { role?: string }).role || "researcher";
         token.institution = (user as { institution?: string | null }).institution ?? null;
         token.accessToken = (user as { accessToken?: string }).accessToken;
+      }
+
+      if (account?.provider === "google" && account.id_token) {
+        const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_token: account.id_token }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Google sign-in failed");
+        }
+
+        const data = (await res.json()) as BackendTokenResponse;
+        token.id = data.user.id;
+        token.role = data.user.role || "researcher";
+        token.institution = data.user.institution ?? null;
+        token.accessToken = data.access_token;
       }
       return token;
     },

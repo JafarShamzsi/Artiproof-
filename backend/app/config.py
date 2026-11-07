@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     # Google Fact Check
     GOOGLE_FACTCHECK_API_KEY: str = ""
+    GOOGLE_CLIENT_ID: str = "14207070717-grg8dt94ef75o3fkhcnntgmm3mun6i7g.apps.googleusercontent.com"
 
     # Academic data APIs (optional)
     SEMANTIC_SCHOLAR_API_KEY: str = ""
