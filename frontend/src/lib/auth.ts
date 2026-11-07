@@ -17,6 +17,22 @@ interface BackendTokenResponse {
   };
 }
 
+interface BackendChallengeResponse {
+  challenge: "totp";
+  challenge_token: string;
+}
+
+/**
+ * Marker shape encoded into the Error message thrown from `authorize()` when
+ * the backend issues a 2FA challenge. The login page parses this on the
+ * client to render the second-step form. Kept JSON-encoded because NextAuth
+ * v4 surfaces the raw `Error.message` when `redirect: false` is used.
+ */
+export interface TwoFactorChallengePayload {
+  twoFactorChallenge: true;
+  challengeToken: string;
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -24,12 +40,43 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        // Step-2 inputs — only present when re-submitting after a TOTP challenge.
+        challengeToken: { label: "Challenge token", type: "text" },
+        twoFactorCode: { label: "2FA code", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email and password are required");
         }
 
+        // ── Step 2: user is finishing a 2FA challenge ──
+        if (credentials.challengeToken && credentials.twoFactorCode) {
+          const res = await fetch(`${BACKEND_URL}/api/auth/login/2fa`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              challenge_token: credentials.challengeToken,
+              code: credentials.twoFactorCode,
+            }),
+          });
+
+          if (!res.ok) {
+            const data = (await res.json().catch(() => ({}))) as { detail?: string };
+            throw new Error(data.detail || "Invalid 2FA code");
+          }
+
+          const data = (await res.json()) as BackendTokenResponse;
+          return {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.full_name,
+            role: data.user.role,
+            institution: data.user.institution,
+            accessToken: data.access_token,
+          };
+        }
+
+        // ── Step 1: email + password ──
         const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -43,15 +90,27 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid email or password");
         }
 
-        const data = (await res.json()) as BackendTokenResponse;
+        const data = (await res.json()) as BackendTokenResponse | BackendChallengeResponse;
 
+        if ("challenge" in data) {
+          // Surface the challenge token to the client by encoding it in the
+          // error message — NextAuth v4 with `redirect: false` returns the
+          // raw `Error.message` as `result.error`.
+          const payload: TwoFactorChallengePayload = {
+            twoFactorChallenge: true,
+            challengeToken: data.challenge_token,
+          };
+          throw new Error(JSON.stringify(payload));
+        }
+
+        const tokenData: BackendTokenResponse = data;
         return {
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.full_name,
-          role: data.user.role,
-          institution: data.user.institution,
-          accessToken: data.access_token,
+          id: tokenData.user.id,
+          email: tokenData.user.email,
+          name: tokenData.user.full_name,
+          role: tokenData.user.role,
+          institution: tokenData.user.institution,
+          accessToken: tokenData.access_token,
         };
       },
     }),

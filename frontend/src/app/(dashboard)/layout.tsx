@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { KeyboardShortcutsPanel } from "@/components/dashboard/KeyboardShortcutsPanel";
 import {
   LayoutDashboard,
   Search,
@@ -200,6 +201,9 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+
+      {/* Global keyboard shortcuts: `?` opens, `g + letter` chords navigate. */}
+      <KeyboardShortcutsPanel />
     </div>
   );
 }
