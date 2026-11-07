@@ -76,3 +76,18 @@ EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24
 
 # 2FA backup codes — number issued at setup. Each is single-use.
 TOTP_BACKUP_CODE_COUNT = 10
+
+# Pinned items per user. Cap is generous enough to be invisible in normal
+# use but small enough that the dashboard widget never balloons.
+MAX_PINNED_ITEMS = 12
+
+# Score buckets for the integrity-distribution chart and the top-issues card.
+# Match the threshold convention used by lib/colors.ts on the frontend.
+SCORE_HIGH_MIN = 70
+SCORE_MEDIUM_MIN = 40
+# AI-content threshold above which a check counts as "AI content detected"
+# in top-issues aggregation.
+AI_CONTENT_FLAG_THRESHOLD = 50.0
+# How far back the team activity feed reaches.
+TEAM_ACTIVITY_LOOKBACK_DAYS = 30
+TEAM_ACTIVITY_MAX_ITEMS = 50

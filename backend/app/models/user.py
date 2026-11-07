@@ -47,3 +47,22 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     # Per-user defaults for analysis pipelines. Merged with
     # constants.DEFAULT_ANALYSIS_PREFERENCES on read.
     analysis_preferences = sa.Column(sa.JSON, nullable=True)
+    # Pinned items for the dashboard. Shape: list of
+    #   {"kind": "source_check"|"researcher"|"report", "id": str, "pinned_at": iso}
+    # Capped at constants.MAX_PINNED_ITEMS at the route level.
+    pinned_items = sa.Column(sa.JSON, nullable=True)
+    # Team membership. NULL for free/pro accounts. Required for team-tier
+    # features (team activity feed). Org rows are seeded out-of-band today;
+    # a self-serve invite flow is a later phase.
+    organization_id = sa.Column(
+        sa.String,
+        sa.ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Privacy toggle for team activity. Default true so team-tier users
+    # opt out actively rather than discovering after the fact that their
+    # work is invisible to the rest of the org.
+    share_activity_with_team = sa.Column(
+        sa.Boolean, nullable=False, server_default="true"
+    )

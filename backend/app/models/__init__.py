@@ -1,5 +1,6 @@
 from app.models.auth_token import AuthToken
 from app.models.base import Base
+from app.models.organization import Organization
 from app.models.report import Report
 from app.models.researcher import (
     CitationEdge,
@@ -21,6 +22,7 @@ __all__ = [
     "AuthToken",
     "Base",
     "User",
+    "Organization",
     "Session",
     "SourceCheck",
     "ClaimAnalysis",

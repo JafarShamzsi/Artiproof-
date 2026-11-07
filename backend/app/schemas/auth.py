@@ -58,6 +58,9 @@ class UserResponse(BaseModel):
     locale: str = "en"
     deactivated_at: Optional[datetime] = None
     created_at: datetime
+    # Team-tier privacy toggle. Default true matches the model's server_default
+    # so the Settings UI shows "on" before the user changes anything.
+    share_activity_with_team: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -231,3 +234,31 @@ class AnalysisPreferences(BaseModel):
     trace_misinfo_origins: bool = True
     ai_detection_model: str = "gemini-2.0-flash"
     researcher_field_inference: bool = True
+
+
+# ─── Pinned items ────────────────────────────────────────────────────────
+
+
+PinKindStr = Literal["source_check", "researcher", "report"]
+
+
+class PinRequest(BaseModel):
+    kind: PinKindStr
+    id: str = Field(min_length=1, max_length=64)
+
+
+class PinnedItem(BaseModel):
+    """Hydrated pin returned to the dashboard."""
+
+    kind: PinKindStr
+    id: str
+    title: str
+    score: Optional[float] = None
+    pinned_at: datetime
+
+
+# ─── Team activity sharing toggle ────────────────────────────────────────
+
+
+class ShareActivityRequest(BaseModel):
+    share: bool
