@@ -18,9 +18,13 @@ interface Feature {
 
 interface PricingPlan {
   name: string;
+  /** Stable id used as the URL fragment anchor (e.g. `/pricing#team`). */
+  slug: string;
   numeral: string;
   monthlyPrice: string;
   yearlyPrice: string;
+  /** Optional sub-line under the headline price (e.g. seat bracket). */
+  priceSuffix?: string;
   features: Feature[];
   cta: string;
   ctaHref: string;
@@ -30,9 +34,10 @@ interface PricingPlan {
   subtitle: string;
 }
 
-const plans: PricingPlan[] = [
+export const PRICING_PLANS: PricingPlan[] = [
   {
     name: "Free",
+    slug: "free",
     numeral: "I",
     subtitle: "for the curious",
     monthlyPrice: "$0",
@@ -52,6 +57,7 @@ const plans: PricingPlan[] = [
   },
   {
     name: "Pro",
+    slug: "pro",
     numeral: "II",
     subtitle: "the working researcher",
     monthlyPrice: "$20",
@@ -71,25 +77,50 @@ const plans: PricingPlan[] = [
     riskReducer: "Cancel anytime · 14-day refund",
   },
   {
-    name: "Institution",
+    name: "Team",
+    slug: "team",
     numeral: "III",
+    subtitle: "a research desk that ships together",
+    monthlyPrice: "$99",
+    yearlyPrice: "$79",
+    priceSuffix: "starter · up to 10 seats",
+    features: [
+      { text: "Everything in Pro for every seat", included: true },
+      { text: "Up to 10 seats (Starter) · 25 seats (Pro · $249/mo)", included: true },
+      { text: "Shared watchlists + team activity feed", included: true },
+      { text: "Role-based admin / member controls", included: true },
+      { text: "Per-seat usage dashboard", included: true },
+      { text: "Pooled report exports + branded PDFs", included: true },
+      { text: "Audit log of every team action", included: true },
+    ],
+    cta: "Start a 14-day trial",
+    ctaHref: "/dashboard?startTeam=1",
+    riskReducer: "Free for 14 days · no card required",
+  },
+  {
+    name: "Institution",
+    slug: "institution",
+    numeral: "IV",
     subtitle: "the university press",
     monthlyPrice: "Custom",
     yearlyPrice: "Custom",
     features: [
-      { text: "Everything in Pro", included: true },
-      { text: "Unlimited users + readings", included: true },
+      { text: "Everything in Team for unlimited seats", included: true },
+      { text: "Unlimited readings + extended retention", included: true },
       { text: "Department dashboards", included: true },
-      { text: "LMS integration", included: true },
-      { text: "Batch analysis", included: true },
+      { text: "LMS integration (Moodle, Canvas)", included: true },
       { text: "SSO + custom branding", included: true },
       { text: "On-premise deployment", included: true },
+      { text: "Dedicated customer engineer", included: true },
     ],
     cta: "Contact the editors",
-    ctaHref: "/contact-sales",
+    ctaHref: "/contact-sales?plan=institution",
     riskReducer: "Custom pricing · 30-day pilot",
   },
 ];
+
+// Back-compat alias for callers that imported the old name.
+const plans = PRICING_PLANS;
 
 const faqs: { q: string; a: string }[] = [
   {
@@ -125,7 +156,7 @@ export function PricingSection() {
               <span className="italic text-brand-fg">$20 if you keep going.</span>
             </>
           }
-          subtitle="Three tiers, set out plainly. No drip-pricing, no enterprise theater. The numbers below are exactly what you'll see at checkout."
+          subtitle="Four tiers, set out plainly. No drip-pricing, no enterprise theater. The numbers below are exactly what you'll see at checkout."
         />
 
         {/* Billing toggle */}
@@ -189,7 +220,7 @@ export function PricingSection() {
   );
 }
 
-function PlanRow({
+export function PlanRow({
   plan,
   billing,
 }: {
@@ -198,8 +229,11 @@ function PlanRow({
 }) {
   return (
     <div
+      id={plan.slug}
+      // `scroll-mt-24` keeps the anchor target visible below any fixed
+      // header when /pricing#team / #pro / etc. is loaded directly.
       className={cn(
-        "relative grid grid-cols-1 gap-x-12 gap-y-6 px-1 py-10 transition-colors lg:grid-cols-[6.5rem_minmax(0,1.1fr)_minmax(0,1.2fr)_auto] lg:items-start lg:py-12",
+        "relative grid scroll-mt-24 grid-cols-1 gap-x-12 gap-y-6 px-1 py-10 transition-colors lg:grid-cols-[6.5rem_minmax(0,1.1fr)_minmax(0,1.2fr)_auto] lg:items-start lg:py-12",
         plan.popular && "bg-brand-soft/25",
       )}
     >
@@ -236,6 +270,11 @@ function PlanRow({
             <span className="font-mono text-sm text-fg-tertiary">/ month</span>
           )}
         </div>
+        {plan.priceSuffix && (
+          <p className="mt-1 font-mono text-xs uppercase tracking-[0.18em] text-fg-tertiary">
+            {plan.priceSuffix}
+          </p>
+        )}
       </div>
 
       {/* Feature list — tight, two-column on desktop */}
