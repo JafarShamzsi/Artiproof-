@@ -30,12 +30,14 @@ import {
   User,
   ChevronLeft,
   Shield,
+  Eye,
 } from "lucide-react";
 
 const sidebarLinks = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/check", label: "Check Source", icon: Search },
   { href: "/researcher", label: "Analyze Researcher", icon: Users },
+  { href: "/watchlist", label: "Watchlist", icon: Eye },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;

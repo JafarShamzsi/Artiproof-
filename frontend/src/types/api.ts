@@ -259,6 +259,41 @@ export interface ResearcherListResponse {
   page_size: number;
 }
 
+/** Returned by POST /api/researcher/bulk. */
+export interface BulkResearcherResponse {
+  batch_id: string;
+  items: ResearcherListItem[];
+}
+
+/** A frozen capture of a prior researcher analysis. Newest first. */
+export interface ResearcherSnapshotItem {
+  id: string;
+  captured_at: string | null;
+  created_at: string;
+  official_h_index: number | null;
+  official_citation_count: number | null;
+  adjusted_h_index: number | null;
+  adjusted_citation_count: number | null;
+  integrity_score: number | null;
+  self_citation_rate: number | null;
+  topic_relevance_score: number | null;
+  total_publications: number | null;
+}
+
+/** Hydrated watchlist row — current metrics + delta vs latest snapshot. */
+export interface WatchlistEntry {
+  researcher_id: string;
+  researcher_name: string;
+  institution: string | null;
+  integrity_score: number | null;
+  self_citation_rate: number | null;
+  /** current - previous; null when no prior snapshot exists. */
+  integrity_score_delta: number | null;
+  last_analyzed_at: string | null;
+  last_snapshot_at: string | null;
+  added_at: string;
+}
+
 // ─── Reports ───
 
 export interface Report {

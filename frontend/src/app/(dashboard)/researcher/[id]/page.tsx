@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState, useRef } from "react";
+import { use, useCallback, useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,17 +16,23 @@ import {
   GitBranch,
   ArrowLeft,
   Loader2,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  History,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useColorMode } from "@/contexts/ColorModeContext";
 
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useReportActions } from "@/lib/useReportActions";
 import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreExplanationCard } from "@/components/ui/score-explanation";
-import { scoreColor, scoreSolidBorderColor } from "@/lib/colors";
+import { scoreColor, scoreSolidBorderColor, scoreStroke } from "@/lib/colors";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { PinButton } from "@/components/ui/pin-button";
+import type { ResearcherSnapshotItem, WatchlistEntry } from "@/types/api";
 
 interface Publication {
   id: string;
@@ -98,26 +104,122 @@ export default function ResearcherResultPage({
   const { id } = use(params);
   const [data, setData] = useState<ProfileData | null>(null);
   const [graphData, setGraphData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null);
+  const [snapshots, setSnapshots] = useState<ResearcherSnapshotItem[]>([]);
+  const [inWatchlist, setInWatchlist] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reAnalyzing, setReAnalyzing] = useState(false);
+  const [watchlistBusy, setWatchlistBusy] = useState(false);
 
+  // Single-shot fetch for the profile + graph + snapshots + watchlist on mount.
+  // Each fetch is independent, so a failure on one (e.g. snapshots is fine
+  // when there's no history) doesn't block the others.
   useEffect(() => {
-    Promise.all([
-      apiFetch(`/api/researcher/${id}`).then((r) => {
-        if (!r.ok) throw new Error("Not found");
-        return r.json();
-      }),
-      apiFetch(`/api/researcher/${id}/citation-graph`).then((r) =>
-        r.ok ? r.json() : { nodes: [], edges: [] }
-      ),
-    ])
-      .then(([profile, graph]) => {
-        setData(profile);
-        setGraphData(graph);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    (async () => {
+      const [profileRes, graphRes, snapsRes, watchRes] = await Promise.all([
+        apiFetch(`/api/researcher/${id}`),
+        apiFetch(`/api/researcher/${id}/citation-graph`),
+        apiFetch(`/api/researcher/${id}/snapshots`),
+        apiFetch(`/api/me/watchlist`),
+      ]);
+
+      if (cancelled) return;
+
+      if (!profileRes.ok) {
+        setError("Not found");
+        setLoading(false);
+        return;
+      }
+      const profile = (await profileRes.json()) as ProfileData;
+      const graph = graphRes.ok
+        ? await graphRes.json()
+        : { nodes: [], edges: [] };
+      const snaps: ResearcherSnapshotItem[] = snapsRes.ok
+        ? await snapsRes.json()
+        : [];
+      const watch: WatchlistEntry[] = watchRes.ok ? await watchRes.json() : [];
+
+      if (cancelled) return;
+
+      setData(profile);
+      setGraphData(graph);
+      setSnapshots(snaps);
+      setInWatchlist(watch.some((e) => e.researcher_id === id));
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
+
+  // POSTing to /rerun returns the profile in pending state. We refetch to
+  // pick up the freshly-reset analysis_status (and surface anything else the
+  // orchestrator updated transactionally) — the URL stays put so any pins
+  // and watchlist links remain valid.
+  const handleReanalyze = useCallback(async () => {
+    setReAnalyzing(true);
+    try {
+      const res = await apiFetch(`/api/researcher/${id}/rerun`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || "Failed to queue re-analysis");
+        return;
+      }
+      toast.success("Re-analysis queued");
+      // Refetch the profile so the UI reflects the pending status. Snapshots
+      // get refreshed too so any newly captured row appears immediately.
+      const [profileRes, snapsRes] = await Promise.all([
+        apiFetch(`/api/researcher/${id}`),
+        apiFetch(`/api/researcher/${id}/snapshots`),
+      ]);
+      if (profileRes.ok) {
+        setData((await profileRes.json()) as ProfileData);
+      }
+      if (snapsRes.ok) {
+        setSnapshots((await snapsRes.json()) as ResearcherSnapshotItem[]);
+      }
+    } catch {
+      toast.error("Network error — please try again");
+    } finally {
+      setReAnalyzing(false);
+    }
+  }, [id]);
+
+  const handleToggleWatchlist = useCallback(async () => {
+    setWatchlistBusy(true);
+    try {
+      if (inWatchlist) {
+        const res = await apiFetch(`/api/me/watchlist/${id}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err.detail || "Failed to remove from watchlist");
+          return;
+        }
+        setInWatchlist(false);
+        toast.success("Removed from watchlist");
+      } else {
+        const res = await apiFetch(`/api/me/watchlist/${id}`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast.error(err.detail || "Failed to add to watchlist");
+          return;
+        }
+        setInWatchlist(true);
+        toast.success("Added to watchlist");
+      }
+    } catch {
+      toast.error("Network error — please try again");
+    } finally {
+      setWatchlistBusy(false);
+    }
+  }, [id, inWatchlist]);
 
   if (loading) {
     return (
@@ -152,6 +254,12 @@ export default function ResearcherResultPage({
       integrity={integrity}
       flags={flags}
       graphData={graphData}
+      snapshots={snapshots}
+      inWatchlist={inWatchlist}
+      reAnalyzing={reAnalyzing}
+      watchlistBusy={watchlistBusy}
+      onReanalyze={handleReanalyze}
+      onToggleWatchlist={handleToggleWatchlist}
     />
   );
 }
@@ -163,11 +271,23 @@ function ResearcherProfileView({
   integrity,
   flags,
   graphData,
+  snapshots,
+  inWatchlist,
+  reAnalyzing,
+  watchlistBusy,
+  onReanalyze,
+  onToggleWatchlist,
 }: {
   data: ProfileData;
   integrity: number;
   flags: string[];
   graphData: { nodes: GraphNode[]; edges: GraphEdge[] } | null;
+  snapshots: ResearcherSnapshotItem[];
+  inWatchlist: boolean;
+  reAnalyzing: boolean;
+  watchlistBusy: boolean;
+  onReanalyze: () => void;
+  onToggleWatchlist: () => void;
 }) {
   const { share, download, busy, copied, error } = useReportActions({
     researcherProfileId: data.id,
@@ -210,8 +330,39 @@ function ResearcherProfileView({
           </Link>
           <h1 className="font-display text-2xl font-bold text-zinc-900 dark:text-white">Researcher Analysis</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <PinButton kind="researcher" id={data.id} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onToggleWatchlist}
+            disabled={watchlistBusy}
+            aria-pressed={inWatchlist}
+            className="border-zinc-300 text-zinc-700 dark:border-zinc-700 dark:text-zinc-400"
+          >
+            {watchlistBusy ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : inWatchlist ? (
+              <EyeOff className="mr-1.5 h-4 w-4" />
+            ) : (
+              <Eye className="mr-1.5 h-4 w-4" />
+            )}
+            {inWatchlist ? "Remove from watchlist" : "Add to watchlist"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onReanalyze}
+            disabled={reAnalyzing}
+            className="border-zinc-300 text-zinc-700 dark:border-zinc-700 dark:text-zinc-400"
+          >
+            {reAnalyzing ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1.5 h-4 w-4" />
+            )}
+            Re-analyze
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -487,7 +638,199 @@ function ResearcherProfileView({
           </CardContent>
         </Card>
       )}
+
+      {/* History — snapshots from prior re-analyses, newest first. */}
+      <HistorySection snapshots={snapshots} />
     </div>
+  );
+}
+
+// ─── History (re-analysis snapshots) ───────────────────────────────────
+
+function HistorySection({ snapshots }: { snapshots: ResearcherSnapshotItem[] }) {
+  return (
+    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <History className="h-4 w-4" /> History
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {snapshots.length === 0 ? (
+          <p className="py-6 text-center text-sm text-zinc-500">
+            No prior analyses recorded yet. Re-run the analysis to start
+            building a timeline.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            <SnapshotTrendChart snapshots={snapshots} />
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                    <th className="pb-2 pr-4 font-medium">Date</th>
+                    <th className="pb-2 pr-4 text-right font-medium">Integrity</th>
+                    <th className="pb-2 pr-4 text-right font-medium">Adj. h-index</th>
+                    <th className="pb-2 text-right font-medium">Self-cite</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshots.map((s) => (
+                    <tr
+                      key={s.id}
+                      className="border-b border-zinc-200/70 dark:border-zinc-800/50"
+                    >
+                      <td className="py-2 pr-4 text-zinc-700 dark:text-zinc-300">
+                        {new Date(s.created_at).toLocaleString()}
+                      </td>
+                      <td
+                        className={`py-2 pr-4 text-right font-bold tabular-nums ${scoreColor(s.integrity_score)}`}
+                      >
+                        {s.integrity_score != null
+                          ? Math.round(s.integrity_score)
+                          : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                        {s.adjusted_h_index ?? "—"}
+                      </td>
+                      <td className="py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
+                        {s.self_citation_rate != null
+                          ? `${(s.self_citation_rate * 100).toFixed(1)}%`
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Compact integrity-score-over-time chart. Inline SVG: backend snapshots are
+ * delivered newest-first, but the chart wants chronological order so we
+ * reverse a copy here. The grid uses currentColor so it picks up the
+ * surrounding text color in both light and dark themes without needing a
+ * theme branch — keeps it simpler than the dashboard's TrendChart.
+ */
+function SnapshotTrendChart({
+  snapshots,
+}: {
+  snapshots: ResearcherSnapshotItem[];
+}) {
+  const points = [...snapshots]
+    .reverse()
+    .filter((s) => s.integrity_score != null)
+    .map((s) => ({ score: s.integrity_score as number, date: s.created_at }));
+
+  if (points.length === 0) {
+    return (
+      <p className="py-2 text-center text-xs text-zinc-500">
+        No scored snapshots yet — the next re-run will start the timeline.
+      </p>
+    );
+  }
+
+  const W = 600;
+  const H = 180;
+  const PAD = 35;
+  const plotW = W - PAD * 2;
+  const plotH = H - PAD * 2;
+  const n = points.length;
+
+  // Single point: render a tidy dot rather than a line of length zero.
+  const xy = points.map((p, i) => ({
+    x: n === 1 ? PAD + plotW / 2 : PAD + (i / (n - 1)) * plotW,
+    y: PAD + plotH - (Math.max(0, Math.min(100, p.score)) / 100) * plotH,
+    ...p,
+  }));
+
+  // Color the polyline by the latest score so the visual matches the gauge.
+  const latestScore = points[n - 1].score;
+  const lineHex = scoreStroke(latestScore);
+  const pathD = xy.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label={`Integrity score over time, ${n} snapshot${n === 1 ? "" : "s"}`}
+      className="w-full text-zinc-400 dark:text-zinc-600"
+      style={{ maxHeight: 200 }}
+    >
+      {/* Grid lines + score labels — use currentColor so theme follows the
+          parent text color without a useColorMode branch. */}
+      {[0, 25, 50, 75, 100].map((v) => {
+        const y = PAD + plotH - (v / 100) * plotH;
+        return (
+          <g key={v}>
+            <line
+              x1={PAD}
+              y1={y}
+              x2={W - PAD}
+              y2={y}
+              stroke="currentColor"
+              strokeOpacity={0.35}
+              strokeWidth={1}
+            />
+            <text
+              x={PAD - 6}
+              y={y + 4}
+              textAnchor="end"
+              fill="currentColor"
+              fontSize={9}
+            >
+              {v}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Score line — solid only when there are >= 2 points; for n=1 we still
+          render the dot below. */}
+      {n >= 2 && (
+        <path
+          d={pathD}
+          fill="none"
+          stroke={lineHex}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+
+      {xy.map((p, i) => (
+        <g key={i}>
+          <circle
+            cx={p.x}
+            cy={p.y}
+            r={3.5}
+            fill={scoreStroke(p.score)}
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeOpacity={0.6}
+          />
+          {(i === 0 || i === n - 1 || n <= 6) && (
+            <text
+              x={p.x}
+              y={H - 4}
+              textAnchor="middle"
+              fill="currentColor"
+              fontSize={8}
+            >
+              {new Date(p.date).toLocaleDateString("en", {
+                month: "short",
+                day: "numeric",
+              })}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
   );
 }
 
