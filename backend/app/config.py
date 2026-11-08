@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     # deterministic draft on any failure).
     NARRATIVE_LLM_POLISH: bool = False
 
+    # AI-text detection. The default detector is deterministic/statistical (no
+    # model, no network). These enhancements are opt-in and stay off by default:
+    #   - AI_DETECT_PERPLEXITY: add a small-LM perplexity signal. Needs the
+    #     optional `transformers` + `torch` extras; a no-op when they're absent.
+    #   - AI_DETECT_LLM_CROSSCHECK: also run the LLM and blend its per-paragraph
+    #     scores into the statistical ones.
+    AI_DETECT_PERPLEXITY: bool = False
+    AI_DETECT_LLM_CROSSCHECK: bool = False
+
     # Google Fact Check
     GOOGLE_FACTCHECK_API_KEY: str = ""
     GOOGLE_CLIENT_ID: str = ""  # Required for Google sign-in: set via GOOGLE_CLIENT_ID env var

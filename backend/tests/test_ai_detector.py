@@ -1,149 +1,119 @@
-"""Tests for AI content detection.
-
-The Gemini path requires a real API; we test:
-- ``_split_paragraphs``: deterministic, no I/O
-- ``_heuristic_detection``: deterministic, the fallback used when Gemini fails
-- ``detect_ai_content`` against an empty API key (falls into the heuristic
-  path — no network, no mocking needed)
-"""
+"""AI content detection — deterministic statistical primary, with opt-in
+perplexity/LLM blends (both off by default)."""
 
 from __future__ import annotations
 
 import pytest
 
-from app.services.source_verification import ai_detector
+from app.services.source_verification import ai_detector as ad
+from app.services.source_verification.ai_detector import (
+    _paragraph_ai_score,
+    _statistical_detection,
+    detect_ai_content,
+)
+from app.services.source_verification.perplexity import perplexity_ai_signal
+
+HUMAN = (
+    "I grabbed coffee and rushed out — the bus was already pulling away! "
+    "My neighbor waved. Honestly? I almost tripped on the curb, twice."
+)
+AI_LIKE = (
+    "The system provides significant benefits to users. The system delivers "
+    "significant value to organizations. Furthermore the system enables "
+    "significant improvements. Moreover the system supports significant growth. "
+    "Additionally the system ensures significant reliability across operations."
+)
 
 
 class TestSplitParagraphs:
     def test_double_newline_splits(self):
-        # Each paragraph must be >= 30 chars to survive the filter
         text = (
             "First paragraph long enough to survive the length filter here.\n\n"
             "Second paragraph also long enough to be analyzed and kept."
         )
-        out = ai_detector._split_paragraphs(text)
+        out = ad._split_paragraphs(text)
         assert len(out) == 2
-        assert out[0].startswith("First")
-        assert out[1].startswith("Second")
+        assert out[0].startswith("First") and out[1].startswith("Second")
 
     def test_short_paragraphs_dropped(self):
         text = "OK\n\n" + ("A long enough paragraph for analysis " * 3).strip()
-        out = ai_detector._split_paragraphs(text)
+        out = ad._split_paragraphs(text)
         assert len(out) == 1
-        assert out[0].startswith("A long enough paragraph")
 
     def test_empty_text_returns_empty(self):
-        assert ai_detector._split_paragraphs("") == []
-        assert ai_detector._split_paragraphs("   ") == []
+        assert ad._split_paragraphs("") == []
+        assert ad._split_paragraphs("   ") == []
 
 
-class TestHeuristicDetection:
-    def test_returns_one_result_per_paragraph(self):
-        paragraphs = [
-            "First paragraph with several sentences. " * 10,
-            "Second paragraph with different content. " * 10,
-        ]
-        out = ai_detector._heuristic_detection(paragraphs)
-        assert len(out) == 2
+class TestStatisticalDetection:
+    def test_one_result_per_paragraph_labelled_statistical(self):
+        out = _statistical_detection([HUMAN, AI_LIKE])
         assert {r["paragraph_index"] for r in out} == {0, 1}
+        assert all(r["detection_method"] == "statistical" for r in out)
 
     def test_probability_bounded(self):
-        paragraphs = ["Short normal text.\nWith multiple lines. " * 20]
-        out = ai_detector._heuristic_detection(paragraphs)
-        for r in out:
+        for r in _statistical_detection([HUMAN, AI_LIKE]):
             assert 0.0 <= r["ai_probability"] <= 1.0
 
-    def test_uniform_long_sentences_score_higher(self):
-        """Robotic/uniform text should score above 0.5; conversational below."""
-        robotic = (
-            "However, the system performs admirably under all tested conditions. "
-            "Furthermore, the results are consistent across multiple trials. "
-            "Moreover, the methodology is sound and well-documented. "
-            "Consequently, we can draw definitive conclusions from the data. "
-        )
-        casual = (
-            "I don't know, it's kinda weird. "
-            "We're seeing the numbers come back, but they're all over the place. "
-            "Honestly? I'm not sure what's going on. "
-        )
-        robotic_out = ai_detector._heuristic_detection([robotic])[0]
-        casual_out = ai_detector._heuristic_detection([casual])[0]
-        # Heuristic isn't perfect but the relative order should hold
-        assert robotic_out["ai_probability"] > casual_out["ai_probability"]
+    def test_ai_like_scores_higher_than_human(self):
+        assert _paragraph_ai_score(AI_LIKE, True) > _paragraph_ai_score(HUMAN, True)
 
-    def test_method_label_is_heuristic(self):
-        out = ai_detector._heuristic_detection(["A long enough paragraph " * 20])
-        assert out[0]["detection_method"] == "heuristic-fallback"
+    def test_english_signals_are_gated(self):
+        # The English-only cues only raise the score when english_signals=True.
+        assert _paragraph_ai_score(AI_LIKE, True) >= _paragraph_ai_score(AI_LIKE, False)
 
 
 class TestDetectAIContent:
     @pytest.mark.asyncio
     async def test_empty_text_returns_empty_list(self):
-        out = await ai_detector.detect_ai_content("")
-        assert out == []
+        assert await detect_ai_content("") == []
 
     @pytest.mark.asyncio
-    async def test_no_api_key_falls_back_to_heuristic(self, monkeypatch):
-        """No GEMINI_API_KEY → heuristic path, no network call."""
-        # Override the loaded settings object's key (env var alone isn't enough
-        # because pydantic-settings already snapshotted it on import)
-        monkeypatch.setattr(ai_detector.settings, "GEMINI_API_KEY", "")
-
-        text = (
-            "First paragraph that is long enough to survive the filter. " * 5
-            + "\n\n"
-            + "Second paragraph also sufficiently long to be analyzed. " * 5
-        )
+    async def test_default_is_statistical(self, monkeypatch):
+        monkeypatch.setattr(ad.settings, "GEMINI_API_KEY", "")
         warnings: list[dict] = []
-        out = await ai_detector.detect_ai_content(text, warnings=warnings)
-
+        out = await detect_ai_content(HUMAN + "\n\n" + AI_LIKE, warnings=warnings)
         assert len(out) == 2
-        assert all(r["detection_method"] == "heuristic-fallback" for r in out)
-        # Warning should record the fallback
-        assert any(w.get("type") == "fallback_heuristic" for w in warnings)
+        assert all(r["detection_method"] == "statistical" for r in out)
 
     @pytest.mark.asyncio
-    async def test_paragraph_cap_warning_gemini_path(self, monkeypatch):
-        """When >20 paragraphs are submitted, the 20-paragraph cap kicks in
-        and records a warning. Both Gemini and heuristic paths respect it.
-        """
-        from unittest.mock import patch
-        import json as _json
+    async def test_no_llm_call_by_default_even_with_key(self, monkeypatch):
+        monkeypatch.setattr(ad.settings, "GEMINI_API_KEY", "key")
+        monkeypatch.setattr(ad.settings, "AI_DETECT_LLM_CROSSCHECK", False)
 
-        monkeypatch.setattr(ai_detector.settings, "GEMINI_API_KEY", "fake-key")
-        body = "\n\n".join(f"Paragraph {i} long enough to keep " * 5 for i in range(25))
-        warnings: list[dict] = []
+        async def boom(*a, **k):
+            raise AssertionError("LLM must not be called by default")
 
-        # Mock Gemini to return a valid empty result so we can assert on the
-        # cap-warning side effect rather than on Gemini's actual scoring.
-        fake_response = _json.dumps([])
-        with patch.object(ai_detector, "_call_gemini", return_value=fake_response):
-            out = await ai_detector.detect_ai_content(body, warnings=warnings)
-
-        # Output is filled in for all 20 paragraphs Gemini was offered
-        assert len(out) == 20
-        cap_warning = next(
-            (w for w in warnings if w.get("type") == "paragraphs_capped"), None
-        )
-        assert cap_warning is not None
-        assert cap_warning["analyzed"] == 20
-        assert cap_warning["total"] >= 25
+        monkeypatch.setattr(ad, "call_gemini", boom)
+        out = await detect_ai_content(HUMAN + "\n\n" + AI_LIKE)
+        assert all(r["detection_method"] == "statistical" for r in out)
 
     @pytest.mark.asyncio
-    async def test_heuristic_path_also_caps(self, monkeypatch):
-        """The 20-paragraph cap applies on both paths: protects against
-        pathologically large submissions even when Gemini is unavailable.
-        """
-        monkeypatch.setattr(ai_detector.settings, "GEMINI_API_KEY", "")
+    async def test_paragraph_cap(self, monkeypatch):
+        monkeypatch.setattr(ad.settings, "GEMINI_API_KEY", "")
         body = "\n\n".join(f"Paragraph {i} long enough to keep " * 5 for i in range(25))
         warnings: list[dict] = []
-        out = await ai_detector.detect_ai_content(body, warnings=warnings)
+        out = await detect_ai_content(body, warnings=warnings)
         assert len(out) == 20
-        cap_warning = next(
-            (w for w in warnings if w.get("type") == "paragraphs_capped"), None
-        )
-        assert cap_warning is not None
-        assert cap_warning["analyzed"] == 20
-        assert cap_warning["total"] >= 25
-        # Fallback warning still recorded alongside the cap warning
-        assert any(w.get("type") == "fallback_heuristic" for w in warnings)
+        cap = next((w for w in warnings if w.get("type") == "paragraphs_capped"), None)
+        assert cap is not None and cap["analyzed"] == 20 and cap["total"] >= 25
+
+    def test_perplexity_off_by_default(self, monkeypatch):
+        monkeypatch.setattr(ad.settings, "AI_DETECT_PERPLEXITY", False)
+        assert perplexity_ai_signal("a long enough paragraph of text") is None
+
+    @pytest.mark.asyncio
+    async def test_llm_crosscheck_blends_when_enabled(self, monkeypatch):
+        monkeypatch.setattr(ad.settings, "GEMINI_API_KEY", "key")
+        monkeypatch.setattr(ad.settings, "AI_DETECT_LLM_CROSSCHECK", True)
+        monkeypatch.setattr(ad.settings, "AI_DETECT_PERPLEXITY", False)
+
+        async def fake_gemini(prompt, operation=None, **k):
+            return '[{"index":0,"ai_probability":1.0},{"index":1,"ai_probability":1.0}]'
+
+        monkeypatch.setattr(ad, "call_gemini", fake_gemini)
+        out = await detect_ai_content(HUMAN + "\n\n" + AI_LIKE)
+        assert all("+llm" in r["detection_method"] for r in out)
+        # Blended = mean(statistical, LLM=1.0) >= statistical alone.
+        for blended, base in zip(out, _statistical_detection([HUMAN, AI_LIKE])):
+            assert blended["ai_probability"] >= base["ai_probability"]

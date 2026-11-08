@@ -1,5 +1,15 @@
-"""
-AI content detector — analyzes each paragraph for probability of being AI-generated.
+"""AI content detection — per-paragraph probability the text is AI-generated.
+
+The primary path is a deterministic **statistical/stylometric** detector — no
+model, no network: it looks at sentence-length uniformity (burstiness), n-gram
+repetition, and (for English) formulaic transitions + the absence of
+contractions. AI text tends to be flatter: uniform sentence lengths, repeated
+n-grams, heavy formal transitions, no contractions.
+
+Two enhancements are OFF by default (deterministic-first):
+  * ``AI_DETECT_PERPLEXITY`` blends in a small-LM perplexity signal (needs the
+    optional transformers/torch extras; a no-op when they're absent).
+  * ``AI_DETECT_LLM_CROSSCHECK`` also runs the LLM and blends its scores in.
 """
 
 import json
@@ -10,6 +20,7 @@ from typing import Optional
 from app.config import settings
 from app.services.gemini import call_gemini
 from app.services.source_verification.language import LanguageResult, language_directive
+from app.services.source_verification.perplexity import perplexity_ai_signal
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
@@ -54,24 +65,144 @@ def _split_paragraphs(text: str) -> list[str]:
     return paragraphs
 
 
+# ─── Statistical detector (primary, deterministic) ─────────────────────────
+
+# English-only cues — only applied for English text (gated by english_signals).
+_TRANSITIONS = {
+    "however", "furthermore", "moreover", "additionally", "consequently",
+    "nevertheless", "therefore", "thus", "in conclusion",
+}
+_CONTRACTIONS = {
+    "don't", "can't", "won't", "isn't", "aren't", "it's", "i'm", "we're",
+    "they're", "didn't", "doesn't",
+}
+_SENT_SPLIT = re.compile(r"[.!?…]+")
+
+
+def _paragraph_ai_score(paragraph: str, english_signals: bool) -> float:
+    """Stylometric AI-likelihood for one paragraph, in [0, 1]. Baseline 0.5;
+    signals push up (more AI-like) or down (more human)."""
+    words = paragraph.split()
+    wc = len(words)
+    score = 0.5
+
+    # Burstiness: AI text has low sentence-length variance (language-agnostic).
+    sent_lens = [len(s.split()) for s in _SENT_SPLIT.split(paragraph) if s.strip()]
+    if len(sent_lens) >= 3:
+        mean = sum(sent_lens) / len(sent_lens)
+        if mean > 0:
+            std = (sum((x - mean) ** 2 for x in sent_lens) / len(sent_lens)) ** 0.5
+            cv = std / mean
+            if cv < 0.25:
+                score += 0.18
+            elif cv < 0.45:
+                score += 0.08
+            elif cv > 0.85:
+                score -= 0.12
+
+    # n-gram repetition: AI text reuses bigrams more (language-agnostic).
+    if wc >= 20:
+        lowered = [w.lower() for w in words]
+        bigrams = list(zip(lowered, lowered[1:]))
+        if bigrams:
+            rep = 1 - len(set(bigrams)) / len(bigrams)
+            if rep > 0.20:
+                score += 0.12
+            elif rep > 0.12:
+                score += 0.06
+            elif rep < 0.04:
+                score -= 0.05
+
+    # English-only cues — skipped for confident non-English text so a naturally
+    # human Russian/Azerbaijani paragraph isn't scored AI-like for lacking them.
+    if english_signals:
+        trans = sum(1 for w in words if w.lower().rstrip(",.:;") in _TRANSITIONS)
+        if wc > 0 and trans / wc > 0.02:
+            score += 0.1
+        if wc > 30 and not any(w.lower() in _CONTRACTIONS for w in words):
+            score += 0.05
+
+    return max(0.0, min(1.0, score))
+
+
+def _statistical_detection(paragraphs: list[str], english_signals: bool = True) -> list[dict]:
+    """Deterministic stylometric AI-likelihood per paragraph (the primary path)."""
+    return [
+        {
+            "paragraph_index": i,
+            "paragraph_text": p,
+            "ai_probability": round(_paragraph_ai_score(p, english_signals), 4),
+            "detection_method": "statistical",
+        }
+        for i, p in enumerate(paragraphs)
+    ]
+
+
+def _strip_code_fences(raw: str) -> str:
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+    if raw.endswith("```"):
+        raw = raw[:-3]
+    raw = raw.strip()
+    if raw.startswith("json"):
+        raw = raw[4:].strip()
+    return raw
+
+
+# ─── Optional LLM cross-check ──────────────────────────────────────────────
+
+
+async def _llm_detection(
+    capped: list[str],
+    language: Optional[LanguageResult],
+    warnings: Optional[list],
+) -> Optional[dict]:
+    """Per-paragraph AI scores from the LLM as ``{index: score}``, or None on
+    any failure (so the caller keeps the statistical scores)."""
+    formatted = "\n\n".join(f"[Paragraph {i}]: {p[:500]}" for i, p in enumerate(capped))
+    try:
+        directive = language_directive(
+            language, task="estimate the AI-generation probability of each paragraph"
+        )
+        raw = await _call_gemini(directive + DETECTION_PROMPT.format(paragraphs=formatted))
+    except Exception as e:
+        logger.error("AI detection cross-check call failed: %s", type(e).__name__)
+        if warnings is not None:
+            warnings.append(
+                {"type": "ai_crosscheck_failed", "module": "ai_detector", "error": type(e).__name__}
+            )
+        return None
+
+    try:
+        data = json.loads(_strip_code_fences(raw))
+    except json.JSONDecodeError:
+        logger.error("Failed to parse AI detection cross-check response")
+        return None
+    if not isinstance(data, list):
+        return None
+
+    out: dict[int, float] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("index", -1)
+        if isinstance(idx, int) and 0 <= idx < len(capped):
+            out[idx] = max(0.0, min(1.0, float(item.get("ai_probability", 0.5))))
+    return out or None
+
+
 async def detect_ai_content(
     text: str,
     warnings: Optional[list] = None,
     language: Optional[LanguageResult] = None,
 ) -> list[dict]:
-    """Analyze text for AI-generated content, paragraph by paragraph.
+    """Per-paragraph AI-likelihood. Deterministic statistical primary, with
+    optional perplexity + LLM blends (both off by default).
 
-    Args:
-        text: full article text
-        warnings: optional list the caller owns for capturing structured warnings.
-        language: optional detected document language. Non-English documents
-            get a directive on the Gemini prompt, and the heuristic fallback
-            skips its English-only signals (transition words, contractions).
-
-    Returns list of dicts with: paragraph_index, paragraph_text, ai_probability, detection_method
+    Returns list of dicts with: paragraph_index, paragraph_text, ai_probability,
+    detection_method.
     """
     paragraphs = _split_paragraphs(text)
-
     if not paragraphs:
         return []
 
@@ -84,119 +215,34 @@ async def detect_ai_content(
         })
     capped = paragraphs[:MAX_PARAGRAPHS]
 
-    # English-specific heuristic signals (transition words, contractions) only
-    # make sense for English; for a confident non-English language we skip them
-    # and lean on the language-agnostic structural signal instead.
+    # English-only cues only make sense for English; skip for confident
+    # non-English text.
     english_signals = language is None or not language.is_known
 
-    if not settings.GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY not set, returning heuristic AI detection")
-        if warnings is not None:
-            warnings.append({"type": "fallback_heuristic", "module": "ai_detector"})
-        return _heuristic_detection(capped, english_signals=english_signals)
+    # Primary: deterministic statistical detection (no key, no network).
+    results = _statistical_detection(capped, english_signals=english_signals)
 
-    formatted = "\n\n".join(
-        f"[Paragraph {i}]: {p[:500]}" for i, p in enumerate(capped)
-    )
+    # Optional: blend a perplexity-model signal (off by default; no-op if the
+    # optional deps aren't installed).
+    if settings.AI_DETECT_PERPLEXITY:
+        for r in results:
+            sig = perplexity_ai_signal(r["paragraph_text"])
+            if sig is not None:
+                r["ai_probability"] = round((r["ai_probability"] + sig) / 2, 4)
+                r["detection_method"] = "statistical+perplexity"
 
-    try:
-        directive = language_directive(language, task="estimate the AI-generation probability of each paragraph")
-        raw = await _call_gemini(directive + DETECTION_PROMPT.format(paragraphs=formatted))
-    except Exception as e:
-        logger.error("AI detection call failed: %s, using heuristic", type(e).__name__)
-        if warnings is not None:
-            warnings.append({
-                "type": "fallback_heuristic",
-                "module": "ai_detector",
-                "error": type(e).__name__,
-            })
-        return _heuristic_detection(capped, english_signals=english_signals)
-
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
-    raw = raw.strip()
-    if raw.startswith("json"):
-        raw = raw[4:].strip()
-
-    try:
-        results_raw = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.error("Failed to parse Gemini AI detection response")
-        if warnings is not None:
-            warnings.append({"type": "invalid_json", "module": "ai_detector"})
-        return _heuristic_detection(capped, english_signals=english_signals)
-
-    if not isinstance(results_raw, list):
-        return _heuristic_detection(capped, english_signals=english_signals)
-
-    results = []
-    for item in results_raw:
-        idx = item.get("index", 0)
-        if idx < len(capped):
-            results.append({
-                "paragraph_index": idx,
-                "paragraph_text": capped[idx],
-                "ai_probability": max(0.0, min(1.0, float(item.get("ai_probability", 0.5)))),
-                "detection_method": "gemini-analysis",
-            })
-
-    covered = {r["paragraph_index"] for r in results}
-    for i, p in enumerate(capped):
-        if i not in covered:
-            results.append({
-                "paragraph_index": i,
-                "paragraph_text": p,
-                "ai_probability": 0.5,
-                "detection_method": "gemini-analysis",
-            })
-
-    results.sort(key=lambda r: r["paragraph_index"])
-    return results
-
-
-def _heuristic_detection(paragraphs: list[str], english_signals: bool = True) -> list[dict]:
-    """Simple heuristic fallback for AI detection when Gemini is unavailable.
-
-    ``english_signals`` gates the English-specific cues (transition words,
-    contractions). For confident non-English text we skip those and rely only
-    on the language-agnostic sentence-length-uniformity signal, so a naturally
-    human Russian/Azerbaijani paragraph isn't scored as "more AI-like" purely
-    for lacking English markers.
-    """
-    results = []
-    for i, p in enumerate(paragraphs):
-        words = p.split()
-        word_count = len(words)
-
-        score = 0.5
-
-        sentences = re.split(r"[.!?]+", p)
-        sentence_lengths = [len(s.split()) for s in sentences if s.strip()]
-        if sentence_lengths:
-            avg_len = sum(sentence_lengths) / len(sentence_lengths)
-            if 15 <= avg_len <= 25 and len(sentence_lengths) > 2:
-                variance = sum((l - avg_len) ** 2 for l in sentence_lengths) / len(sentence_lengths)
-                if variance < 20:
-                    score += 0.15
-
-        if english_signals:
-            transitions = {"however", "furthermore", "moreover", "additionally", "consequently", "nevertheless", "in conclusion"}
-            transition_count = sum(1 for w in words if w.lower().rstrip(",.:;") in transitions)
-            if word_count > 0 and transition_count / max(word_count, 1) > 0.02:
-                score += 0.1
-
-            contractions = {"don't", "can't", "won't", "isn't", "aren't", "it's", "i'm", "we're", "they're"}
-            has_informal = any(w.lower() in contractions for w in words)
-            if not has_informal and word_count > 30:
-                score += 0.05
-
-        results.append({
-            "paragraph_index": i,
-            "paragraph_text": p,
-            "ai_probability": max(0.0, min(1.0, score)),
-            "detection_method": "heuristic-fallback",
-        })
+    # Optional: blend an LLM cross-check (off by default).
+    if settings.AI_DETECT_LLM_CROSSCHECK and settings.GEMINI_API_KEY:
+        llm = await _llm_detection(capped, language, warnings)
+        if llm:
+            for r in results:
+                ls = llm.get(r["paragraph_index"])
+                if ls is not None:
+                    r["ai_probability"] = round((r["ai_probability"] + ls) / 2, 4)
+                    r["detection_method"] = (
+                        r["detection_method"] + "+llm"
+                        if "llm" not in r["detection_method"]
+                        else r["detection_method"]
+                    )
 
     return results
