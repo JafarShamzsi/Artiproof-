@@ -83,9 +83,28 @@ async def check_with_google_factcheck(claim_text: str, language_code: str = "en"
                 "url": review.get("url", ""),
                 "title": review.get("title", ""),
                 "rating": review.get("textualRating", ""),
+                "review_date": review.get("reviewDate", ""),
                 "claim_text": item.get("text", ""),
             })
     return results
+
+
+def _earliest_review(factcheck_results: list[dict]) -> dict | None:
+    """The most authoritative existing fact-check for a claim: prefer the
+    earliest-dated review (ISO dates sort lexicographically), else the first.
+    Used to attribute *who independently flagged the claim and when* — grounded
+    data, instead of asking an LLM to speculate about a claim's "origin"."""
+    reviews = [r for r in factcheck_results if r.get("publisher")]
+    if not reviews:
+        return None
+    dated = [r for r in reviews if r.get("review_date")]
+    chosen = min(dated, key=lambda r: r["review_date"]) if dated else reviews[0]
+    return {
+        "publisher": chosen.get("publisher"),
+        "url": chosen.get("url") or None,
+        "rating": chosen.get("rating") or None,
+        "review_date": chosen.get("review_date") or None,
+    }
 
 
 async def verify_claim(
@@ -112,6 +131,7 @@ async def verify_claim(
     # document's language when known.
     lang_code = language.code if (language is not None and language.is_known) else "en"
     factcheck_results = await check_with_google_factcheck(claim_text, language_code=lang_code)
+    factcheck_review = _earliest_review(factcheck_results)
 
     # Step 2: Retrieve reference evidence to ground the verdict (Wikipedia, in
     # the document's language). Free, no key, best-effort — [] on any failure.
@@ -157,6 +177,7 @@ async def verify_claim(
                 "true_version": None,
                 "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results] + evidence_sources,
                 "evidence": evidence_dicts,
+                "factcheck_review": factcheck_review,
             }
         return {
             "verdict": "unverified",
@@ -238,6 +259,7 @@ async def verify_claim(
         "true_version": result.get("true_version"),
         "sources": sources[:10],
         "evidence": evidence_dicts,
+        "factcheck_review": factcheck_review,
     }
 
 

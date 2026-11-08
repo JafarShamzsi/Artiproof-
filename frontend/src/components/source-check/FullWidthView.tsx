@@ -40,8 +40,11 @@ export interface ClaimData {
   sources: Array<{ name?: string; url?: string }> | null;
   evidence?: Array<{ title: string; url: string; snippet?: string; source?: string }> | null;
   origin_trace: {
-    origin_platform?: string;
-    first_seen?: string;
+    flagged_by?: string;
+    review_date?: string | null;
+    review_url?: string | null;
+    rating?: string | null;
+    source?: string;
     [k: string]: unknown;
   } | null;
   position_in_text: { start: number; end: number } | null;
@@ -320,10 +323,24 @@ export function FullWidthView({
                           <p className="text-sm text-zinc-700 dark:text-zinc-300">{claim.true_version}</p>
                         </div>
                       )}
-                      {claim.origin_trace && (
+                      {claim.origin_trace?.flagged_by && (
                         <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/5 p-2">
                           <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                            Origin: {claim.origin_trace.origin_platform} ({claim.origin_trace.first_seen})
+                            Fact-checked by{" "}
+                            {claim.origin_trace.review_url ? (
+                              <a
+                                href={claim.origin_trace.review_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline underline-offset-2"
+                              >
+                                {claim.origin_trace.flagged_by}
+                              </a>
+                            ) : (
+                              claim.origin_trace.flagged_by
+                            )}
+                            {claim.origin_trace.review_date ? ` (${claim.origin_trace.review_date})` : ""}
+                            {claim.origin_trace.rating ? ` — rated “${claim.origin_trace.rating}”` : ""}
                           </p>
                         </div>
                       )}

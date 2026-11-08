@@ -302,21 +302,17 @@ class SourceVerificationOrchestrator:
             self._warnings.append({"type": "citation_analysis_failed", "error": type(e).__name__})
             yield {"step": "citations", "status": "error", "detail": str(e), "progress": 0.7}
 
-        # ── Step 6: Trace origins ──
-        yield {"step": "origin_tracing", "status": "processing", "detail": "Tracing misinformation origins...", "progress": 0.75}
+        # ── Step 6: Attribute false/misleading claims to their independent
+        #    fact-check (grounded data; no LLM speculation about "origins"). ──
+        yield {"step": "origin_tracing", "status": "processing", "detail": "Attributing flagged claims...", "progress": 0.75}
         misinfo_claims = [c for c in fact_check_results if c.get("verdict") in ("false", "misleading")]
+        attributed = 0
         for claim_data in misinfo_claims:
-            try:
-                trace = await trace_origin(claim_data["claim_text"], claim_data["verdict"], claim_data.get("explanation", ""))
-                if trace:
-                    claim_data["origin_trace"] = trace
-            except HTTP_RETRY_EXCEPTIONS as e:
-                logger.warning("Origin trace transient failure: %s", e)
-                self._warnings.append({"type": "origin_trace_failed", "transient": True})
-            except Exception:
-                logger.exception("Origin trace failed for claim")
-                self._warnings.append({"type": "origin_trace_failed"})
-        yield {"step": "origin_tracing", "status": "done", "detail": f"Traced {len(misinfo_claims)} claims", "progress": 0.8}
+            trace = trace_origin(claim_data.get("verdict", ""), claim_data.get("factcheck_review"))
+            if trace:
+                claim_data["origin_trace"] = trace
+                attributed += 1
+        yield {"step": "origin_tracing", "status": "done", "detail": f"Attributed {attributed} of {len(misinfo_claims)} flagged claims", "progress": 0.8}
 
         # ── Step 7: Save results ──
         yield {"step": "saving", "status": "processing", "detail": "Saving results...", "progress": 0.85}
