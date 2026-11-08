@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  CalendarClock,
   Chrome,
   Copy,
   Download,
@@ -19,10 +20,12 @@ import {
   Mail,
   MailCheck,
   MonitorSmartphone,
+  Palette,
   Save,
   ShieldCheck,
   Sliders,
   Sun,
+  Trash2,
   User as UserIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +60,8 @@ interface ProfileResponse {
   created_at: string;
   // Team-tier privacy toggle. Defaults to true server-side.
   share_activity_with_team: boolean;
+  // Null on free/pro tier.
+  organization_id: string | null;
 }
 
 interface NotificationPrefs {
@@ -204,6 +209,12 @@ export default function SettingsPage() {
       <UsageSection />
 
       <DataExportSection />
+
+      <ScheduledReportsSection />
+
+      {profile?.tier === "team" && profile?.organization_id && (
+        <BrandingSection orgId={profile.organization_id} />
+      )}
 
       <DangerZoneSection />
     </div>
@@ -2497,6 +2508,358 @@ function AnalysisPreferencesSection() {
 }
 
 // ─── Shared bits ───────────────────────────────────────────────────────────
+
+// ─── Scheduled Reports ─────────────────────────────────────────────────────
+
+interface ReportSchedule {
+  id: string;
+  user_id: string;
+  frequency: string;
+  template: string;
+  active: boolean;
+  last_run_at: string | null;
+  next_run_at: string;
+  created_at: string;
+}
+
+const SCHEDULE_TEMPLATE_OPTIONS = [
+  { value: "executive_summary", label: "Executive summary" },
+  { value: "full", label: "Full detailed" },
+] as const;
+
+function ScheduledReportsSection() {
+  const [schedules, setSchedules] = useState<ReportSchedule[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [frequency, setFrequency] = useState<"weekly" | "monthly">("weekly");
+  const [template, setTemplate] = useState<string>("executive_summary");
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch("/api/me/report-schedules/");
+      if (!res.ok) throw new Error("load failed");
+      const data = (await res.json()) as ReportSchedule[];
+      setSchedules(data);
+    } catch {
+      setError("Could not load scheduled reports.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  async function createSchedule() {
+    setError(null);
+    setCreating(true);
+    try {
+      const res = await apiFetch("/api/me/report-schedules/", {
+        method: "POST",
+        body: JSON.stringify({ frequency, template }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail || "Failed to create schedule");
+      }
+      await refresh();
+      toast.success("Schedule created");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create schedule";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function toggleSchedule(s: ReportSchedule) {
+    try {
+      const res = await apiFetch(`/api/me/report-schedules/${s.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: !s.active }),
+      });
+      if (!res.ok) throw new Error("update failed");
+      await refresh();
+    } catch {
+      toast.error("Could not update schedule");
+    }
+  }
+
+  async function deleteSchedule(s: ReportSchedule) {
+    if (!confirm(`Delete this ${s.frequency} schedule?`)) return;
+    try {
+      const res = await apiFetch(`/api/me/report-schedules/${s.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) throw new Error("delete failed");
+      await refresh();
+      toast.success("Schedule deleted");
+    } catch {
+      toast.error("Could not delete schedule");
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={<CalendarClock className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
+      title="Scheduled reports"
+    >
+      <p className="text-sm text-zinc-700 dark:text-zinc-300">
+        Generate a recurring summary of your recent activity. Reports show up
+        in your <Link href="/reports" className="text-brand underline-offset-2 hover:underline dark:text-brand-fg">Reports</Link> list automatically.
+      </p>
+
+      {error && <InlineError>{error}</InlineError>}
+
+      <div className="grid grid-cols-1 gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-800/30 sm:grid-cols-3">
+        <div className="space-y-1">
+          <Label htmlFor="schedule-frequency" className="text-xs text-zinc-700 dark:text-zinc-300">
+            Frequency
+          </Label>
+          <select
+            id="schedule-frequency"
+            value={frequency}
+            onChange={(e) => setFrequency(e.target.value as "weekly" | "monthly")}
+            className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+          >
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="schedule-template" className="text-xs text-zinc-700 dark:text-zinc-300">
+            Template
+          </Label>
+          <select
+            id="schedule-template"
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+            className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+          >
+            {SCHEDULE_TEMPLATE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-end">
+          <Button
+            onClick={createSchedule}
+            disabled={creating}
+            className="w-full bg-brand text-white hover:bg-brand-hover"
+          >
+            {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Create schedule
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <SkeletonField />
+      ) : schedules && schedules.length > 0 ? (
+        <ul className="space-y-2">
+          {schedules.map((s) => (
+            <li
+              key={s.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  {s.frequency === "weekly" ? "Weekly" : "Monthly"} · {s.template === "full" ? "Full detailed" : "Executive summary"}
+                </p>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                  Next run: {new Date(s.next_run_at).toLocaleString()}
+                  {s.last_run_at && ` · Last run: ${new Date(s.last_run_at).toLocaleDateString()}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <ToggleSwitch
+                  id={`schedule-active-${s.id}`}
+                  checked={s.active}
+                  onChange={() => toggleSchedule(s)}
+                  ariaLabel="Toggle schedule active"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                  onClick={() => deleteSchedule(s)}
+                  aria-label="Delete schedule"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          No scheduled reports yet.
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
+// ─── Branding (white-label, team tier) ─────────────────────────────────────
+
+interface OrgBranding {
+  id: string;
+  name: string;
+  logo_url: string | null;
+  primary_color: string | null;
+  secondary_color: string | null;
+}
+
+function BrandingSection({ orgId }: { orgId: string }) {
+  const [branding, setBranding] = useState<OrgBranding | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [logoUrl, setLogoUrl] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("");
+  const [secondaryColor, setSecondaryColor] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/organizations/${orgId}/branding`);
+        if (!res.ok) throw new Error("load failed");
+        const data = (await res.json()) as OrgBranding;
+        if (cancelled) return;
+        setBranding(data);
+        setLogoUrl(data.logo_url || "");
+        setPrimaryColor(data.primary_color || "");
+        setSecondaryColor(data.secondary_color || "");
+      } catch {
+        if (!cancelled) setError("Could not load branding settings.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  async function save() {
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await apiFetch(`/api/organizations/${orgId}/branding`, {
+        method: "PUT",
+        body: JSON.stringify({
+          logo_url: logoUrl || null,
+          primary_color: primaryColor || null,
+          secondary_color: secondaryColor || null,
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail || "Failed to save branding");
+      }
+      const updated = (await res.json()) as OrgBranding;
+      setBranding(updated);
+      toast.success("Branding updated");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={<Palette className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
+      title={branding ? `Branding · ${branding.name}` : "Branding"}
+    >
+      <p className="text-sm text-zinc-700 dark:text-zinc-300">
+        Replace ArtiProof&apos;s logo and color in PDF reports your team
+        generates. Leave blank to use the default.
+      </p>
+      {error && <InlineError>{error}</InlineError>}
+      {loading ? (
+        <SkeletonField />
+      ) : (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="branding-logo" className="text-zinc-700 dark:text-zinc-300">
+              Logo URL
+            </Label>
+            <Input
+              id="branding-logo"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://example.com/logo.png"
+              className="border-zinc-300 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
+            />
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              PNG or SVG, max 200×40px renders best.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="branding-primary" className="text-zinc-700 dark:text-zinc-300">
+                Primary color
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="branding-primary"
+                  value={primaryColor}
+                  onChange={(e) => setPrimaryColor(e.target.value)}
+                  placeholder="#7C2828"
+                  className="border-zinc-300 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
+                />
+                {primaryColor && (
+                  <span
+                    aria-hidden="true"
+                    className="h-8 w-8 shrink-0 rounded border border-zinc-300 dark:border-zinc-700"
+                    style={{ background: primaryColor }}
+                  />
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="branding-secondary" className="text-zinc-700 dark:text-zinc-300">
+                Secondary color
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="branding-secondary"
+                  value={secondaryColor}
+                  onChange={(e) => setSecondaryColor(e.target.value)}
+                  placeholder="#C8901E"
+                  className="border-zinc-300 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
+                />
+                {secondaryColor && (
+                  <span
+                    aria-hidden="true"
+                    className="h-8 w-8 shrink-0 rounded border border-zinc-300 dark:border-zinc-700"
+                    style={{ background: secondaryColor }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+          <Button
+            onClick={save}
+            disabled={saving}
+            className="bg-brand text-white hover:bg-brand-hover"
+          >
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Save branding
+          </Button>
+        </>
+      )}
+    </SectionCard>
+  );
+}
 
 function SectionCard({
   icon,
