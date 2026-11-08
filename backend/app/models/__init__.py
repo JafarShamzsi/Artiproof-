@@ -4,6 +4,7 @@ from app.models.billing_event import BillingEvent
 from app.models.celery_dlq import CeleryDLQ
 from app.models.celery_run_log import CeleryRunLog
 from app.models.gemini_metric import GeminiMetric
+from app.models.llm_metric import LLMMetric
 from app.models.organization import Organization
 from app.models.organization_member import OrganizationMember
 from app.models.report import Report
@@ -50,6 +51,7 @@ __all__ = [
     "TierChangeAudit",
     "SalesLead",
     "GeminiMetric",
+    "LLMMetric",
     "CeleryRunLog",
     "CeleryDLQ",
 ]

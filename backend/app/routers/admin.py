@@ -32,12 +32,12 @@ from app.constants import TIER_LIMITS
 from app.database import get_db
 from app.models.celery_dlq import CeleryDLQ
 from app.models.celery_run_log import CeleryRunLog
-from app.models.gemini_metric import GeminiMetric
+from app.models.llm_metric import LLMMetric as GeminiMetric  # back-compat alias
 from app.models.report import Report
 from app.models.researcher import ResearcherProfile
 from app.models.source_check import SourceCheck
 from app.models.user import User
-from app.services.gemini import estimate_cost_usd
+from app.services.llm import estimate_cost_usd
 from app.utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -171,10 +171,25 @@ class GeminiCostByUser(BaseModel):
     cost_usd: float
 
 
+class LLMCostByProvider(BaseModel):
+    """Per-provider rollup so finance reports can attribute spend across
+    Gemini / OpenAI / Anthropic. Added in Phase 9."""
+
+    provider: str
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+
 class GeminiCostSummary(BaseModel):
-    """Aggregate Gemini spend over a window. The cost column is computed
-    from raw tokens × current pricing — refreshes automatically when the
-    pricing table in app.services.gemini.client is updated."""
+    """Aggregate LLM spend over a window.
+
+    Despite the legacy class name (kept for API back-compat), this now
+    sums across every LLM provider. Cost is computed from raw tokens ×
+    the per-provider pricing table in ``app.services.llm.factory`` —
+    refreshes automatically when vendors revise pricing.
+    """
 
     window_days: int
     total_calls: int
@@ -184,6 +199,10 @@ class GeminiCostSummary(BaseModel):
     error_rate: float  # share of calls with non-null error_class
     by_operation: list[GeminiCostByOperation]
     top_users: list[GeminiCostByUser]
+    # Phase 9: per-provider breakdown. Empty list when no Phase 9
+    # rows exist yet (the column defaults to "gemini" so even
+    # pre-Phase-9 rows attribute correctly here).
+    by_provider: list[LLMCostByProvider] = []
 
 
 class CeleryRunRow(BaseModel):
@@ -223,6 +242,33 @@ class CeleryDLQRetryResponse(BaseModel):
     dlq_id: str
     enqueued: bool
     new_task_id: Optional[str] = None
+
+
+# ─── LLM provider status (Phase 9) ─────────────────────────────────────────
+
+
+class LLMProviderStatusRow(BaseModel):
+    """Per-provider row used by the operator-facing /llm/providers endpoint."""
+
+    name: str  # "gemini" | "openai" | "anthropic"
+    configured: bool  # True when the API key is set
+    default_model: str
+    is_primary: bool
+    is_fallback: bool
+    is_degraded: bool  # >=3 consecutive failures within the cooldown
+    consecutive_failures: int
+
+
+class LLMProviderStatus(BaseModel):
+    """Operator-facing view of which LLM provider is serving analysis traffic.
+
+    The admin Operations panel reads this to answer "which LLM is
+    actually generating my reports?" without combing logs.
+    """
+
+    primary: str
+    fallback: Optional[str]
+    providers: list[LLMProviderStatusRow]
 
 
 # ─── Internal helpers ──────────────────────────────────────────────────────
@@ -643,23 +689,25 @@ async def gemini_cost_summary(
     total_errors = int(total_errors or 0)
     error_rate = round(total_errors / total_calls, 4) if total_calls else 0.0
 
-    # Per-operation rollup. Group by (operation, model) so a model
-    # change inside an operation doesn't smear pricing.
+    # Per-operation rollup. Group by (provider, operation, model) so a
+    # model OR provider change inside an operation doesn't smear pricing.
     by_op_q = await db.execute(
         select(
             GeminiMetric.operation,
+            GeminiMetric.provider,
             GeminiMetric.model,
             func.count(GeminiMetric.id),
             func.coalesce(func.sum(GeminiMetric.input_tokens), 0),
             func.coalesce(func.sum(GeminiMetric.output_tokens), 0),
         )
         .where(GeminiMetric.created_at >= since)
-        .group_by(GeminiMetric.operation, GeminiMetric.model)
+        .group_by(GeminiMetric.operation, GeminiMetric.provider, GeminiMetric.model)
         .order_by(func.count(GeminiMetric.id).desc())
     )
-    # Merge per-model rows back into one row per operation, summing cost.
+    # Merge per-(provider,model) rows back into one row per operation,
+    # summing cost using each row's own provider+model pricing.
     op_acc: dict[str, dict[str, float]] = {}
-    for op, model, calls, in_t, out_t in by_op_q.all():
+    for op, provider, model, calls, in_t, out_t in by_op_q.all():
         bucket = op_acc.setdefault(
             op or "unknown",
             {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
@@ -671,6 +719,7 @@ async def gemini_cost_summary(
             input_tokens=int(in_t or 0),
             output_tokens=int(out_t or 0),
             model=model or "",
+            provider=provider or "gemini",
         )
     by_operation = sorted(
         [GeminiCostByOperation(operation=op, **v) for op, v in op_acc.items()],
@@ -678,12 +727,48 @@ async def gemini_cost_summary(
         reverse=True,
     )
 
+    # Per-provider rollup — added in Phase 9 so finance reports can
+    # attribute spend across Gemini / OpenAI / Anthropic.
+    by_provider_q = await db.execute(
+        select(
+            GeminiMetric.provider,
+            GeminiMetric.model,
+            func.count(GeminiMetric.id),
+            func.coalesce(func.sum(GeminiMetric.input_tokens), 0),
+            func.coalesce(func.sum(GeminiMetric.output_tokens), 0),
+        )
+        .where(GeminiMetric.created_at >= since)
+        .group_by(GeminiMetric.provider, GeminiMetric.model)
+    )
+    prov_acc: dict[str, dict[str, float]] = {}
+    for provider, model, calls, in_t, out_t in by_provider_q.all():
+        bucket = prov_acc.setdefault(
+            provider or "gemini",
+            {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+        )
+        bucket["calls"] += int(calls or 0)
+        bucket["input_tokens"] += int(in_t or 0)
+        bucket["output_tokens"] += int(out_t or 0)
+        bucket["cost_usd"] += estimate_cost_usd(
+            input_tokens=int(in_t or 0),
+            output_tokens=int(out_t or 0),
+            model=model or "",
+            provider=provider or "gemini",
+        )
+    by_provider = sorted(
+        [LLMCostByProvider(provider=p, **v) for p, v in prov_acc.items()],
+        key=lambda r: r.cost_usd,
+        reverse=True,
+    )
+
     # Top-N users by tokens. Joined with users.email so the operator can
-    # see which account is racking up cost.
+    # see which account is racking up cost. Group by provider+model so
+    # the per-row pricing lookup is accurate across providers.
     by_user_q = await db.execute(
         select(
             GeminiMetric.user_id,
             User.email,
+            GeminiMetric.provider,
             GeminiMetric.model,
             func.count(GeminiMetric.id),
             func.coalesce(func.sum(GeminiMetric.input_tokens), 0),
@@ -694,10 +779,15 @@ async def gemini_cost_summary(
             GeminiMetric.created_at >= since,
             GeminiMetric.user_id.isnot(None),
         )
-        .group_by(GeminiMetric.user_id, User.email, GeminiMetric.model)
+        .group_by(
+            GeminiMetric.user_id,
+            User.email,
+            GeminiMetric.provider,
+            GeminiMetric.model,
+        )
     )
     user_acc: dict[str, dict] = {}
-    for uid, email, model, calls, in_t, out_t in by_user_q.all():
+    for uid, email, provider, model, calls, in_t, out_t in by_user_q.all():
         bucket = user_acc.setdefault(
             uid,
             {
@@ -716,6 +806,7 @@ async def gemini_cost_summary(
             input_tokens=int(in_t or 0),
             output_tokens=int(out_t or 0),
             model=model or "",
+            provider=provider or "gemini",
         )
     top_users = sorted(
         [GeminiCostByUser(**v) for v in user_acc.values()],
@@ -734,6 +825,7 @@ async def gemini_cost_summary(
         error_rate=error_rate,
         by_operation=by_operation,
         top_users=top_users,
+        by_provider=by_provider,
     )
 
 
@@ -827,4 +919,47 @@ async def celery_dlq_retry(
 
     return CeleryDLQRetryResponse(
         dlq_id=dlq_id, enqueued=enqueued, new_task_id=new_task_id
+    )
+
+
+# ─── LLM provider status endpoint (Phase 9) ───────────────────────────────
+
+
+@router.get("/llm/providers", response_model=LLMProviderStatus)
+async def llm_provider_status(
+    _admin: User = Depends(require_admin),
+):
+    """Surface which LLM provider is the primary, which (if any) is the
+    fallback, and the configuration/health status of each registered
+    provider. Used by the admin Operations panel so support can answer
+    "what's actually generating my analyses?" without grepping logs.
+    """
+    from app.config import settings as _settings
+    from app.services.llm.factory import (
+        _PROVIDERS,
+        _failure_counts,
+        _is_degraded,
+    )
+
+    primary_name = (_settings.LLM_PROVIDER or "gemini").lower()
+    fallback_name = (_settings.LLM_FALLBACK_PROVIDER or "").lower() or None
+
+    rows: list[LLMProviderStatusRow] = []
+    for name, provider in sorted(_PROVIDERS.items()):
+        rows.append(
+            LLMProviderStatusRow(
+                name=name,
+                configured=provider.is_configured(),
+                default_model=provider.default_model,
+                is_primary=(name == primary_name),
+                is_fallback=(name == fallback_name),
+                is_degraded=_is_degraded(name),
+                consecutive_failures=_failure_counts.get(name, 0),
+            )
+        )
+
+    return LLMProviderStatus(
+        primary=primary_name,
+        fallback=fallback_name,
+        providers=rows,
     )

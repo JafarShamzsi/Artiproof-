@@ -316,3 +316,34 @@ async def test_patch_user_force_signout_returns_200(env_admin):
             "/api/admin/users/td4", json={"force_signout": True}
         )
     assert r.status_code == 200
+
+
+# ─── LLM provider status (Phase 9) ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_llm_providers_status_returns_all_three(env_admin):
+    """GET /api/admin/llm/providers lists every registered provider
+    with its primary/fallback/degraded state."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/admin/llm/providers")
+    assert r.status_code == 200
+    body = r.json()
+    assert "primary" in body
+    assert "fallback" in body
+    assert "providers" in body
+    names = sorted(p["name"] for p in body["providers"])
+    assert names == ["anthropic", "gemini", "openai"]
+    # One of them is the primary
+    primaries = [p for p in body["providers"] if p["is_primary"]]
+    assert len(primaries) == 1
+    assert primaries[0]["name"] == body["primary"]
+
+
+@pytest.mark.asyncio
+async def test_llm_providers_status_requires_admin(env_non_admin):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/admin/llm/providers")
+    assert r.status_code == 403

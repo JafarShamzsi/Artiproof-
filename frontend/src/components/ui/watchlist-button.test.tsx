@@ -40,10 +40,13 @@ describe("WatchlistButton", () => {
 
     function Wrapper() {
       return (
+        // Raw <a> here is intentional: we're testing click-propagation
+        // behaviour, not real navigation. The next/link rule doesn't
+        // apply in a vitest jsdom environment.
+        // eslint-disable-next-line @next/next/no-html-link-for-pages
         <a
           href="/researcher/rid-1"
           onClick={(e) => {
-            // emulate jsdom-level "navigation" — record propagation
             navigateSpy();
             e.preventDefault();
           }}

@@ -92,6 +92,14 @@ interface GeminiCostByUser {
   cost_usd: number;
 }
 
+interface LLMCostByProvider {
+  provider: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
 interface GeminiCostSummary {
   window_days: number;
   total_calls: number;
@@ -101,6 +109,26 @@ interface GeminiCostSummary {
   error_rate: number;
   by_operation: GeminiCostByOp[];
   top_users: GeminiCostByUser[];
+  // Phase 9: per-provider rollup. Empty when no Phase 9 rows exist yet.
+  by_provider?: LLMCostByProvider[];
+}
+
+// Phase 9: LLM provider status — surfaces which vendor is serving
+// analysis traffic and whether the primary is currently degraded.
+interface LLMProviderRow {
+  name: string;
+  configured: boolean;
+  default_model: string;
+  is_primary: boolean;
+  is_fallback: boolean;
+  is_degraded: boolean;
+  consecutive_failures: number;
+}
+
+interface LLMProviderStatus {
+  primary: string;
+  fallback: string | null;
+  providers: LLMProviderRow[];
 }
 
 interface DLQRow {
@@ -134,6 +162,7 @@ export default function AdminPage() {
   const [tierFilter, setTierFilter] = useState<string>("");
   const [failed, setFailed] = useState<FailedPipeline[]>([]);
   const [costSummary, setCostSummary] = useState<GeminiCostSummary | null>(null);
+  const [llmStatus, setLlmStatus] = useState<LLMProviderStatus | null>(null);
   const [dlq, setDlq] = useState<DLQRow[]>([]);
   const [retryingDlqId, setRetryingDlqId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,13 +179,15 @@ export default function AdminPage() {
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (tierFilter) params.set("tier", tierFilter);
 
-    const [statsRes, usersRes, failedRes, costRes, dlqRes] = await Promise.all([
-      apiFetch("/api/admin/stats"),
-      apiFetch(`/api/admin/users?${params.toString()}`),
-      apiFetch("/api/admin/pipelines/failed?hours=72&limit=20"),
-      apiFetch("/api/admin/gemini/cost-summary?days=30&top_n_users=5"),
-      apiFetch("/api/admin/celery/dlq?limit=25"),
-    ]);
+    const [statsRes, usersRes, failedRes, costRes, dlqRes, llmRes] =
+      await Promise.all([
+        apiFetch("/api/admin/stats"),
+        apiFetch(`/api/admin/users?${params.toString()}`),
+        apiFetch("/api/admin/pipelines/failed?hours=72&limit=20"),
+        apiFetch("/api/admin/gemini/cost-summary?days=30&top_n_users=5"),
+        apiFetch("/api/admin/celery/dlq?limit=25"),
+        apiFetch("/api/admin/llm/providers"),
+      ]);
 
     if (statsRes.status === 403 || usersRes.status === 403) {
       setForbidden(true);
@@ -173,6 +204,7 @@ export default function AdminPage() {
     if (failedRes.ok) setFailed((await failedRes.json()) as FailedPipeline[]);
     if (costRes.ok) setCostSummary((await costRes.json()) as GeminiCostSummary);
     if (dlqRes.ok) setDlq((await dlqRes.json()) as DLQRow[]);
+    if (llmRes.ok) setLlmStatus((await llmRes.json()) as LLMProviderStatus);
     setLoading(false);
   }, [page, debouncedSearch, tierFilter]);
 
@@ -614,13 +646,72 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
+      {/* LLM provider status — Phase 9 */}
+      {llmStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm text-fg-secondary">
+              <Activity className="h-4 w-4" /> LLM providers
+              <span className="ml-2 text-xs text-fg-tertiary">
+                primary: {llmStatus.primary}
+                {llmStatus.fallback && ` · fallback: ${llmStatus.fallback}`}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 text-sm">
+              {llmStatus.providers.map((p) => (
+                <li
+                  key={p.name}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-border-default px-3 py-2"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-fg-primary capitalize">
+                      {p.name}
+                    </span>
+                    {p.is_primary && (
+                      <Badge className="bg-brand-soft text-brand-fg">primary</Badge>
+                    )}
+                    {p.is_fallback && (
+                      <Badge variant="outline">fallback</Badge>
+                    )}
+                    {p.is_degraded && (
+                      <Badge className="bg-red-500/20 text-red-700 dark:text-red-400">
+                        degraded · {p.consecutive_failures} fails
+                      </Badge>
+                    )}
+                    <span className="font-mono text-xs text-fg-tertiary">
+                      {p.default_model}
+                    </span>
+                  </div>
+                  <span
+                    className={
+                      p.configured
+                        ? "text-xs font-medium text-emerald-700 dark:text-emerald-400"
+                        : "text-xs font-medium text-amber-700 dark:text-amber-400"
+                    }
+                  >
+                    {p.configured ? "✓ configured" : "✗ no API key"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-[11px] text-fg-tertiary">
+              Switch the primary by setting <code>LLM_PROVIDER</code> on the
+              backend. Set <code>LLM_FALLBACK_PROVIDER</code> for automatic
+              degraded-state failover (3-strike threshold, 5-min cooldown).
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Operations: Gemini cost + Celery DLQ */}
       {costSummary && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-              <DollarSign className="h-4 w-4" /> Gemini spend
-              <span className="ml-2 text-xs text-zinc-400">
+            <CardTitle className="flex items-center gap-2 text-sm text-fg-secondary">
+              <DollarSign className="h-4 w-4" /> LLM spend
+              <span className="ml-2 text-xs text-fg-tertiary">
                 last {costSummary.window_days} days
               </span>
             </CardTitle>
@@ -647,13 +738,40 @@ export default function AdminPage() {
               />
             </div>
 
+            {/* Per-provider rollup — Phase 9. Empty until at least one
+                LLM call lands; the column defaults to 'gemini' so even
+                pre-Phase-9 rows attribute correctly here. */}
+            {costSummary.by_provider && costSummary.by_provider.length > 0 && (
+              <div className="rounded border border-border-default p-3">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-tertiary">
+                  By provider
+                </h4>
+                <ul className="space-y-1">
+                  {costSummary.by_provider.map((p) => (
+                    <li
+                      key={p.provider}
+                      className="flex items-center justify-between text-xs"
+                    >
+                      <span className="font-mono text-fg-primary capitalize">
+                        {p.provider}
+                      </span>
+                      <span className="tabular-nums text-fg-secondary">
+                        {p.calls.toLocaleString()} calls · $
+                        {p.cost_usd.toFixed(4)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="grid gap-4 lg:grid-cols-2">
               <div>
-                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-tertiary">
                   By operation
                 </h4>
                 {costSummary.by_operation.length === 0 ? (
-                  <p className="text-xs text-zinc-500">No calls yet.</p>
+                  <p className="text-xs text-fg-tertiary">No calls yet.</p>
                 ) : (
                   <ul className="space-y-1">
                     {costSummary.by_operation.slice(0, 6).map((op) => (
@@ -661,10 +779,10 @@ export default function AdminPage() {
                         key={op.operation}
                         className="flex items-center justify-between text-xs"
                       >
-                        <span className="font-mono text-zinc-700 dark:text-zinc-300">
+                        <span className="font-mono text-fg-primary">
                           {op.operation}
                         </span>
-                        <span className="tabular-nums text-zinc-500">
+                        <span className="tabular-nums text-fg-secondary">
                           {op.calls.toLocaleString()} calls · $
                           {op.cost_usd.toFixed(4)}
                         </span>

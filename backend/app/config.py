@@ -17,9 +17,28 @@ class Settings(BaseSettings):
     # Optional explicit origin matcher; empty by default for local review.
     CORS_ORIGIN_REGEX: str = ""
 
-    # AI
+    # ─── LLM provider abstraction (Phase 9) ────────────────────────────
+    # Which provider every analysis engine routes through. Defaults to
+    # gemini for back-compat. Operators switch by setting this env var;
+    # engine code doesn't change. Valid: "gemini" | "openai" | "anthropic".
+    LLM_PROVIDER: str = "gemini"
+    # Fallback provider — when the primary fails 3× consecutively within
+    # a 5-minute window, new calls route here. Empty = no fallback (the
+    # primary's failure surfaces straight to the engine). The fallback
+    # must also be `is_configured()`; otherwise the factory silently
+    # skips it (refuses to chain "failure" to "missing API key").
+    LLM_FALLBACK_PROVIDER: str = ""
+
+    # AI — per-provider keys + models. Each provider's _client() factory
+    # is gated on its key being non-empty; an unconfigured provider
+    # silently returns "" rather than crashing so a partial config still
+    # boots.
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-3-5-haiku-20241022"
 
     # Google Fact Check
     GOOGLE_FACTCHECK_API_KEY: str = ""

@@ -20,7 +20,13 @@ celery[redis]>=5.4.0,<6.0
 redis>=5.2.1,<6.0
 
 # AI / LLM clients
+# Each provider's client SDK is optional — the abstraction in
+# app/services/llm gracefully degrades to an empty response when the
+# vendor's package is absent. Pin upper bounds to next major so a
+# transitive upgrade can't ship a breaking change silently.
 google-genai>=1.0,<2.0
+openai>=1.50.0,<2.0
+anthropic>=0.40.0,<1.0
 httpx>=0.28.1,<1.0
 
 # Web scraping
