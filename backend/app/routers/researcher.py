@@ -682,14 +682,23 @@ async def list_watchlist(
     if not by_id:
         return []
 
+    # Drop the strict `user_id == current_user.id` filter and re-apply
+    # the org-admin-aware check in Python. Without this, an org admin
+    # could add a teammate's researcher to their watchlist via the
+    # `is_owner_or_org_admin` path in add_to_watchlist but never see
+    # it come back through GET — the two endpoints had divergent
+    # authorization rules.
     profiles_q = await db.execute(
         select(ResearcherProfile).where(
             ResearcherProfile.id.in_(list(by_id.keys())),
-            ResearcherProfile.user_id == current_user.id,
             ResearcherProfile.deleted_at.is_(None),
         )
     )
-    profiles = {p.id: p for p in profiles_q.scalars().all()}
+    profiles = {
+        p.id: p
+        for p in profiles_q.scalars().all()
+        if is_owner_or_org_admin(current_user, p)
+    }
 
     # Latest snapshot per profile — bulk fetch + group by researcher_profile_id.
     snaps_q = await db.execute(

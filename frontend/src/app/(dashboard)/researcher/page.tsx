@@ -414,6 +414,10 @@ function PastAnalyses() {
   const router = useRouter();
   const [analyses, setAnalyses] = useState<ResearcherListItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bump to retry the fetch — incrementing reseeds the effect's dep
+  // array so a click on Retry re-runs without remounting the component.
+  const [reloadTick, setReloadTick] = useState(0);
 
   // Compare mode mirrors the source-check pattern: ephemeral, not URL-backed,
   // capped at exactly two selections.
@@ -436,20 +440,29 @@ function PastAnalyses() {
 
   useEffect(() => {
     const controller = new AbortController();
+    setLoadError(null);
     (async () => {
       try {
         const r = await apiFetch("/api/researcher/", { signal: controller.signal });
-        if (!r.ok) return;
+        if (!r.ok) {
+          // Surface the HTTP status so an empty Past Analyses list isn't
+          // mistaken for "no data" when the API actually choked.
+          setLoadError(`Failed to load past analyses (HTTP ${r.status})`);
+          return;
+        }
         const data = await r.json();
         setAnalyses(data.items || []);
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
+        setLoadError(
+          e instanceof Error ? e.message : "Network error loading past analyses"
+        );
       } finally {
         setLoaded(true);
       }
     })();
     return () => controller.abort();
-  }, []);
+  }, [reloadTick]);
 
   return (
     <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
@@ -498,6 +511,22 @@ function PastAnalyses() {
       <CardContent>
         {!loaded ? (
           <ListSkeleton rows={3} />
+        ) : loadError ? (
+          // Surface the failure explicitly. Empty-state was hiding it.
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <AlertTriangle className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+            <p className="text-sm text-zinc-700 dark:text-zinc-300">{loadError}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setLoaded(false);
+                setReloadTick((t) => t + 1);
+              }}
+            >
+              Try again
+            </Button>
+          </div>
         ) : analyses.length === 0 ? (
           <EmptyState
             icon={<Users className="h-5 w-5" />}
