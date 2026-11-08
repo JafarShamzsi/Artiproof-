@@ -38,6 +38,9 @@ class SourceCheck(Base, TimestampMixin, SoftDeleteMixin):
     # Records the model/prompt/APIs used so analyses are reproducible
     model_metadata = sa.Column(sa.JSON, nullable=True)
     completed_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    # Optional public share token. Generated on demand; revoking sets it
+    # back to NULL. Distinct from `Report.share_token` which gates the PDF.
+    share_token = sa.Column(sa.String, nullable=True, unique=True, index=True)
 
     __table_args__ = (
         sa.Index("ix_source_checks_user_status", "user_id", "status"),

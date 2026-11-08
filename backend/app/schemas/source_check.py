@@ -67,6 +67,10 @@ class SourceCheckResponse(BaseModel):
     score_breakdown: Optional[Any] = None
     # Per-analysis governance record — model used, fallbacks, processing warnings.
     model_metadata: Optional[Any] = None
+    # Public share token, when one has been issued (otherwise None). Lets the
+    # frontend decide between "Create share link" and "Copy share link" CTAs
+    # without needing to call POST /share-token (which would auto-create).
+    share_token: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -89,3 +93,54 @@ class SourceCheckListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ─── Bulk submission ──────────────────────────────────────────────────────
+
+
+class BulkSourceCheckItem(BaseModel):
+    input_type: str  # "url" | "text"
+    input_content: str
+
+
+class BulkSourceCheckCreate(BaseModel):
+    items: List[BulkSourceCheckItem]
+
+
+class BulkSourceCheckResponse(BaseModel):
+    """Returned from POST /bulk — the frontend uses these ids to poll
+    /batch?ids=… for progress."""
+
+    batch_id: str
+    items: List[SourceCheckListItem]
+
+
+# ─── Share token ──────────────────────────────────────────────────────────
+
+
+class ShareTokenResponse(BaseModel):
+    share_token: str
+    share_url: str  # absolute, e.g. https://example.invalid/check/shared/<token>
+
+
+class SharedSourceCheckResponse(BaseModel):
+    """Public view — same shape as SourceCheckResponse minus user_id and
+    minus input_content for URL-type checks (the URL is the secret)."""
+
+    id: str
+    input_type: str
+    input_title: Optional[str]
+    status: str
+    overall_credibility_score: Optional[float]
+    ai_content_percentage: Optional[float]
+    misinfo_claims_found: Optional[int]
+    has_pdf: bool = False
+    has_annotated_pdf: bool = False
+    created_at: datetime
+    completed_at: Optional[datetime]
+    claims: List[ClaimAnalysisResponse] = []
+    ai_detections: List[AIDetectionResponse] = []
+    citations: List[CitationCheckResponse] = []
+    score_breakdown: Optional[Any] = None
+
+    model_config = {"from_attributes": True}
