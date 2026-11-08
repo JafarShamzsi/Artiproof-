@@ -163,10 +163,10 @@ export function HeroSection() {
                 />
               </Link>
               <Link
-                href="#how-it-works"
+                href="/demo"
                 className="group inline-flex h-13 items-center justify-center gap-2 px-2 py-3.5 text-base font-medium text-fg-primary transition-colors focus-visible:outline-none"
               >
-                <span className="ink-underline">See how a finding reads</span>
+                <span className="ink-underline">See a sample reading</span>
                 <ArrowRight
                   className="h-3.5 w-3.5 -translate-x-0.5 opacity-60 transition-all group-hover:translate-x-0 group-hover:opacity-100"
                   strokeWidth={1.75}
