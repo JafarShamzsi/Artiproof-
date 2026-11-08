@@ -27,7 +27,6 @@ import {
   Settings,
   Menu,
   LogOut,
-  User,
   ChevronLeft,
   Shield,
   Eye,
@@ -61,12 +60,12 @@ function SidebarContent({
     : baseSidebarLinks;
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-16 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
+      <div className="flex h-16 items-center gap-2 border-b border-border-default px-4">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand">
           <Shield className="h-4 w-4 text-white" />
         </div>
         {!collapsed && (
-          <span className="text-lg font-bold text-zinc-900 dark:text-white">ArtiProof</span>
+          <span className="font-display text-lg font-bold text-fg-primary">ArtiProof</span>
         )}
       </div>
 
@@ -82,8 +81,8 @@ function SidebarContent({
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-brand/10 text-brand dark:bg-brand/15 dark:text-brand-fg"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
+                  ? "bg-brand-soft text-brand-fg"
+                  : "text-fg-secondary hover:bg-brand-soft hover:text-fg-primary"
               )}
             >
               <link.icon aria-hidden="true" className="h-5 w-5 shrink-0" />
@@ -127,11 +126,11 @@ export default function DashboardLayout({
   const isAdmin = sessionRole === "admin";
 
   return (
-    <div className="flex h-[100dvh] bg-zinc-50 dark:bg-zinc-950">
+    <div className="flex h-[100dvh] bg-surface-base">
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "hidden border-r border-zinc-200 bg-white transition-all duration-300 md:flex md:flex-col dark:border-zinc-800 dark:bg-zinc-900/50",
+          "hidden border-r border-border-default bg-surface-card transition-all duration-300 md:flex md:flex-col",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -141,7 +140,7 @@ export default function DashboardLayout({
           onClick={() => setCollapsed(!collapsed)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!collapsed}
-          className="flex items-center justify-center border-t border-zinc-200 py-3 text-zinc-500 hover:text-zinc-900 dark:border-zinc-800 dark:hover:text-zinc-300"
+          className="flex items-center justify-center border-t border-border-default py-3 text-fg-secondary hover:text-fg-primary"
         >
           <ChevronLeft
             aria-hidden="true"
@@ -156,19 +155,19 @@ export default function DashboardLayout({
       {/* Main Content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top Bar */}
-        <header className="flex h-16 items-center justify-between border-b border-zinc-200 bg-white/80 px-4 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/80">
+        <header className="flex h-16 items-center justify-between border-b border-border-default bg-surface-card/80 px-4 backdrop-blur-xl">
           <div className="flex items-center gap-3">
             {/* Mobile Menu */}
             <Sheet>
               <SheetTrigger
                 aria-label="Open navigation menu"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 md:hidden"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-fg-secondary hover:bg-brand-soft hover:text-fg-primary md:hidden"
               >
                 <Menu aria-hidden="true" className="h-5 w-5" />
               </SheetTrigger>
               <SheetContent
                 side="left"
-                className="w-64 border-zinc-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-900"
+                className="w-64 border-border-default bg-surface-card p-0"
               >
                 <SidebarContent collapsed={false} pathname={pathname} showAdmin={isAdmin} />
               </SheetContent>
@@ -183,7 +182,7 @@ export default function DashboardLayout({
               type="button"
               onClick={() => setPaletteOpen(true)}
               aria-label="Open command palette"
-              className="hidden h-9 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 text-sm text-zinc-500 transition-colors hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-700 sm:inline-flex md:w-64 md:justify-between dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
+              className="hidden h-9 items-center gap-2 rounded-lg border border-border-default bg-surface-base px-2.5 text-sm text-fg-secondary transition-colors hover:border-border-strong hover:bg-brand-soft hover:text-fg-primary sm:inline-flex md:w-64 md:justify-between"
             >
               <span className="flex items-center gap-2">
                 <Search aria-hidden="true" className="h-4 w-4" />
@@ -193,7 +192,7 @@ export default function DashboardLayout({
                   and CSR agree. Ctrl+K is the safer default for everyone but
                   Mac users; rendering nothing avoids a "Ctrl→⌘" flash. */}
               {isMac != null && (
-                <kbd className="hidden items-center gap-0.5 rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 md:inline-flex dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                <kbd className="hidden items-center gap-0.5 rounded border border-border-default bg-surface-card px-1.5 py-0.5 font-mono text-[10px] text-fg-tertiary md:inline-flex">
                   {isMac ? "⌘" : "Ctrl"}
                   <span>K</span>
                 </kbd>
@@ -202,41 +201,37 @@ export default function DashboardLayout({
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Open account menu"
-                className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-brand-soft"
               >
                 <Avatar className="h-9 w-9">
-                  <AvatarFallback className="bg-zinc-100 text-sm text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  <AvatarFallback className="bg-brand-soft text-sm text-fg-primary">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="w-48 border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+                className="w-48 border-border-default bg-surface-card"
               >
                 {/* `render` projects a single element that carries both the
                     menuitem semantics and the navigation behavior, avoiding
                     nested interactive elements (the Link-inside-MenuItem
                     pattern was an a11y bug — duplicate roles, broken
-                    keyboard activation). */}
+                    keyboard activation). Removed the redundant "Profile"
+                    entry — it also pointed at /settings and confused users
+                    who clicked Profile, landed on Settings, and didn't see
+                    a profile editor as a separate page. */}
                 <DropdownMenuItem
                   render={<Link href="/settings" />}
-                  className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
-                >
-                  <User className="h-4 w-4" />
-                  Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  render={<Link href="/settings" />}
-                  className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+                  className="flex items-center gap-2 text-fg-primary"
                 >
                   <Settings className="h-4 w-4" />
                   Settings
                 </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-zinc-200 dark:bg-zinc-800" />
+                <DropdownMenuSeparator className="bg-border-default" />
                 <DropdownMenuItem
                   onClick={() => signOut({ callbackUrl: "/" })}
-                  className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+                  className="flex items-center gap-2 text-fg-primary"
                 >
                   <LogOut className="h-4 w-4" />
                   Sign Out
@@ -246,14 +241,26 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        {/* Page Content */}
+        {/* Page Content
+            - `pb-24` reserves vertical space for the CookieBanner that sits
+              `fixed bottom-0` from app/layout.tsx. Without it, on short pages
+              (Watchlist empty, Reports empty) the user can scroll the page
+              into a blank area below the content because the banner overlays
+              the bottom 60–90px and the visible area appears truncated.
+            - The reserved space stays even after the banner is dismissed —
+              the small extra padding is a worthwhile trade-off vs. listening
+              for a custom event from the banner and recomputing layout. */}
         <main
           id="main-content"
           tabIndex={-1}
           aria-label="Dashboard content"
-          className="flex-1 overflow-y-auto p-6"
+          className="flex-1 overflow-y-auto p-6 pb-24"
         >
-          {children}
+          {/* `min-h-full` so short-content pages (empty Watchlist, empty
+              Reports, fresh dashboards) fill the visible viewport instead
+              of collapsing to their natural height, which leaves the cream
+              wine background showing through the bottom half of the page. */}
+          <div className="min-h-full">{children}</div>
         </main>
       </div>
 

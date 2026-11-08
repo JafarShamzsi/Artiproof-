@@ -103,6 +103,30 @@ class AdminUserUpdateRequest(BaseModel):
         default=None,
         description="If true, clear deactivated_at.",
     )
+    deactivate: Optional[bool] = Field(
+        default=None,
+        description=(
+            "If true, set deactivated_at to now. The user can still self-"
+            "reactivate via /api/auth/reactivate. get_current_user 403s "
+            "on deactivated users in the meantime."
+        ),
+    )
+    delete: Optional[bool] = Field(
+        default=None,
+        description=(
+            "If true, soft-delete by setting deleted_at to now. The cleanup "
+            "task hard-deletes 30 days later. Use 'restore' before that "
+            "window to undo."
+        ),
+    )
+    force_signout: Optional[bool] = Field(
+        default=None,
+        description=(
+            "If true, revoke every session + refresh token for this user. "
+            "On their next request the JWT still works until expiry; pair "
+            "with 'deactivate' to force them off immediately."
+        ),
+    )
 
 
 class FailedPipelineRow(BaseModel):
@@ -199,6 +223,34 @@ class CeleryDLQRetryResponse(BaseModel):
     dlq_id: str
     enqueued: bool
     new_task_id: Optional[str] = None
+
+
+# ─── Internal helpers ──────────────────────────────────────────────────────
+
+
+async def _force_signout_user(db: AsyncSession, user_id: str) -> int:
+    """Revoke every session + auth_token belonging to ``user_id``.
+
+    Returns the number of rows touched (sessions + tokens). Used by
+    the admin force-signout action and by the delete path (deleting a
+    user without dropping their sessions leaves orphaned rows that
+    would fail FK cascade on the next session-cleanup sweep).
+    """
+    from sqlalchemy import delete as sa_delete
+
+    from app.models.auth_token import AuthToken
+    from app.models.session import Session as UserSession
+
+    sess_q = await db.execute(
+        sa_delete(UserSession).where(UserSession.user_id == user_id)
+    )
+    tok_q = await db.execute(
+        sa_delete(AuthToken).where(AuthToken.user_id == user_id)
+    )
+    # rowcount is None on some backends / absent on test fakes — coerce to 0.
+    sess_rows = getattr(sess_q, "rowcount", 0) or 0
+    tok_rows = getattr(tok_q, "rowcount", 0) or 0
+    return int(sess_rows) + int(tok_rows)
 
 
 # ─── Endpoints ─────────────────────────────────────────────────────────────
@@ -319,12 +371,69 @@ async def update_user(
         actions.append("reactivate")
         target.deactivated_at = None
 
+    # Destructive / forceful actions — opt-in via the new flags. Each
+    # one is logged + emits an audit line.
+    now_utc = datetime.now(timezone.utc)
+
+    if data.deactivate and target.deactivated_at is None:
+        # Safety: refuse to deactivate the last active admin (mirrors the
+        # demote-last-admin guard above). Operators can still delete
+        # themselves via the self-service /api/auth/me path with a
+        # password — admin force-deactivate isn't a way to lock out the
+        # whole org.
+        if target.role == "admin":
+            remaining_q = await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == "admin",
+                    User.id != target.id,
+                    User.deleted_at.is_(None),
+                    User.deactivated_at.is_(None),
+                )
+            )
+            if int(remaining_q.scalar() or 0) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot deactivate the last remaining admin",
+                )
+        actions.append("deactivate")
+        target.deactivated_at = now_utc
+
+    if data.delete and target.deleted_at is None:
+        # Same last-admin guard for delete.
+        if target.role == "admin":
+            remaining_q = await db.execute(
+                select(func.count(User.id)).where(
+                    User.role == "admin",
+                    User.id != target.id,
+                    User.deleted_at.is_(None),
+                )
+            )
+            if int(remaining_q.scalar() or 0) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete the last remaining admin",
+                )
+        actions.append("delete")
+        target.deleted_at = now_utc
+        # Self-deletion equivalent — also wipe sessions so the user is
+        # signed out across devices.
+        await _force_signout_user(db, target.id)
+
+    if data.force_signout:
+        # Revoke every session + refresh token for this user. The JWT
+        # in their browser is still valid until expiry (HS256 doesn't
+        # support revocation), but it can no longer be exchanged for
+        # a refresh token, so the next access-token refresh fails and
+        # the user is bounced to /login.
+        deleted = await _force_signout_user(db, target.id)
+        actions.append(f"force_signout (revoked={deleted})")
+
     if not actions:
         # No-op PATCH still returns the row — clients can use this for
         # "show me the canonical state". But don't bump updated_at.
         return AdminUserRow.model_validate(target)
 
-    target.updated_at = datetime.now(timezone.utc)
+    target.updated_at = now_utc
     await db.commit()
     await db.refresh(target)
 

@@ -127,11 +127,22 @@
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
-  --font-heading: var(--font-display);
-  --font-display: var(--font-display), var(--font-sans), system-ui, sans-serif;
-  --font-editorial: var(--font-editorial), var(--font-display), Georgia, serif;
+  /* Font tokens — next/font/google writes `--font-sans` (Inter),
+     `--font-display` (Fraunces), `--font-editorial` (Newsreader), and
+     `--font-mono` (JetBrains Mono) at the body element. Tailwind 4 needs
+     these declared in @theme to expose the `font-{sans|display|editorial|mono}`
+     utilities; the body-level values override what we set here at element
+     level. The previous declaration was SELF-REFERENTIAL
+     (`--font-display: var(--font-display), …`) which never resolved on
+     cold reload — headings briefly rendered in Georgia/serif until
+     next/font injected the real value. Fixed: each token defaults to a
+     concrete fallback chain (no self-reference) so the cascade always
+     resolves to something legible. */
+  --font-sans: var(--font-sans, system-ui, sans-serif);
+  --font-mono: var(--font-mono, ui-monospace, "Cascadia Code", monospace);
+  --font-display: var(--font-display, Georgia, "Times New Roman", serif);
+  --font-editorial: var(--font-editorial, Georgia, "Times New Roman", serif);
+  --font-heading: var(--font-display, Georgia, serif);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -191,39 +202,43 @@
   --border-default: #D9CDBE;
   --border-strong: #B79E89;
 
-  /* shadcn token bridge — keep for compat with existing Card/Button */
+  /* shadcn token bridge — wired through brand surfaces so Card / Button /
+     Dialog / Popover / DropdownMenu inherit the warm cream/wine palette
+     instead of the generic OKLCH grays the shadcn CLI ships. Without
+     this bridge a Dialog opens with `--popover: oklch(1 0 0)` (pure
+     white) on top of our cream backdrop and reads as a brand mismatch. */
   --background: var(--surface-base);
   --foreground: var(--fg-primary);
   --card: var(--surface-card);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--surface-card);
+  --popover-foreground: var(--fg-primary);
+  --primary: var(--brand);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--surface-elevated);
+  --secondary-foreground: var(--fg-primary);
+  --muted: var(--border-subtle);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--brand-soft);
+  --accent-foreground: var(--brand);
+  --destructive: #C04040;
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--brand);
+  --chart-1: var(--brand);
+  --chart-2: var(--accent-amber);
+  --chart-3: var(--fg-secondary);
+  --chart-4: var(--border-strong);
+  --chart-5: var(--fg-tertiary);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: var(--surface-base);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--brand-soft);
+  --sidebar-accent-foreground: var(--brand);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--brand);
 }
 
 .dark {
@@ -246,37 +261,40 @@
   --border-default: #3A2D2A;
   --border-strong: #5C4641;
 
+  /* shadcn token bridge for dark mode — same intent as light: route
+     every shadcn-default component through the brand surface tokens
+     so Dialogs/Popovers/Cards land in charcoal-wine, not pure white. */
   --background: var(--surface-base);
   --foreground: var(--fg-primary);
   --card: var(--surface-card);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.92 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--surface-card);
+  --popover-foreground: var(--fg-primary);
+  --primary: var(--brand);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--surface-elevated);
+  --secondary-foreground: var(--fg-primary);
+  --muted: var(--border-subtle);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--brand-soft);
+  --accent-foreground: var(--brand-fg);
+  --destructive: #D85050;
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--brand);
+  --chart-1: var(--brand-fg);
+  --chart-2: var(--accent-amber);
+  --chart-3: var(--fg-secondary);
+  --chart-4: var(--border-strong);
+  --chart-5: var(--fg-tertiary);
+  --sidebar: var(--surface-base);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--brand-soft);
+  --sidebar-accent-foreground: var(--brand-fg);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--brand);
 }
 
 @layer base {

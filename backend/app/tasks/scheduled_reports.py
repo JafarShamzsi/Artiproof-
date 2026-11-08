@@ -165,7 +165,12 @@ async def run_due_schedules(db: AsyncSession) -> int:
             else:
                 html = render_executive_summary_report(check_data, narrative, branding=branding)
             try:
-                pdf_bytes = html_to_pdf(html)
+                # html_to_pdf returns (bytes, renderer_label) — for the
+                # scheduled-summary path we only need the bytes; the
+                # renderer label is meaningful for interactive downloads
+                # only (the route adds an X-Report-Renderer header so
+                # the UI can toast). Drop the label here.
+                pdf_bytes, _renderer = html_to_pdf(html)
                 pdf_path = save_pdf(pdf_bytes)
             except Exception:
                 logger.exception("PDF generation failed for schedule %s", schedule.id)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreLabel } from "@/components/ui/score-explanation";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListSkeleton } from "@/components/ui/skeleton";
+import { WatchlistButton } from "@/components/ui/watchlist-button";
 import type {
   ProgressEvent,
   ResearcherListItem,
@@ -565,8 +567,8 @@ function PastAnalysisRow({
   const inner = (
     <>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{a.researcher_name}</p>
-        <p className="text-xs text-zinc-500">
+        <p className="truncate text-sm font-medium text-fg-primary">{a.researcher_name}</p>
+        <p className="text-xs text-fg-tertiary">
           {a.institution || "Unknown institution"} — {new Date(a.created_at).toLocaleDateString()}
         </p>
       </div>
@@ -599,13 +601,13 @@ function PastAnalysisRow({
         onClick={onToggleSelect}
         aria-pressed={selected}
         className={
-          "flex w-full items-center justify-between rounded-lg border bg-zinc-50 px-4 py-3 text-left transition dark:bg-zinc-800/30 " +
+          "flex w-full items-center justify-between rounded-lg border bg-surface-base px-4 py-3 text-left transition " +
           (selected
             ? "border-accent-amber ring-2 ring-accent-amber/30"
-            : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700")
+            : "border-border-default hover:border-border-strong")
         }
       >
-        <div className="mr-3 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-zinc-300 dark:border-zinc-700">
+        <div className="mr-3 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border-default">
           {selected && <CheckCircle className="h-4 w-4 text-accent-amber" />}
         </div>
         {inner}
@@ -613,12 +615,19 @@ function PastAnalysisRow({
     );
   }
 
+  // Outside compare mode the row is split into [clickable title area] +
+  // [watchlist toggle] so the user can watch/unwatch in one click without
+  // opening the profile first. The watchlist button stops click
+  // propagation so it doesn't ALSO navigate.
   return (
-    <a
-      href={`/researcher/${a.id}`}
-      className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 transition hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-800/30 dark:hover:border-zinc-700"
-    >
-      {inner}
-    </a>
+    <div className="flex items-center gap-2 rounded-lg border border-border-default bg-surface-base px-4 py-3 transition hover:border-border-strong">
+      <Link
+        href={`/researcher/${a.id}`}
+        className="flex flex-1 items-center justify-between gap-3"
+      >
+        {inner}
+      </Link>
+      <WatchlistButton researcherId={a.id} mode="icon" />
+    </div>
   );
 }

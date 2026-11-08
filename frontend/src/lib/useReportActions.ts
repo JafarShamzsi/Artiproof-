@@ -111,6 +111,11 @@ export function useReportActions(opts: Opts) {
         toast.error(msg);
         return;
       }
+      // Surface the renderer used so the user understands when the
+      // bare-text fallback shipped instead of the styled WeasyPrint
+      // PDF. Operators see a one-time warning in the backend logs at
+      // startup; users see this toast at download time.
+      const renderer = res.headers.get("X-Report-Renderer");
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -120,6 +125,12 @@ export function useReportActions(opts: Opts) {
       a.click();
       a.remove();
       URL.revokeObjectURL(objectUrl);
+      if (renderer === "pymupdf-fallback") {
+        toast.warning(
+          "Styled PDF unavailable on this host — sent a plain-text version. Ask your operator to install WeasyPrint's dependencies (GTK/Pango) for the styled report.",
+          { duration: 8000 },
+        );
+      }
     } catch {
       const msg = "Network error during download";
       setError(msg);

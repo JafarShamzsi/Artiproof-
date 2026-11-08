@@ -158,7 +158,7 @@ export default function ReportsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Reports</h1>
+          <h1 className="font-display text-2xl font-bold text-fg-primary">Reports</h1>
           <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
             Download PDF reports, add notes, or copy a public share link.
           </p>

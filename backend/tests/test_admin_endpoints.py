@@ -234,3 +234,85 @@ async def test_failed_pipelines_returns_empty_list_default(env_admin):
         r = await c.get("/api/admin/pipelines/failed")
     assert r.status_code == 200
     assert r.json() == []
+
+
+# ─── Deactivate / Delete / Force sign-out ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_patch_user_deactivate_sets_timestamp(env_admin):
+    target = _user(id="td1", role="researcher")
+    env_admin.db.users["td1"] = target
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.patch("/api/admin/users/td1", json={"deactivate": True})
+    assert r.status_code == 200
+    assert target.deactivated_at is not None
+
+
+@pytest.mark.asyncio
+async def test_patch_user_reactivate_clears_timestamp(env_admin):
+    target = _user(
+        id="td2",
+        role="researcher",
+        deactivated_at=datetime.now(timezone.utc),
+    )
+    env_admin.db.users["td2"] = target
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.patch("/api/admin/users/td2", json={"reactivate": True})
+    assert r.status_code == 200
+    assert target.deactivated_at is None
+
+
+@pytest.mark.asyncio
+async def test_last_admin_cannot_be_deactivated(env_admin):
+    """Same guard pattern as last-admin demote — refuse 400."""
+    target = _user(id="lone-2", role="admin")
+    env_admin.db.users["lone-2"] = target
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.patch(
+            "/api/admin/users/lone-2", json={"deactivate": True}
+        )
+    assert r.status_code == 400
+    assert "last remaining admin" in r.text
+    assert target.deactivated_at is None
+
+
+@pytest.mark.asyncio
+async def test_patch_user_delete_sets_deleted_at(env_admin):
+    target = _user(id="td3", role="researcher")
+    env_admin.db.users["td3"] = target
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.patch("/api/admin/users/td3", json={"delete": True})
+    assert r.status_code == 200
+    assert target.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_last_admin_cannot_be_deleted(env_admin):
+    target = _user(id="lone-3", role="admin")
+    env_admin.db.users["lone-3"] = target
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.patch("/api/admin/users/lone-3", json={"delete": True})
+    assert r.status_code == 400
+    assert "last remaining admin" in r.text
+    assert target.deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_patch_user_force_signout_returns_200(env_admin):
+    """Force-signout always returns 200 — the helper's DELETE statements
+    are executed via the in-memory fake's no-op execute(), so rowcount
+    is None and we just verify the route accepts the flag without 500ing."""
+    target = _user(id="td4", role="researcher")
+    env_admin.db.users["td4"] = target
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.patch(
+            "/api/admin/users/td4", json={"force_signout": True}
+        )
+    assert r.status_code == 200

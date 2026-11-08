@@ -407,9 +407,10 @@ async def generate_report(
     # ─── Render PDF + persist ─────────────────────────────────────────
     # WeasyPrint + filesystem writes are synchronous and CPU-bound — run
     # them in a worker thread so the event loop doesn't stall on a slow
-    # render.
+    # render. html_to_pdf now returns (bytes, renderer_label) so the
+    # download route can stamp X-Report-Renderer for the frontend.
     try:
-        pdf_bytes = await asyncio.to_thread(html_to_pdf, html)
+        pdf_bytes, _renderer = await asyncio.to_thread(html_to_pdf, html)
         pdf_path = await asyncio.to_thread(save_pdf, pdf_bytes)
     except Exception:
         logger.exception("PDF generation failed")
@@ -615,9 +616,13 @@ async def update_report_annotations(
 # ─── PDF download ─────────────────────────────────────────────────────────
 
 
-async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> bytes:
+async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> tuple[bytes, str]:
     """Rebuild the PDF from the report's related data when the cached file
-    is missing. Uses the stored summary as the narrative — no Gemini call."""
+    is missing. Uses the stored summary as the narrative — no Gemini call.
+
+    Returns (pdf_bytes, renderer_label) — the route uses ``renderer_label``
+    to stamp ``X-Report-Renderer`` so the frontend can surface a caveat
+    toast when the PyMuPDF fallback was used."""
     narrative = report.summary or ""
     template = report.template or "full"
 
@@ -709,7 +714,9 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> bytes:
             detail="Report has no underlying source or researcher record",
         )
 
-    return await asyncio.to_thread(html_to_pdf, html)
+    # html_to_pdf returns (bytes, renderer_label) — pass both upstream
+    # so the route can stamp the X-Report-Renderer response header.
+    return await asyncio.to_thread(html_to_pdf, html)  # type: ignore[return-value]
 
 
 @router.get("/{report_id}/download")
@@ -735,17 +742,24 @@ async def download_report(
 
 
 async def _serve_report_pdf(report: Report, db: AsyncSession) -> Response:
-    """Render or load the PDF for a Report and return it as an HTTP attachment."""
+    """Render or load the PDF for a Report and return it as an HTTP attachment.
+
+    Sets ``X-Report-Renderer`` to indicate whether the bytes came from
+    the styled WeasyPrint path or the plain-text PyMuPDF fallback. The
+    frontend uses this to toast "styled rendering unavailable" so the
+    user understands why the PDF looks bare.
+    """
 
     def _read_cached(path: str) -> bytes:
         with open(path, "rb") as f:
             return f.read()
 
+    renderer = "cached"
     if report.pdf_path and await asyncio.to_thread(os.path.exists, report.pdf_path):
         pdf_bytes = await asyncio.to_thread(_read_cached, report.pdf_path)
     else:
         try:
-            pdf_bytes = await _regenerate_report_pdf(report, db)
+            pdf_bytes, renderer = await _regenerate_report_pdf(report, db)
         except HTTPException:
             raise
         except Exception:
@@ -765,5 +779,8 @@ async def _serve_report_pdf(report: Report, db: AsyncSession) -> Response:
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Report-Renderer": renderer,
+        },
     )

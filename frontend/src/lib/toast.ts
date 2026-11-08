@@ -19,6 +19,10 @@ export const toast = {
   info(message: string, options?: ExternalToast) {
     return sonnerToast(message, options);
   },
+  warning(message: string, options?: ExternalToast) {
+    // Same elevated duration as error toasts so users see + read them.
+    return sonnerToast.warning(message, { duration: 6000, ...options });
+  },
   /** For long-running operations — returns a sonner id you can resolve later. */
   loading(message: string, options?: ExternalToast) {
     return sonnerToast.loading(message, options);

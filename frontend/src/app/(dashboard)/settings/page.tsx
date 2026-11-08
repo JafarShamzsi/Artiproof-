@@ -17,6 +17,7 @@ import {
   Link2,
   Loader2,
   Lock,
+  LogOut,
   Mail,
   MailCheck,
   MonitorSmartphone,
@@ -185,8 +186,8 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Settings</h1>
-        <p className="text-zinc-600 dark:text-zinc-400">
+        <h1 className="font-display text-2xl font-bold text-fg-primary">Settings</h1>
+        <p className="text-fg-secondary">
           Manage your profile and preferences.
         </p>
       </div>
@@ -229,7 +230,11 @@ export default function SettingsPage() {
 
       <ScheduledReportsSection />
 
-      {profile?.tier === "team" && profile?.organization_id && (
+      {/* Team management surface — for non-team users we still render
+          the section so the feature is discoverable; the section body
+          becomes a "Team-tier feature" CTA pointing to /pricing. For
+          team users without an org_id the same placeholder shows. */}
+      {profile?.tier === "team" && profile?.organization_id ? (
         <>
           <OrgMembersSection
             orgId={profile.organization_id}
@@ -238,10 +243,87 @@ export default function SettingsPage() {
           />
           <BrandingSection orgId={profile.organization_id} />
         </>
+      ) : (
+        profile && <TeamUpgradeSection currentTier={profile.tier} />
       )}
+
+      <SignOutSection />
 
       <DangerZoneSection />
     </div>
+  );
+}
+
+// ─── Sign out (this device) ────────────────────────────────────────────────
+// Sits between team-management and Danger zone so a user looking for
+// "where do I sign out?" finds it on the page itself instead of hunting
+// for the avatar dropdown. Renamed the existing "Sign out everywhere
+// else" path in ActiveSessionsSection; this one signs out the current
+// device only. Two separate intents on purpose — one is "I'm leaving
+// this laptop", the other is "revoke everywhere I forgot to log out".
+
+function SignOutSection() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <SectionCard
+      icon={<LogOut className="h-4 w-4" />}
+      title="Sign out"
+      description="Sign out of ArtiProof on this device. Other devices stay signed in — use the Active sessions list above to revoke them too."
+    >
+      <Button
+        type="button"
+        variant="outline"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          // signOut returns; the callback redirect happens client-side.
+          await signOut({ callbackUrl: "/login" });
+        }}
+      >
+        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+        Sign out
+      </Button>
+    </SectionCard>
+  );
+}
+
+// ─── Team upgrade placeholder ───────────────────────────────────────────────
+// Free + pro users land in Settings and previously saw NO team management
+// surface — the pricing page promises team features but the dashboard
+// hid them entirely. Now we show a "Team-tier feature" card with an
+// upgrade CTA so the path is discoverable.
+
+function TeamUpgradeSection({ currentTier }: { currentTier: string }) {
+  return (
+    <SectionCard
+      icon={<Users className="h-4 w-4" />}
+      title="Team & members"
+      description="Invite collaborators, manage roles, and share organisation-wide branding on reports."
+    >
+      <div className="rounded-lg border border-dashed border-border-default bg-brand-soft/50 p-4">
+        <p className="text-sm font-medium text-fg-primary">
+          Team management is a Team-tier feature.
+        </p>
+        <p className="mt-1 text-xs text-fg-secondary">
+          You&rsquo;re on the {currentTier} plan. Upgrade to Team to invite
+          members, manage roles, and apply organisation branding to reports.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link
+            href="/pricing#team"
+            className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-sm shadow-brand/20 transition-colors hover:bg-brand-hover"
+          >
+            See Team pricing
+          </Link>
+          <Link
+            href="/contact-sales"
+            className="inline-flex h-9 items-center rounded-lg border border-border-default px-4 text-sm font-medium text-fg-primary transition-colors hover:bg-brand-soft"
+          >
+            Contact sales
+          </Link>
+        </div>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -2841,8 +2923,9 @@ function OrgMembersSection({
 
   return (
     <SectionCard
-      icon={<Users className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
-      title="Members"
+      icon={<Users className="h-5 w-5 text-fg-secondary" />}
+      title="Team & members"
+      description="Invite collaborators, manage their role, and remove access when they leave."
     >
       {isOrgAdmin && (
         <form
@@ -3004,18 +3087,26 @@ const SUBSCRIPTION_STATE_TINT: Record<ProfileResponse["subscription_state"], str
  * last billing dates, invoice history, etc.
  */
 function BillingSection({ profile }: { profile: ProfileResponse }) {
+  // Wire active CTAs based on tier so the user always has a next step
+  // instead of a disabled placeholder button. Free + pro → upgrade
+  // path; team → contact sales (since team tier handles seats / org
+  // billing differently).
+  const isNoSubscription = profile.subscription_state === "none";
+  const upgradeHref = profile.tier === "free" ? "/pricing#pro" : "/pricing#team";
+
   return (
     <SectionCard
-      icon={<BarChart3 className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
-      title="Billing"
+      icon={<BarChart3 className="h-5 w-5 text-fg-secondary" />}
+      title="Billing & subscription"
+      description="Your current plan, next billing date, and account-level upgrade or change options."
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <div>
-            <p className="text-xs uppercase tracking-wide text-zinc-500">
+            <p className="text-xs uppercase tracking-wide text-fg-tertiary">
               Current plan
             </p>
-            <p className="mt-1 text-lg font-semibold capitalize text-zinc-900 dark:text-white">
+            <p className="mt-1 font-display text-lg font-semibold capitalize text-fg-primary">
               {profile.tier}
             </p>
           </div>
@@ -3027,7 +3118,7 @@ function BillingSection({ profile }: { profile: ProfileResponse }) {
         </div>
 
         {profile.next_billing_date && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-fg-secondary">
             Next billing date:{" "}
             <time dateTime={profile.next_billing_date}>
               {new Date(profile.next_billing_date).toLocaleDateString()}
@@ -3035,7 +3126,7 @@ function BillingSection({ profile }: { profile: ProfileResponse }) {
           </p>
         )}
         {profile.last_billing_date && !profile.next_billing_date && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-fg-secondary">
             Last billed:{" "}
             <time dateTime={profile.last_billing_date}>
               {new Date(profile.last_billing_date).toLocaleDateString()}
@@ -3043,26 +3134,20 @@ function BillingSection({ profile }: { profile: ProfileResponse }) {
           </p>
         )}
 
-        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
-          {profile.subscription_state === "none" ? (
+        <div className="rounded-md border border-border-default bg-brand-soft/40 p-3 text-xs text-fg-secondary">
+          {isNoSubscription ? (
             <>
-              You&apos;re on the {profile.tier} plan. To upgrade, head
-              to{" "}
-              <Link
-                href="/#pricing"
-                className="text-brand underline-offset-2 hover:underline"
-              >
-                pricing
-              </Link>
-              . Self-serve billing is coming soon.
+              You&rsquo;re on the {profile.tier} plan. Self-serve checkout
+              ships when our payment processor goes live — for now use the
+              link below to start your upgrade.
             </>
           ) : (
             <>
-              Self-serve billing management lands when our payment
-              processor goes live. Until then, contact{" "}
+              Self-serve billing portal lands when our payment processor
+              goes live. Until then, contact{" "}
               <a
                 href="mailto:info@example.invalid"
-                className="text-brand underline-offset-2 hover:underline"
+                className="text-brand-fg underline-offset-2 hover:underline"
               >
                 info@example.invalid
               </a>{" "}
@@ -3071,9 +3156,24 @@ function BillingSection({ profile }: { profile: ProfileResponse }) {
           )}
         </div>
 
-        <Button variant="outline" disabled className="w-fit">
-          Manage subscription
-        </Button>
+        {/* Tier-conditional CTA. Free/pro see "Upgrade to <next>"; team
+            see "Contact sales" since their billing is org-managed. */}
+        <div className="flex flex-wrap gap-2">
+          {profile.tier !== "team" && (
+            <Link
+              href={upgradeHref}
+              className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-sm shadow-brand/20 transition-colors hover:bg-brand-hover"
+            >
+              {profile.tier === "free" ? "Upgrade to Pro" : "Upgrade to Team"}
+            </Link>
+          )}
+          <Link
+            href="/contact-sales"
+            className="inline-flex h-9 items-center rounded-lg border border-border-default px-4 text-sm font-medium text-fg-primary transition-colors hover:bg-brand-soft"
+          >
+            {profile.tier === "team" ? "Contact sales" : "Talk to sales"}
+          </Link>
+        </div>
       </div>
     </SectionCard>
   );
@@ -3239,22 +3339,31 @@ function BrandingSection({ orgId }: { orgId: string }) {
 function SectionCard({
   icon,
   title,
+  description,
   action,
   children,
 }: {
   icon: ReactNode;
   title: string;
+  /** Optional sub-heading under the title (renders muted). Use for
+   *  brief context that explains WHAT the section controls. */
+  description?: string;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+    <Card className="border-border-default bg-surface-card">
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2 text-zinc-900 dark:text-white">
-            {icon}
-            {title}
-          </CardTitle>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="flex items-center gap-2 text-fg-primary">
+              {icon}
+              {title}
+            </CardTitle>
+            {description && (
+              <p className="mt-1 text-xs text-fg-secondary">{description}</p>
+            )}
+          </div>
           {action}
         </div>
       </CardHeader>

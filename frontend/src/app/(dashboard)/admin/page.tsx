@@ -24,6 +24,7 @@ import {
   ChevronDown,
   DollarSign,
   Loader2,
+  MoreHorizontal,
   PlayCircle,
   RefreshCw,
   Shield,
@@ -260,6 +261,61 @@ export default function AdminPage() {
     reload();
   };
 
+  // Generic patch helper for the new admin actions. Each action is a
+  // single PATCH with a one-key body. Confirmation dialogs gate the
+  // destructive ones; the API does the heavy lifting (last-admin guard,
+  // session revocation, etc.).
+  const handleUserAction = async (
+    user: AdminUser,
+    action: "deactivate" | "reactivate" | "force_signout" | "delete",
+  ) => {
+    if (mutatingUserId === user.id) return;
+    if (action === "delete") {
+      // Strong confirm — match the user-facing delete pattern (type the
+      // email to confirm). Browser prompt is fine for now; a real
+      // modal is in the polish queue.
+      const typed = window.prompt(
+        `Soft-delete ${user.email}? Type the email to confirm.`,
+      );
+      if (typed?.trim().toLowerCase() !== user.email.toLowerCase()) {
+        toast.error("Confirmation didn't match — delete cancelled");
+        return;
+      }
+    } else if (action === "deactivate" || action === "force_signout") {
+      if (
+        !window.confirm(
+          action === "deactivate"
+            ? `Deactivate ${user.email}? They lose access until they (or you) reactivate.`
+            : `Force sign-out of ${user.email}? Their sessions on every device are revoked.`,
+        )
+      ) {
+        return;
+      }
+    }
+    setMutatingUserId(user.id);
+    try {
+      const res = await apiFetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ [action]: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || `${action} failed`);
+        return;
+      }
+      const labels: Record<typeof action, string> = {
+        deactivate: "User deactivated",
+        reactivate: "User reactivated",
+        force_signout: "Sessions revoked",
+        delete: "User soft-deleted (30-day undo window)",
+      };
+      toast.success(labels[action]);
+      await reload();
+    } finally {
+      setMutatingUserId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Breadcrumb
@@ -434,15 +490,58 @@ export default function AdminPage() {
                       {new Date(u.created_at).toLocaleDateString()}
                     </td>
                     <td className="py-2 pr-4 text-right">
-                      {u.deleted_at && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleRestore(u.id)}
+                      {/* Per-row 3-dot menu. Available actions depend on
+                          the user's current status (deleted users only
+                          see Restore; active users see Deactivate +
+                          Delete + Force sign-out; deactivated see
+                          Reactivate + Delete + Force sign-out). */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          disabled={mutatingUserId === u.id}
+                          aria-label={`Actions for ${u.email}`}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border-default text-fg-secondary hover:bg-brand-soft hover:text-fg-primary disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          Restore
-                        </Button>
-                      )}
+                          {mutatingUserId === u.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          )}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          {u.deleted_at ? (
+                            <DropdownMenuItem onClick={() => handleRestore(u.id)}>
+                              Restore
+                            </DropdownMenuItem>
+                          ) : (
+                            <>
+                              {u.deactivated_at ? (
+                                <DropdownMenuItem
+                                  onClick={() => handleUserAction(u, "reactivate")}
+                                >
+                                  Reactivate
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem
+                                  onClick={() => handleUserAction(u, "deactivate")}
+                                >
+                                  Deactivate
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem
+                                onClick={() => handleUserAction(u, "force_signout")}
+                              >
+                                Force sign-out
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleUserAction(u, "delete")}
+                                className="text-red-700 dark:text-red-400"
+                              >
+                                Soft delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 ))}

@@ -112,7 +112,7 @@ export default function WatchlistPage() {
             <EmptyState
               icon={<Eye className="h-5 w-5" />}
               title="Your watchlist is empty"
-              description="Star researchers from any profile page to add them to your watchlist. You'll see how their integrity score changes over time when you re-analyze them."
+              description="Open any researcher profile and tap “Add to watchlist” to track them. Their integrity score delta appears here every time they're re-analysed."
               action={{ label: "Browse researchers", href: "/researcher" }}
             />
           ) : (
