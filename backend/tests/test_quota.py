@@ -66,7 +66,7 @@ async def test_free_tier_bulk_over_limit_raises():
 
 @pytest.mark.asyncio
 async def test_pro_tier_higher_limit_passes():
-    """Pro tier 100/mo — at 50 used a bulk of 30 still fits."""
+    """Pro tier 200/mo — at 50 used a bulk of 30 still fits."""
     db = _db_with_mtd_count(50)
     await assert_quota(db, _user("pro"), "source_checks", units=30)
 

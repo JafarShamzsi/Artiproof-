@@ -32,7 +32,7 @@ TIER_LIMITS: dict[str, dict[str, int | None]] = {
         "reports_per_month": 5,
     },
     "pro": {
-        "source_checks_per_month": 100,
+        "source_checks_per_month": 200,
         "researcher_analyses_per_month": 50,
         "reports_per_month": 50,
     },
