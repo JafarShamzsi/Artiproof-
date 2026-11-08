@@ -757,6 +757,12 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> tuple[byte
                 profile_data, narrative, branding=branding, annotations=report.annotations
             )
 
+    elif template in ("full", "executive_summary") and report.report_type in (
+        "source_verification", "researcher_integrity"
+    ):
+        # Single-input FKs use ON DELETE SET NULL. A recognized report whose
+        # input was hard-deleted is gone, not an internal rendering failure.
+        raise HTTPException(status_code=410, detail="Underlying report input no longer exists")
     else:
         raise HTTPException(
             status_code=500,

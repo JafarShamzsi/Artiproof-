@@ -30,8 +30,27 @@ def result(rows):
                            scalars=lambda: SimpleNamespace(all=lambda: rows))
 
 
+DERIVATION_WORK = (
+    "_branding_for_user", "_load_check_data", "_load_researcher_data",
+    "_load_check_summaries_batched", "_researcher_summaries",
+    "generate_source_check_narrative", "generate_researcher_narrative",
+    "render_source_check_report", "render_researcher_report",
+    "render_comparison_report", "render_institutional_audit_report",
+    "render_executive_summary_report", "html_to_pdf", "save_pdf",
+)
+
+
+def assert_no_derivation_work(db):
+    """Call before any rollback can erase evidence of an attempted write."""
+    for name in DERIVATION_WORK:
+        getattr(reports, name).assert_not_called()
+    for name in ("add", "add_all", "flush", "commit"):
+        getattr(db, name).assert_not_called()
+
+
 @pytest.fixture
-def rendering(monkeypatch):
+def rendering_stubs(monkeypatch):
+    monkeypatch.setattr(reports, "_branding_for_user", AsyncMock(return_value=None))
     for name in ("_load_check_data", "_load_researcher_data"):
         monkeypatch.setattr(reports, name, AsyncMock(return_value={}))
     monkeypatch.setattr(reports, "_load_check_summaries_batched", AsyncMock(return_value=[{}, {}]))
@@ -44,11 +63,15 @@ def rendering(monkeypatch):
         monkeypatch.setattr(reports, name, Mock(return_value="fixture html"))
     monkeypatch.setattr(reports, "html_to_pdf", Mock(return_value=(b"fixture", "test")))
     monkeypatch.setattr(reports, "save_pdf", Mock(return_value="fixture.pdf"))
+
+
+@pytest.fixture
+def rendering(rendering_stubs, monkeypatch):
     monkeypatch.setattr(reports, "_report_response", lambda report: report)
 
 
-async def generate(inputs, kind, user=None):
-    db = AsyncMock()
+async def generate(inputs, kind, user=None, db=None):
+    db = db if db is not None else AsyncMock()
     db.add = Mock()
     db.execute.return_value = result(inputs)
     fields = {
@@ -88,10 +111,11 @@ async def test_report_preserves_input_scope_after_join_or_switch(rendering, scop
 @pytest.mark.parametrize("kind", ["comparison", "institutional_audit"])
 @pytest.mark.parametrize("scopes", [(None, "org-b"), ("org-a", "org-b")])
 async def test_mixed_scope_reports_rejected_before_rendering(rendering, kind, scopes):
+    db = AsyncMock()
     with pytest.raises(HTTPException) as denied:
-        await generate([row(org=scopes[0]), row(org=scopes[1], rid="input-2")], kind)
+        await generate([row(org=scopes[0]), row(org=scopes[1], rid="input-2")], kind, db=db)
     assert denied.value.status_code == 400
-    reports.html_to_pdf.assert_not_called()
+    assert_no_derivation_work(db)
 
 
 @pytest.mark.asyncio
@@ -197,3 +221,41 @@ async def test_schedule_pause_remains_available(monkeypatch):
     updated = await report_schedules.update_schedule("schedule", ReportScheduleUpdate(active=False), db, actor())
     assert updated.active is False
     db.commit.assert_awaited_once()
+
+
+def test_postgresql_user_fixture_includes_required_name():
+    from tests.test_report_scope_integration import fixture_user
+
+    user = fixture_user("audit-user", None)
+    assert user.full_name == "Report scope fixture"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("report_type", ["source_verification", "researcher_integrity"])
+@pytest.mark.parametrize("template", ["full", "executive_summary"])
+async def test_recognized_single_input_report_with_null_fk_is_gone(rendering, report_type, template):
+    from app.models.report import Report
+
+    report = Report(user_id="owner", organization_id=None, report_type=report_type,
+                    template=template, title="Audit fixture", source_check_id=None,
+                    researcher_profile_id=None)
+    db = AsyncMock()
+    db.execute.return_value = result([actor()])
+    with pytest.raises(HTTPException) as gone:
+        await reports._regenerate_report_pdf(report, db)
+    assert gone.value.status_code == 410
+    reports.html_to_pdf.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unknown_inputless_report_keeps_internal_error(rendering):
+    from app.models.report import Report
+
+    report = Report(user_id="owner", organization_id=None, report_type="unknown",
+                    template="full", title="Audit fixture", source_check_id=None,
+                    researcher_profile_id=None)
+    db = AsyncMock()
+    db.execute.return_value = result([actor()])
+    with pytest.raises(HTTPException) as invalid:
+        await reports._regenerate_report_pdf(report, db)
+    assert invalid.value.status_code == 500
