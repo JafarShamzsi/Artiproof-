@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -30,7 +31,6 @@ import {
   Trash2,
   User as UserIcon,
   Users,
-  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -235,17 +235,15 @@ export default function SettingsPage() {
 
       <ScheduledReportsSection />
 
-      {/* Team management surface — for non-team users we still render
-          the section so the feature is discoverable; the section body
-          becomes a "Team-tier feature" CTA pointing to /pricing. For
-          team users without an org_id the same placeholder shows. */}
+      {/* Team management surface. Team-tier users with an org get a
+          link card pointing at the dedicated /team workspace (which
+          owns Members / Invites / Audit / org settings). The branding
+          editor stays inline here because it lives close to other
+          appearance-y controls users tweak from Settings.
+          Free / Pro users see the upgrade card with the trial CTA. */}
       {profile?.tier === "team" && profile?.organization_id ? (
         <>
-          <OrgMembersSection
-            orgId={profile.organization_id}
-            currentUserId={profile.id}
-            isOrgAdmin={profile.org_role === "admin"}
-          />
+          <TeamWorkspaceLinkSection />
           <BrandingSection orgId={profile.organization_id} />
         </>
       ) : (
@@ -299,6 +297,48 @@ function SignOutSection() {
 // upgrade CTA so the path is discoverable.
 
 function TeamUpgradeSection({ currentTier }: { currentTier: string }) {
+  const router = useRouter();
+  const { update } = useSession();
+  const [open, setOpen] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  // Auto-open on `?startTeam=1` arrival — pricing-page CTAs deep-link
+  // straight into the trial flow without a separate "open modal" click.
+  const search = useSearchParams();
+  useEffect(() => {
+    if (search?.get("startTeam") === "1") setOpen(true);
+  }, [search]);
+
+  async function startTrial(e: React.FormEvent) {
+    e.preventDefault();
+    const name = teamName.trim();
+    if (!name || creating) return;
+    setCreating(true);
+    try {
+      const res = await apiFetch("/api/organizations", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        toast.error(data.detail || "Couldn't start the trial");
+        return;
+      }
+      const body = (await res.json()) as { id: string; name: string };
+      // Refresh the NextAuth session so the dashboard layout picks up
+      // the new tier + org id without a forced re-login. The jwt
+      // callback merges these into the token.
+      await update({ tier: "team", organizationId: body.id });
+      toast.success(`Welcome to ${body.name} — 14-day trial started.`);
+      setOpen(false);
+      router.push("/team");
+      router.refresh();
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <SectionCard
       icon={<Users className="h-4 w-4" />}
@@ -310,23 +350,109 @@ function TeamUpgradeSection({ currentTier }: { currentTier: string }) {
           Team management is a Team-tier feature.
         </p>
         <p className="mt-1 text-xs text-fg-secondary">
-          You&rsquo;re on the {currentTier} plan. Upgrade to Team to invite
-          members, manage roles, and apply organisation branding to reports.
+          You&rsquo;re on the {currentTier} plan. Start a free 14-day trial to
+          invite teammates, manage roles, and pool report exports — no card
+          required.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="bg-brand text-white hover:bg-brand-hover"
+          >
+            Start 14-day trial
+          </Button>
           <Link
             href="/pricing#team"
-            className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-sm shadow-brand/20 transition-colors hover:bg-brand-hover"
+            className="inline-flex h-9 items-center rounded-lg border border-border-default px-4 text-sm font-medium text-fg-primary transition-colors hover:bg-brand-soft"
           >
             See Team pricing
           </Link>
           <Link
-            href="/contact-sales"
+            href="/contact-sales?plan=institution"
             className="inline-flex h-9 items-center rounded-lg border border-border-default px-4 text-sm font-medium text-fg-primary transition-colors hover:bg-brand-soft"
           >
             Contact sales
           </Link>
         </div>
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="border-border-default bg-surface-card">
+          <DialogHeader>
+            <DialogTitle>Start a Team trial</DialogTitle>
+            <DialogDescription>
+              We&rsquo;ll create a team workspace under your account. You can
+              rename or delete it anytime during the 14-day trial.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={startTrial} className="space-y-4">
+            <div>
+              <Label htmlFor="team-name">Team name</Label>
+              <Input
+                id="team-name"
+                type="text"
+                required
+                minLength={2}
+                maxLength={80}
+                placeholder="e.g. Acme University Research Office"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                className="mt-1"
+                autoFocus
+              />
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <DialogClose
+                render={
+                  <Button type="button" variant="outline" disabled={creating}>
+                    Cancel
+                  </Button>
+                }
+              />
+              <Button
+                type="submit"
+                disabled={creating || !teamName.trim()}
+                className="bg-brand text-white hover:bg-brand-hover"
+              >
+                {creating ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Start trial
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </SectionCard>
+  );
+}
+
+// ─── Team workspace link (team-tier users) ────────────────────────────────
+// The dedicated /team workspace owns Members / Invites / Audit / org
+// settings. Settings keeps a small card pointing at it so a user who
+// landed in Settings looking for "team management" still finds the door.
+
+function TeamWorkspaceLinkSection() {
+  return (
+    <SectionCard
+      icon={<Users className="h-4 w-4" />}
+      title="Team & members"
+      description="Members, invites, seat usage, and the audit log live in your team workspace."
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          href="/team"
+          className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white shadow-sm shadow-brand/20 transition-colors hover:bg-brand-hover"
+        >
+          Open team workspace
+        </Link>
+        <Link
+          href="/team?tab=invites"
+          className="inline-flex h-9 items-center rounded-lg border border-border-default px-4 text-sm font-medium text-fg-primary transition-colors hover:bg-brand-soft"
+        >
+          Manage invites
+        </Link>
       </div>
     </SectionCard>
   );
@@ -2840,290 +2966,6 @@ function ScheduledReportsSection() {
   );
 }
 
-// ─── Org members (team tier) ───────────────────────────────────────────────
-
-interface OrgMember {
-  user_id: string;
-  email: string;
-  full_name: string;
-  role: "admin" | "member";
-  joined_at: string;
-  invited_by: string | null;
-  source_checks_mtd: number;
-  researcher_analyses_mtd: number;
-  reports_mtd: number;
-}
-
-interface OrgMemberListResponse {
-  items: OrgMember[];
-  total: number;
-}
-
-/**
- * Membership management for team-tier orgs.
- *
- * Visible to every member of the org. The action buttons (invite,
- * change role, remove) only render for org admins — the backend
- * enforces the same gate, so a non-admin who races the UI gets a 403.
- */
-function OrgMembersSection({
-  orgId,
-  currentUserId,
-  isOrgAdmin,
-}: {
-  orgId: string;
-  currentUserId: string;
-  isOrgAdmin: boolean;
-}) {
-  const [members, setMembers] = useState<OrgMember[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
-  const [inviting, setInviting] = useState(false);
-  const [mutatingUserId, setMutatingUserId] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/api/organizations/${orgId}/members`);
-      if (res.ok) {
-        const body = (await res.json()) as OrgMemberListResponse;
-        setMembers(body.items);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  async function invite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inviteEmail.trim() || inviting) return;
-    setInviting(true);
-    try {
-      const res = await apiFetch(
-        `/api/organizations/${orgId}/members/invite`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            email: inviteEmail.trim(),
-            role: inviteRole,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          detail?: string;
-        };
-        toast.error(data.detail || "Invite failed");
-        return;
-      }
-      const body = (await res.json()) as {
-        invited_email: string;
-        status: "added" | "invited";
-      };
-      toast.success(
-        body.status === "added"
-          ? `${body.invited_email} added to the org`
-          : `Invite sent to ${body.invited_email}`,
-      );
-      setInviteEmail("");
-      setInviteRole("member");
-      await reload();
-    } finally {
-      setInviting(false);
-    }
-  }
-
-  async function changeRole(userId: string, role: "admin" | "member") {
-    if (mutatingUserId === userId) return;
-    setMutatingUserId(userId);
-    try {
-      const res = await apiFetch(
-        `/api/organizations/${orgId}/members/${userId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ role }),
-        },
-      );
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          detail?: string;
-        };
-        toast.error(data.detail || "Role change failed");
-        return;
-      }
-      toast.success(`Role updated to ${role}`);
-      await reload();
-    } finally {
-      setMutatingUserId(null);
-    }
-  }
-
-  async function remove(userId: string) {
-    if (mutatingUserId === userId) return;
-    if (!confirm("Remove this member from the organization?")) return;
-    setMutatingUserId(userId);
-    try {
-      const res = await apiFetch(
-        `/api/organizations/${orgId}/members/${userId}`,
-        { method: "DELETE" },
-      );
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          detail?: string;
-        };
-        toast.error(data.detail || "Remove failed");
-        return;
-      }
-      toast.success("Member removed");
-      await reload();
-    } finally {
-      setMutatingUserId(null);
-    }
-  }
-
-  return (
-    <SectionCard
-      icon={<Users className="h-5 w-5 text-fg-secondary" />}
-      title="Team & members"
-      description="Invite collaborators, manage their role, and remove access when they leave."
-    >
-      {isOrgAdmin && (
-        <form
-          onSubmit={invite}
-          aria-label="Invite a new member"
-          className="mb-5 flex flex-wrap items-end gap-2 rounded-md border border-zinc-200 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50"
-        >
-          <div className="flex-1 min-w-[200px]">
-            <Label
-              htmlFor="invite-email"
-              className="text-xs text-zinc-700 dark:text-zinc-300"
-            >
-              Invite by email
-            </Label>
-            <input
-              id="invite-email"
-              type="email"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="colleague@university.edu"
-              disabled={inviting}
-              className="mt-1 block h-9 w-full rounded-md border border-zinc-300 bg-white px-2.5 text-sm text-zinc-900 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
-            />
-          </div>
-          <div>
-            <Label
-              htmlFor="invite-role"
-              className="text-xs text-zinc-700 dark:text-zinc-300"
-            >
-              Role
-            </Label>
-            <select
-              id="invite-role"
-              value={inviteRole}
-              onChange={(e) =>
-                setInviteRole(e.target.value as "admin" | "member")
-              }
-              disabled={inviting}
-              className="mt-1 block h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-900 outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={inviting || !inviteEmail.trim()}
-            className="inline-flex h-9 items-center rounded-md bg-brand px-3 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {inviting ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            Invite
-          </button>
-        </form>
-      )}
-
-      {loading ? (
-        <SkeletonField />
-      ) : members.length === 0 ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          You&apos;re the only one here.
-        </p>
-      ) : (
-        <ul role="list" className="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {members.map((m) => (
-            <li
-              key={m.user_id}
-              className="flex flex-wrap items-center justify-between gap-3 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-zinc-900 dark:text-white">
-                    {m.full_name}
-                  </span>
-                  {m.user_id === currentUserId && (
-                    <span className="text-xs text-zinc-500">(you)</span>
-                  )}
-                </div>
-                <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                  {m.email}
-                </p>
-                <p className="text-xs text-zinc-500">
-                  MTD: {m.source_checks_mtd} checks ·{" "}
-                  {m.researcher_analyses_mtd} researchers · {m.reports_mtd}{" "}
-                  reports
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {isOrgAdmin && m.user_id !== currentUserId ? (
-                  <select
-                    value={m.role}
-                    disabled={mutatingUserId === m.user_id}
-                    onChange={(e) =>
-                      changeRole(m.user_id, e.target.value as "admin" | "member")
-                    }
-                    aria-label={`Role for ${m.full_name}`}
-                    className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-900 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
-                  >
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                ) : (
-                  <span
-                    className={`rounded px-2 py-0.5 text-xs ring-1 ${
-                      m.role === "admin"
-                        ? "bg-emerald-500/15 text-emerald-700 ring-emerald-500/30 dark:text-emerald-300"
-                        : "bg-zinc-500/15 text-zinc-700 ring-zinc-500/30 dark:text-zinc-300"
-                    }`}
-                  >
-                    {m.role}
-                  </span>
-                )}
-                {isOrgAdmin && m.user_id !== currentUserId && (
-                  <button
-                    type="button"
-                    onClick={() => remove(m.user_id)}
-                    disabled={mutatingUserId === m.user_id}
-                    aria-label={`Remove ${m.full_name}`}
-                    className="rounded p-1 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </SectionCard>
-  );
-}
-
 // ─── Billing (Phase D scaffolding) ─────────────────────────────────────────
 
 const SUBSCRIPTION_STATE_LABEL: Record<ProfileResponse["subscription_state"], string> = {
@@ -3243,6 +3085,8 @@ function BillingSection({ profile }: { profile: ProfileResponse }) {
     </SectionCard>
   );
 }
+
+
 
 // ─── Branding (white-label, team tier) ─────────────────────────────────────
 

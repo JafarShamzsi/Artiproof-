@@ -13,6 +13,8 @@ interface BackendTokenResponse {
     full_name: string;
     institution: string | null;
     role: string;
+    tier: string;
+    organization_id: string | null;
     created_at: string;
   };
 }
@@ -72,6 +74,8 @@ export const authOptions: NextAuthOptions = {
             name: data.user.full_name,
             role: data.user.role,
             institution: data.user.institution,
+            tier: data.user.tier,
+            organizationId: data.user.organization_id,
             accessToken: data.access_token,
           };
         }
@@ -110,6 +114,8 @@ export const authOptions: NextAuthOptions = {
           name: tokenData.user.full_name,
           role: tokenData.user.role,
           institution: tokenData.user.institution,
+          tier: tokenData.user.tier,
+          organizationId: tokenData.user.organization_id,
           accessToken: tokenData.access_token,
         };
       },
@@ -124,11 +130,24 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
   callbacks: {
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, trigger, session }) {
+      // Client-initiated update — e.g. after a self-serve trial starts
+      // the team-create endpoint returns a new tier + org id and the
+      // page calls `useSession().update({tier, organizationId})`. We
+      // merge those into the token so the session reflects the new
+      // state without forcing a re-login.
+      if (trigger === "update" && session) {
+        const patch = session as { tier?: string; organizationId?: string | null };
+        if (patch.tier !== undefined) token.tier = patch.tier;
+        if (patch.organizationId !== undefined) token.organizationId = patch.organizationId;
+      }
       if (user) {
         token.id = user.id as string;
         token.role = (user as { role?: string }).role || "researcher";
         token.institution = (user as { institution?: string | null }).institution ?? null;
+        token.tier = (user as { tier?: string }).tier ?? "free";
+        token.organizationId =
+          (user as { organizationId?: string | null }).organizationId ?? null;
         token.accessToken = (user as { accessToken?: string }).accessToken;
       }
 
@@ -147,6 +166,8 @@ export const authOptions: NextAuthOptions = {
         token.id = data.user.id;
         token.role = data.user.role || "researcher";
         token.institution = data.user.institution ?? null;
+        token.tier = data.user.tier ?? "free";
+        token.organizationId = data.user.organization_id ?? null;
         token.accessToken = data.access_token;
       }
       return token;
@@ -156,6 +177,9 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string;
         session.user.role = (token.role as string) || "researcher";
         session.user.institution = (token.institution as string | null) ?? null;
+        session.user.tier = (token.tier as string) ?? "free";
+        session.user.organizationId =
+          (token.organizationId as string | null) ?? null;
       }
       session.accessToken = token.accessToken as string | undefined;
       return session;

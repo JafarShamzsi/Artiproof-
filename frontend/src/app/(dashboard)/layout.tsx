@@ -26,6 +26,7 @@ import {
   LayoutDashboard,
   Search,
   Users,
+  UsersRound,
   FileText,
   Settings,
   Menu,
@@ -49,18 +50,35 @@ const baseSidebarLinks = [
 // `require_admin`, so a curious user typing the URL still hits 403.
 const adminLink = { href: "/admin", label: "Admin", icon: Shield, tour: "nav-admin" } as const;
 
+// /team is appended for users on the Team tier who belong to an org.
+// Backend `require_org_member` re-validates on every /api/organizations
+// call, so this is purely UX.
+const teamLink = { href: "/team", label: "Team", icon: UsersRound, tour: "nav-team" } as const;
+
 function SidebarContent({
   collapsed,
   pathname,
   showAdmin,
+  showTeam,
 }: {
   collapsed: boolean;
   pathname: string;
   showAdmin: boolean;
+  showTeam: boolean;
 }) {
+  // /team renders right after /reports so admin-y nav (Settings, Admin)
+  // stays grouped at the bottom of the sidebar.
+  const reportsIdx = baseSidebarLinks.findIndex((l) => l.href === "/reports");
+  const linksWithTeam = showTeam
+    ? [
+        ...baseSidebarLinks.slice(0, reportsIdx + 1),
+        teamLink,
+        ...baseSidebarLinks.slice(reportsIdx + 1),
+      ]
+    : [...baseSidebarLinks];
   const sidebarLinks = showAdmin
-    ? [...baseSidebarLinks, adminLink]
-    : baseSidebarLinks;
+    ? [...linksWithTeam, adminLink]
+    : linksWithTeam;
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center gap-2 border-b border-border-default px-4">
@@ -126,8 +144,21 @@ export default function DashboardLayout({
   // The backend re-validates role on every /api/admin/* call, so this is
   // purely UX (hides the link from non-admins; admin route remains
   // typeable, and the page itself short-circuits if 403'd).
-  const sessionRole = (session as { user?: { role?: string } } | null)?.user?.role;
-  const isAdmin = sessionRole === "admin";
+  const sessionUser = (
+    session as {
+      user?: {
+        role?: string;
+        tier?: string;
+        organizationId?: string | null;
+      };
+    } | null
+  )?.user;
+  const isAdmin = sessionUser?.role === "admin";
+  // /team is visible only to Team-tier users who belong to an org. Both
+  // conditions matter: a free user shouldn't see it even if they
+  // somehow have an org id, and a Team-tier user without an org id (e.g.
+  // mid-trial-creation race) shouldn't see a link to a 404.
+  const showTeam = sessionUser?.tier === "team" && !!sessionUser?.organizationId;
 
   return (
     <TourProvider>
@@ -140,7 +171,7 @@ export default function DashboardLayout({
           collapsed ? "w-16" : "w-64"
         )}
       >
-        <SidebarContent collapsed={collapsed} pathname={pathname} showAdmin={isAdmin} />
+        <SidebarContent collapsed={collapsed} pathname={pathname} showAdmin={isAdmin} showTeam={showTeam} />
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
@@ -175,7 +206,7 @@ export default function DashboardLayout({
                 side="left"
                 className="w-64 border-border-default bg-surface-card p-0"
               >
-                <SidebarContent collapsed={false} pathname={pathname} showAdmin={isAdmin} />
+                <SidebarContent collapsed={false} pathname={pathname} showAdmin={isAdmin} showTeam={showTeam} />
               </SheetContent>
             </Sheet>
           </div>
