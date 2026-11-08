@@ -10,4 +10,4 @@ respx>=0.21.1,<1.0          # Mocks httpx requests
 asgi-lifespan>=2.1.0,<3.0   # Spin up lifespan for ASGI tests
 
 # Coverage (optional — enable with `pytest --cov`)
-pytest-cov>=5.0.0,<7.0
+pytest-cov>=7.1.0,<8.0
