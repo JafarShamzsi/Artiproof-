@@ -9,6 +9,7 @@ from app.models.researcher import (
     ResearcherProfile,
     ScrapedPublication,
 )
+from app.models.researcher_snapshot import ResearcherSnapshot
 from app.models.session import Session
 from app.models.source_check import (
     AIDetectionResult,
@@ -33,5 +34,6 @@ __all__ = [
     "ScrapedPublication",
     "CitationEdge",
     "CoAuthorRelation",
+    "ResearcherSnapshot",
     "Report",
 ]

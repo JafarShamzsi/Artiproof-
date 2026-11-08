@@ -66,3 +66,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     share_activity_with_team = sa.Column(
         sa.Boolean, nullable=False, server_default="true"
     )
+    # Researcher watchlist — list of {researcher_id, added_at}. Capped at
+    # constants.MAX_WATCHLIST at the route layer.
+    watchlist = sa.Column(sa.JSON, nullable=True)

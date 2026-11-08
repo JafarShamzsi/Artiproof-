@@ -20,6 +20,7 @@ from app.routers import (
     researcher_router,
     security_router,
     source_check_router,
+    watchlist_router,
 )
 from app.routers.seed import router as seed_router
 from app.utils.rate_limit import limiter
@@ -196,6 +197,7 @@ app.include_router(researcher_router)
 app.include_router(reports_router)
 app.include_router(dashboard_router)
 app.include_router(analytics_router)
+app.include_router(watchlist_router)
 app.include_router(seed_router)
 
 

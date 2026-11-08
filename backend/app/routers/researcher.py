@@ -1,28 +1,40 @@
 import json
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import delete as sa_delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sqlalchemy import select, func
 from sse_starlette.sse import EventSourceResponse
 
 
 # ORCID format: 16 digits in 4 hyphenated groups, last digit may be X (mod-11 checksum)
 ORCID_PATTERN = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
 
+from app.constants import MAX_BULK_RESEARCHERS, MAX_WATCHLIST
 from app.database import get_db
-from app.models.researcher import ResearcherProfile, PublicationAnalysis
+from app.models.researcher import (
+    CitationEdge,
+    CoAuthorRelation,
+    PublicationAnalysis,
+    ResearcherProfile,
+    ScrapedPublication,
+)
+from app.models.researcher_snapshot import ResearcherSnapshot
 from app.models.user import User
 from app.schemas.researcher import (
+    BulkResearcherCreate,
+    BulkResearcherResponse,
+    CitationGraphResponse,
+    PublicationAnalysisResponse,
     ResearcherAnalyzeRequest,
-    ResearcherProfileResponse,
     ResearcherListItem,
     ResearcherListResponse,
-    PublicationAnalysisResponse,
-    CitationGraphResponse,
+    ResearcherProfileResponse,
+    ResearcherSnapshotItem,
+    WatchlistEntry,
 )
 from app.services.academic_integrity.orchestrator import AcademicIntegrityOrchestrator
 from app.utils.auth import get_current_user
@@ -154,6 +166,39 @@ async def list_researcher_analyses(
         page=page,
         page_size=page_size,
     )
+
+
+# Batch poll for the bulk-mode UI. Declared BEFORE /{profile_id} so FastAPI
+# matches the literal path first; otherwise GET /api/researcher/batch hits
+# the catch-all and 404s with profile_id="batch".
+@router.get("/batch", response_model=list[ResearcherListItem])
+async def get_researcher_batch(
+    ids: str = Query(..., description="Comma-separated profile ids"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Poll a researcher batch's status. Owned-only; missing ids omitted."""
+    id_list = [s.strip() for s in ids.split(",") if s.strip()][:100]
+    if not id_list:
+        return []
+    result = await db.execute(
+        select(ResearcherProfile).where(
+            ResearcherProfile.id.in_(id_list),
+            ResearcherProfile.user_id == current_user.id,
+            ResearcherProfile.deleted_at.is_(None),
+        )
+    )
+    return [
+        ResearcherListItem(
+            id=p.id,
+            researcher_name=p.researcher_name,
+            institution=p.institution,
+            integrity_score=p.integrity_score,
+            analysis_status=p.analysis_status,
+            created_at=p.created_at,
+        )
+        for p in result.scalars().all()
+    ]
 
 
 @router.get("/{profile_id}", response_model=ResearcherProfileResponse)
@@ -340,4 +385,344 @@ async def delete_researcher_profile(
     if profile.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this profile")
     profile.deleted_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+# ─── Bulk submission ──────────────────────────────────────────────────────
+
+
+@router.post("/bulk", response_model=BulkResearcherResponse, status_code=201)
+async def create_bulk_researcher_analyses(
+    data: BulkResearcherCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Submit many researcher identifiers in one call.
+
+    Each entry creates its own ResearcherProfile + Celery task. Frontend
+    polls /batch?ids=… for progress. Same shape constraints as source-check
+    bulk: max 50 entries, each must carry at least one identifier.
+    """
+    if not data.items:
+        raise HTTPException(status_code=400, detail="items must be non-empty")
+    if len(data.items) > MAX_BULK_RESEARCHERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"At most {MAX_BULK_RESEARCHERS} researchers per batch",
+        )
+
+    batch_id = str(uuid.uuid4())[:8]
+    created: list[ResearcherProfile] = []
+
+    for item in data.items:
+        if not any([item.researcher_name, item.scopus_id, item.google_scholar_id, item.orcid]):
+            raise HTTPException(
+                status_code=400,
+                detail="Every batch item needs at least one identifier",
+            )
+        if item.orcid and not ORCID_PATTERN.match(item.orcid.strip()):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid ORCID format: {item.orcid}",
+            )
+
+        profile = ResearcherProfile(
+            id=str(uuid.uuid4()),
+            user_id=current_user.id,
+            researcher_name=item.researcher_name or "Unknown",
+            scopus_id=item.scopus_id,
+            google_scholar_id=item.google_scholar_id,
+            orcid=item.orcid,
+            analysis_status="pending",
+        )
+        db.add(profile)
+        await db.flush()  # need profile.id for the enqueue
+
+        try:
+            from app.tasks import celery_app
+
+            if celery_app is not None:
+                celery_app.send_task("researcher.run_pipeline", args=[profile.id])
+        except Exception:
+            logger.exception("Failed to enqueue bulk researcher pipeline")
+
+        created.append(profile)
+
+    await db.commit()
+    for p in created:
+        await db.refresh(p)
+
+    return BulkResearcherResponse(
+        batch_id=batch_id,
+        items=[
+            ResearcherListItem(
+                id=p.id,
+                researcher_name=p.researcher_name,
+                institution=p.institution,
+                integrity_score=p.integrity_score,
+                analysis_status=p.analysis_status,
+                created_at=p.created_at,
+            )
+            for p in created
+        ],
+    )
+
+
+# ─── Re-run (in-place; snapshots prior values) ────────────────────────────
+
+
+@router.post("/{profile_id}/rerun", response_model=ResearcherProfileResponse, status_code=200)
+async def rerun_researcher_analysis(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Re-run the analysis on this researcher in place.
+
+    The orchestrator's _save_results captures a ResearcherSnapshot of the
+    current values before overwriting, so re-running preserves history.
+    Profile id stays stable so any URLs / pins / watchlist entries pointing
+    at it remain valid.
+
+    This route resets analysis_status + scrape_status to 'pending' and
+    enqueues; the SSE endpoint will run the pipeline as usual. Frontend
+    can either open the SSE stream to watch progress or poll the profile
+    GET endpoint.
+    """
+    result = await db.execute(
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id,
+            ResearcherProfile.deleted_at.is_(None),
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Researcher profile not found")
+    if profile.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to re-analyze this")
+
+    # Reset for the next pipeline run. Don't clear the live metric columns
+    # yet — _save_results needs them for the snapshot capture before it
+    # overwrites them.
+    profile.analysis_status = "pending"
+    profile.scrape_status = "pending"
+
+    # Drop scraped artifacts so the scraper rebuilds cleanly. The
+    # PublicationAnalysis rows are dropped inside _save_results once the
+    # snapshot is captured — leaving them in place here so the user can
+    # still see the prior results while the rerun is in flight.
+    await db.execute(
+        sa_delete(ScrapedPublication).where(
+            ScrapedPublication.researcher_profile_id == profile.id
+        )
+    )
+    await db.execute(
+        sa_delete(CitationEdge).where(CitationEdge.researcher_profile_id == profile.id)
+    )
+    await db.execute(
+        sa_delete(CoAuthorRelation).where(CoAuthorRelation.researcher_profile_id == profile.id)
+    )
+    await db.commit()
+
+    try:
+        from app.tasks import celery_app
+
+        if celery_app is not None:
+            celery_app.send_task("researcher.run_pipeline", args=[profile.id])
+    except Exception:
+        logger.exception("Failed to enqueue researcher rerun pipeline")
+
+    pubs_q = await db.execute(
+        select(PublicationAnalysis)
+        .where(PublicationAnalysis.researcher_profile_id == profile.id)
+        .order_by(PublicationAnalysis.citation_count.desc())
+    )
+    return _profile_to_response(profile, pubs_q.scalars().all())
+
+
+# ─── History snapshots ────────────────────────────────────────────────────
+
+
+@router.get("/{profile_id}/snapshots", response_model=list[ResearcherSnapshotItem])
+async def list_snapshots(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Historical snapshots for a researcher, newest first.
+
+    Each row is a frozen capture of the prior analysis taken just before
+    a re-run overwrote it. Use to plot integrity-score over time.
+    """
+    profile_q = await db.execute(
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id,
+            ResearcherProfile.deleted_at.is_(None),
+        )
+    )
+    profile = profile_q.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Researcher profile not found")
+    if profile.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    snap_q = await db.execute(
+        select(ResearcherSnapshot)
+        .where(ResearcherSnapshot.researcher_profile_id == profile_id)
+        .order_by(ResearcherSnapshot.created_at.desc())
+    )
+    return [
+        ResearcherSnapshotItem(
+            id=s.id,
+            captured_at=s.captured_at,
+            created_at=s.created_at,
+            official_h_index=s.official_h_index,
+            official_citation_count=s.official_citation_count,
+            adjusted_h_index=s.adjusted_h_index,
+            adjusted_citation_count=s.adjusted_citation_count,
+            integrity_score=s.integrity_score,
+            self_citation_rate=s.self_citation_rate,
+            topic_relevance_score=s.topic_relevance_score,
+            total_publications=s.total_publications,
+        )
+        for s in snap_q.scalars().all()
+    ]
+
+
+# ─── Watchlist ────────────────────────────────────────────────────────────
+
+
+watchlist_router = APIRouter(prefix="/api/me/watchlist", tags=["Watchlist"])
+
+
+@watchlist_router.get("", response_model=list[WatchlistEntry])
+async def list_watchlist(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Hydrated watchlist — current metrics + delta vs the latest snapshot.
+
+    `integrity_score_delta` is None when there's no prior snapshot (the
+    profile has only been analyzed once); otherwise it's `current - previous`,
+    rounded to 1 decimal.
+    """
+    raw = current_user.watchlist or []
+    if not isinstance(raw, list):
+        return []
+
+    by_id: dict[str, str | None] = {}  # researcher_id -> added_at iso
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        rid = entry.get("researcher_id")
+        if isinstance(rid, str):
+            by_id[rid] = entry.get("added_at")
+
+    if not by_id:
+        return []
+
+    profiles_q = await db.execute(
+        select(ResearcherProfile).where(
+            ResearcherProfile.id.in_(list(by_id.keys())),
+            ResearcherProfile.user_id == current_user.id,
+            ResearcherProfile.deleted_at.is_(None),
+        )
+    )
+    profiles = {p.id: p for p in profiles_q.scalars().all()}
+
+    # Latest snapshot per profile — bulk fetch + group by researcher_profile_id.
+    snaps_q = await db.execute(
+        select(ResearcherSnapshot).where(
+            ResearcherSnapshot.researcher_profile_id.in_(list(profiles.keys())),
+        ).order_by(ResearcherSnapshot.created_at.desc())
+    )
+    latest_snap: dict[str, ResearcherSnapshot] = {}
+    for s in snaps_q.scalars().all():
+        # First (newest) wins because we ordered desc.
+        latest_snap.setdefault(s.researcher_profile_id, s)
+
+    out: list[WatchlistEntry] = []
+    for rid, added_at_iso in by_id.items():
+        p = profiles.get(rid)
+        if p is None:
+            continue
+        snap = latest_snap.get(rid)
+        delta = None
+        if snap is not None and p.integrity_score is not None and snap.integrity_score is not None:
+            delta = round(p.integrity_score - snap.integrity_score, 1)
+
+        try:
+            added_at = datetime.fromisoformat(added_at_iso) if added_at_iso else p.created_at
+        except (TypeError, ValueError):
+            added_at = p.created_at
+
+        out.append(
+            WatchlistEntry(
+                researcher_id=p.id,
+                researcher_name=p.researcher_name,
+                institution=p.institution,
+                integrity_score=p.integrity_score,
+                self_citation_rate=p.self_citation_rate,
+                integrity_score_delta=delta,
+                last_analyzed_at=p.last_analyzed_at,
+                last_snapshot_at=snap.created_at if snap else None,
+                added_at=added_at,
+            )
+        )
+
+    out.sort(key=lambda e: e.added_at, reverse=True)
+    return out
+
+
+@watchlist_router.post("/{researcher_id}", response_model=list[WatchlistEntry], status_code=201)
+async def add_to_watchlist(
+    researcher_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add a researcher to the watchlist. Verifies ownership; idempotent
+    (re-adding returns the current list); enforces MAX_WATCHLIST cap."""
+    profile = await db.get(ResearcherProfile, researcher_id)
+    if profile is None or profile.deleted_at is not None or profile.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Researcher profile not found")
+
+    raw = list(current_user.watchlist or [])
+    if any(
+        isinstance(e, dict) and e.get("researcher_id") == researcher_id for e in raw
+    ):
+        return await list_watchlist(db=db, current_user=current_user)
+    if len(raw) >= MAX_WATCHLIST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Watchlist is full (max {MAX_WATCHLIST}). Remove someone first.",
+        )
+
+    raw.append({
+        "researcher_id": researcher_id,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+    })
+    current_user.watchlist = raw
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return await list_watchlist(db=db, current_user=current_user)
+
+
+@watchlist_router.delete("/{researcher_id}", status_code=204)
+async def remove_from_watchlist(
+    researcher_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    raw = list(current_user.watchlist or [])
+    new_raw = [
+        e
+        for e in raw
+        if not (isinstance(e, dict) and e.get("researcher_id") == researcher_id)
+    ]
+    if len(new_raw) == len(raw):
+        raise HTTPException(status_code=404, detail="Not on watchlist")
+    current_user.watchlist = new_raw or None
+    current_user.updated_at = datetime.now(timezone.utc)
     await db.commit()

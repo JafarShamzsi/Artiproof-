@@ -73,3 +73,54 @@ class ResearcherListResponse(BaseModel):
 class CitationGraphResponse(BaseModel):
     nodes: List[Any]
     edges: List[Any]
+
+
+# ─── Bulk submission ──────────────────────────────────────────────────────
+
+
+class BulkResearcherCreate(BaseModel):
+    items: List[ResearcherAnalyzeRequest]
+
+
+class BulkResearcherResponse(BaseModel):
+    """Returned from POST /bulk — frontend uses these ids to poll
+    /batch?ids=… for progress."""
+
+    batch_id: str
+    items: List[ResearcherListItem]
+
+
+# ─── Snapshots / history ──────────────────────────────────────────────────
+
+
+class ResearcherSnapshotItem(BaseModel):
+    id: str
+    captured_at: Optional[datetime]
+    created_at: datetime
+    official_h_index: Optional[int] = None
+    official_citation_count: Optional[int] = None
+    adjusted_h_index: Optional[int] = None
+    adjusted_citation_count: Optional[int] = None
+    integrity_score: Optional[float] = None
+    self_citation_rate: Optional[float] = None
+    topic_relevance_score: Optional[float] = None
+    total_publications: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ─── Watchlist ────────────────────────────────────────────────────────────
+
+
+class WatchlistEntry(BaseModel):
+    """A hydrated watchlist row — current metrics + delta vs last snapshot."""
+
+    researcher_id: str
+    researcher_name: str
+    institution: Optional[str] = None
+    integrity_score: Optional[float] = None
+    self_citation_rate: Optional[float] = None
+    integrity_score_delta: Optional[float] = None  # current - previous; None if no prior snapshot
+    last_analyzed_at: Optional[datetime] = None
+    last_snapshot_at: Optional[datetime] = None
+    added_at: datetime

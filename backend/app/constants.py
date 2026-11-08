@@ -81,6 +81,13 @@ TOTP_BACKUP_CODE_COUNT = 10
 # use but small enough that the dashboard widget never balloons.
 MAX_PINNED_ITEMS = 12
 
+# Researcher watchlist per user. Caps the JSON column's size.
+MAX_WATCHLIST = 50
+
+# Max researchers in a single bulk-analysis request — same shape
+# constraint as source-check bulk to keep the worker pool predictable.
+MAX_BULK_RESEARCHERS = 50
+
 # Score buckets for the integrity-distribution chart and the top-issues card.
 # Match the threshold convention used by lib/colors.ts on the frontend.
 SCORE_HIGH_MIN = 70

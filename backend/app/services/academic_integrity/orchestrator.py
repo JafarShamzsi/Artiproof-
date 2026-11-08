@@ -246,7 +246,53 @@ class AcademicIntegrityOrchestrator:
         graph_data: dict,
         adjusted: dict,
     ) -> None:
-        """Persist all analysis results to the database."""
+        """Persist all analysis results to the database.
+
+        Re-analysis behavior: if the profile already has an integrity_score
+        (i.e. this is a re-run, not a first analysis), capture a frozen
+        snapshot of the previous values into ResearcherSnapshot before
+        overwriting. First-run analyses skip this — there's nothing yet
+        to preserve.
+
+        Also clears prior PublicationAnalysis rows on re-run to avoid
+        duplicate-row pile-up; the snapshot preserves the historical
+        scalar metrics, which is what users actually compare over time.
+        """
+        # ── Snapshot the prior state, if any ───────────────────────────────
+        is_rerun = profile.integrity_score is not None
+        if is_rerun:
+            from app.models.researcher_snapshot import ResearcherSnapshot
+
+            self.db.add(
+                ResearcherSnapshot(
+                    id=str(uuid.uuid4()),
+                    researcher_profile_id=profile.id,
+                    official_h_index=profile.official_h_index,
+                    official_citation_count=profile.official_citation_count,
+                    adjusted_h_index=profile.adjusted_h_index,
+                    adjusted_citation_count=profile.adjusted_citation_count,
+                    integrity_score=profile.integrity_score,
+                    self_citation_rate=profile.self_citation_rate,
+                    topic_relevance_score=profile.topic_relevance_score,
+                    total_publications=profile.total_publications,
+                    citation_ring_flags=profile.citation_ring_flags,
+                    integrity_breakdown=profile.integrity_breakdown,
+                    model_metadata=profile.model_metadata,
+                    captured_at=profile.last_analyzed_at,
+                )
+            )
+
+            # Drop the previous PublicationAnalysis rows — the snapshot
+            # preserves what users care about (scalar metrics + breakdown);
+            # re-running otherwise produces duplicate per-publication rows
+            # that would distort the detail view.
+            from sqlalchemy import delete as sa_delete
+
+            await self.db.execute(
+                sa_delete(PublicationAnalysis).where(
+                    PublicationAnalysis.researcher_profile_id == profile.id
+                )
+            )
 
         per_paper = graph_data.get("per_paper_citations", {})
         suspicious_author_ids = {p["author_id"] for p in ring_data.get("suspicious_pairs", [])}
