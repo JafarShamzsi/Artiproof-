@@ -279,7 +279,7 @@ class _TeamDb:
                 return _rows_result(
                     [m for m in self.memberships if m.user_id == target_user_id]
                 )
-            if "users" in compiled and "join" in compiled:
+            if len(q.column_descriptions) > 1:
                 return _tuples_result(
                     [
                         (m, self.users.get(m.user_id))

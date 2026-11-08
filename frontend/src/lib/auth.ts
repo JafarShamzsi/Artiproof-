@@ -1,6 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+import type { JWT } from "next-auth/jwt";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -22,6 +23,42 @@ interface BackendTokenResponse {
 interface BackendChallengeResponse {
   challenge: "totp";
   challenge_token: string;
+}
+
+export class AccountRefreshError extends Error {
+  readonly code = "ACCOUNT_REFRESH_FAILED";
+  constructor() {
+    super("Session refresh failed. Reopen the invitation or sign in again before continuing.");
+    this.name = "AccountRefreshError";
+  }
+}
+
+async function refreshAccount(token: JWT): Promise<JWT> {
+  // Never consume account/tier/role/token values supplied to update() by a
+  // browser. The current server-held bearer identifies the authoritative user.
+  if (!token.accessToken || !token.id) throw new AccountRefreshError();
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token.accessToken}` }, cache: "no-store",
+    });
+    if (!response.ok) throw new AccountRefreshError();
+    const data = await response.json();
+    if (!data || data.id !== token.id || typeof data.email !== "string"
+        || typeof data.full_name !== "string"
+        || !["researcher", "faculty", "admin"].includes(data.role)
+        || !["free", "pro", "team"].includes(data.tier)
+        || !(data.institution === null || typeof data.institution === "string")
+        || !(data.organization_id === null || (typeof data.organization_id === "string" && data.organization_id.length > 0))
+        || (data.organization_id !== null && !["admin", "member"].includes(data.org_role))) {
+      throw new AccountRefreshError();
+    }
+    // Copy only after full validation. Failure must not partially mutate the
+    // prior session, or persist client-provided authorization fields.
+    return { ...token, accountRefreshError: undefined, name: data.full_name, email: data.email, role: data.role,
+      institution: data.institution, tier: data.tier, organizationId: data.organization_id };
+  } catch {
+    throw new AccountRefreshError();
+  }
 }
 
 /**
@@ -130,16 +167,15 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
   callbacks: {
-    async jwt({ token, user, account, trigger, session }) {
-      // Client-initiated update — e.g. after a self-serve trial starts
-      // the team-create endpoint returns a new tier + org id and the
-      // page calls `useSession().update({tier, organizationId})`. We
-      // merge those into the token so the session reflects the new
-      // state without forcing a re-login.
-      if (trigger === "update" && session) {
-        const patch = session as { tier?: string; organizationId?: string | null };
-        if (patch.tier !== undefined) token.tier = patch.tier;
-        if (patch.organizationId !== undefined) token.organizationId = patch.organizationId;
+    async jwt({ token, user, account, trigger }) {
+      if (trigger === "update") {
+        try {
+          return await refreshAccount(token);
+        } catch {
+          // Throwing here makes NextAuth v4 delete the session cookie. Keep
+          // all prior authorization fields and expose a typed failure marker.
+          return { ...token, accountRefreshError: "ACCOUNT_REFRESH_FAILED" };
+        }
       }
       if (user) {
         token.id = user.id as string;
@@ -182,6 +218,7 @@ export const authOptions: NextAuthOptions = {
           (token.organizationId as string | null) ?? null;
       }
       session.accessToken = token.accessToken as string | undefined;
+      session.accountRefreshError = token.accountRefreshError;
       return session;
     },
   },

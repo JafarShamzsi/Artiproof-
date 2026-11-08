@@ -99,6 +99,9 @@ def env(monkeypatch):
 
     if celery_app is not None:
         monkeypatch.setattr(celery_app, "send_task", Mock())
+    # These fixtures model resource queries, not enrollment state. Actual
+    # guard decisions and PostgreSQL HTTP dependencies have dedicated suites.
+    monkeypatch.setattr("app.routers.source_check.require_creation_membership", AsyncMock(side_effect=lambda db, user: user))
     user = _user()
     db = AsyncMock()
 

@@ -366,6 +366,13 @@ async def update_user(
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Check before billing/role mutations: reject the entire patch, not just
+    # the pointer field. Enrollment requires verified recipient acceptance;
+    # removal goes through the organization membership endpoint.
+    if (data.organization_id is not None
+            and (data.organization_id or None) != target.organization_id):
+        raise HTTPException(status_code=400, detail="Use organization invitations and membership endpoints to change enrollment")
+
     actions: list[str] = []
 
     if data.tier is not None and data.tier != target.tier:
@@ -405,11 +412,6 @@ async def update_user(
                 )
         actions.append(f"role={target.role}→{data.role}")
         target.role = data.role
-    if data.organization_id is not None:
-        new_org = data.organization_id or None  # empty string → null
-        if new_org != target.organization_id:
-            actions.append(f"org_id={target.organization_id}→{new_org}")
-            target.organization_id = new_org
     if data.restore and target.deleted_at is not None:
         actions.append("restore")
         target.deleted_at = None

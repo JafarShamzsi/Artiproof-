@@ -34,7 +34,7 @@ from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.database import get_db
-from app.deps.org import require_org_admin, require_org_member
+from app.deps.org import lock_and_require_org_admin, require_org_admin, require_org_member
 from app.models.organization import Organization
 from app.models.organization_audit_log import OrganizationAuditLog
 from app.models.organization_invite import OrganizationInvite
@@ -512,7 +512,8 @@ async def invite_org_member(
     Only an authenticated, verified recipient's explicit POST can join.
     """
     email_lower = data.email.lower()
-    org = await lock_org(db, org_id)
+    org, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     # require_org_admin already 404'd if the org didn't exist, but the
     # name is needed for the email and we still need a defensive guard
     # against a TOCTOU between the dep and this query.
@@ -658,7 +659,8 @@ async def resend_org_invite(
     """Re-mail an existing pending invite. The token is NOT re-issued —
     the URL in the original email keeps working — so the user doesn't
     end up with two competing links."""
-    await lock_org(db, org_id)
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     invite = await db.get(OrganizationInvite, invite_id, populate_existing=True, with_for_update=True)
     if invite is None or invite.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Invite not found")
@@ -710,7 +712,8 @@ async def revoke_org_invite(
     """Revoke a pending invite. Flips status to ``revoked`` and stamps
     ``revoked_at``. The signup flow refuses any token whose backing row
     is not ``pending``, so a stolen link goes dead immediately."""
-    await lock_org(db, org_id)
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     invite = await db.get(OrganizationInvite, invite_id, populate_existing=True, with_for_update=True)
     if invite is None or invite.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Invite not found")
@@ -806,12 +809,13 @@ async def update_org_member_role(
     Refuses to demote the **last** admin so the org never ends up with
     no admins (mirror of the admin router's last-admin guard).
     """
-    await lock_org(db, org_id)
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     mem_q = await db.execute(
         select(OrganizationMember).where(
             OrganizationMember.organization_id == org_id,
             OrganizationMember.user_id == user_id,
-        )
+        ).execution_options(populate_existing=True)
     )
     member = mem_q.scalar_one_or_none()
     if member is None:
@@ -877,12 +881,13 @@ async def remove_org_member(
     first.
     """
     await lock_user(db, user_id)
-    await lock_org(db, org_id)
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     mem_q = await db.execute(
         select(OrganizationMember).where(
             OrganizationMember.organization_id == org_id,
             OrganizationMember.user_id == user_id,
-        )
+        ).execution_options(populate_existing=True)
     )
     member = mem_q.scalar_one_or_none()
     if member is None:

@@ -52,6 +52,10 @@ async def test_inviting_existing_account_never_attaches_or_discloses_existence(s
     # Existing-user query on the vulnerable path MUST return a real recipient.
     async def execute(q):
         sql = str(q)
+        if "count(" in sql:
+            return result(0)
+        if q.column_descriptions[0]["entity"] is OrganizationMember:
+            return result(SimpleNamespace(user_id="admin", organization_id="org", role="admin"))
         if "FROM users" in sql:
             return result(s.user)
         if "FROM organizations" in sql:

@@ -173,8 +173,7 @@ class _OrgMemoryDb:
         # same primary entity but a different shape requirement.
         if (
             primary is OrganizationMember
-            and "users" in compiled
-            and "join" in compiled
+            and len(q.column_descriptions) > 1
         ):
             joined = [
                 (m, self.users.get(m.user_id))

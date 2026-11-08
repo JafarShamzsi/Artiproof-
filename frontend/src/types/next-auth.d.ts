@@ -2,6 +2,7 @@ import "next-auth";
 
 declare module "next-auth" {
   interface Session {
+    accountRefreshError?: "ACCOUNT_REFRESH_FAILED";
     accessToken?: string;
     user: {
       id: string;
@@ -31,6 +32,7 @@ declare module "next-auth" {
 
 declare module "next-auth/jwt" {
   interface JWT {
+    accountRefreshError?: "ACCOUNT_REFRESH_FAILED";
     id: string;
     role: string;
     accessToken?: string;

@@ -9,16 +9,21 @@ import { Button } from "@/components/ui/button";
 type Invitation = { organization_id: string; name: string; role: string };
 
 export function InvitationConsent({ token }: { token: string }) {
-  const { status } = useSession();
+  const { status, update } = useSession();
   const [invitation, setInvitation] = useState<Invitation | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [accepted, setAccepted] = useState(false);
+  const [enrolled, setEnrolled] = useState(false);
 
   async function submit(accept: boolean) {
     setBusy(true);
     setMessage("");
     try {
+      if (accept && enrolled) {
+        await synchronizeSession();
+        return;
+      }
       const path = accept && invitation
         ? `/api/organizations/${encodeURIComponent(invitation.organization_id)}/invites/accept`
         : "/api/organizations/invites/preview";
@@ -27,14 +32,30 @@ export function InvitationConsent({ token }: { token: string }) {
       if (!response.ok) {
         setMessage(typeof data.detail === "string" ? data.detail : "Invitation unavailable");
       } else if (accept) {
-        setAccepted(true);
+        // Enrollment may already be committed even if the following refresh
+        // fails. Retry synchronization, not the mutation, in that case.
+        setEnrolled(true);
+        await synchronizeSession();
       } else {
         setInvitation(data);
       }
-    } catch {
-      setMessage("Could not reach the server. Please try again.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not reach the server. Please try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function synchronizeSession() {
+    try {
+      const refreshed = await update({ refreshAccount: true });
+      if (refreshed?.accountRefreshError || !refreshed?.user
+          || refreshed.user.organizationId !== invitation?.organization_id) {
+        throw new Error("Session refresh failed");
+      }
+      setAccepted(true);
+    } catch {
+      throw new Error("Team enrollment was recorded, but session refresh failed. Retry session refresh or sign in again before continuing.");
     }
   }
 
@@ -44,14 +65,14 @@ export function InvitationConsent({ token }: { token: string }) {
       <p>Opening this link does not join a team. Your personal and previous-team activity stays separate.</p>
       {status === "authenticated" ? (
         accepted ? (
-          <p role="status">Invitation accepted. <Link href="/dashboard">Continue to dashboard</Link></p>
+          <p role="status">Invitation accepted. <Link href="/team">Continue to team</Link></p>
         ) : (
           <>
             <p>Verify your account email before joining. If needed, request verification in <Link href="/settings">Settings</Link>, then reopen this invitation.</p>
             {invitation ? (
               <>
                 <p>Join <strong>{invitation.name}</strong> as {invitation.role}. New work created in this team is organization-owned and visible to its administrators; activity may appear in the team feed according to your sharing setting.</p>
-                <Button type="button" disabled={busy} onClick={() => void submit(true)}>Accept invitation and join team</Button>
+                <Button type="button" disabled={busy} onClick={() => void submit(true)}>{enrolled ? "Retry session refresh" : "Accept invitation and join team"}</Button>
               </>
             ) : (
               <Button type="button" disabled={busy} onClick={() => void submit(false)}>Review invitation</Button>
