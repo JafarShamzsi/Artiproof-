@@ -1,7 +1,13 @@
+import re
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.utils.urls import validate_safe_external_url
+
+
+_HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
 # Templates supported by the report renderer. The default `"full"` is the
@@ -56,6 +62,7 @@ class ReportResponse(BaseModel):
     summary: Optional[str]
     pdf_path: Optional[str]
     share_token: str
+    share_expires_at: Optional[datetime] = None
     annotations: Optional[List[Any]] = None
     source_check_ids: Optional[List[str]] = None
     researcher_profile_ids: Optional[List[str]] = None
@@ -109,14 +116,27 @@ class OrganizationBranding(BaseModel):
     primary_color: Optional[str] = Field(None, max_length=16)
     secondary_color: Optional[str] = Field(None, max_length=16)
 
+    @field_validator("logo_url")
+    @classmethod
+    def safe_logo_url(cls, v: Optional[str]) -> Optional[str]:
+        # WeasyPrint fetches this URL during PDF render. Reject schemes,
+        # private/loopback hosts, and the cloud metadata literal so an
+        # org admin can't trick the renderer into reading internal
+        # services or 169.254.169.254.
+        if v is None or v == "":
+            return None
+        return validate_safe_external_url(v)
+
     @field_validator("primary_color", "secondary_color")
     @classmethod
     def hex_color(cls, v: Optional[str]) -> Optional[str]:
+        # Strict #RGB or #RRGGBB — anything else is rejected. The renderer
+        # interpolates these straight into CSS, so a loose check here is a
+        # CSS-injection vector.
         if v is None or v == "":
             return None
-        # Loose validation — allow #RGB, #RRGGBB, or named colors.
-        if not v.startswith("#") and not v.replace("-", "").isalpha():
-            raise ValueError("Invalid color format")
+        if not _HEX_COLOR_RE.match(v):
+            raise ValueError("Invalid color format (expected #RGB or #RRGGBB)")
         return v
 
 

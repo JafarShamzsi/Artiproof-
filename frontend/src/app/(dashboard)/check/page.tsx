@@ -89,10 +89,31 @@ function CheckSourcePageInner() {
     };
   }, []);
 
-  const startSSE = useCallback((checkId: string) => {
+  const startSSE = useCallback(async (checkId: string) => {
     // If a previous run is still streaming, close it first
     eventSourceRef.current?.close();
-    const es = new EventSource(backendUrl(`/api/source-check/${checkId}/stream`));
+    // EventSource can't carry an Authorization header, so we trade the
+    // bearer JWT for a one-shot 60s ticket scoped to this check_id.
+    let ticket: string;
+    try {
+      const ticketRes = await apiFetch(
+        `/api/source-check/${checkId}/stream-ticket`,
+        { method: "POST" },
+      );
+      if (!ticketRes.ok) {
+        setError(`Stream auth failed (HTTP ${ticketRes.status})`);
+        setLoading(false);
+        return;
+      }
+      ticket = ((await ticketRes.json()) as { ticket: string }).ticket;
+    } catch {
+      setError("Stream auth failed");
+      setLoading(false);
+      return;
+    }
+    const es = new EventSource(
+      backendUrl(`/api/source-check/${checkId}/stream?ticket=${encodeURIComponent(ticket)}`),
+    );
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {
@@ -147,7 +168,7 @@ function CheckSourcePageInner() {
         }
 
         const data = await res.json();
-        startSSE(data.id);
+        await startSSE(data.id);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Upload failed");
         setLoading(false);
@@ -175,7 +196,7 @@ function CheckSourcePageInner() {
         }
 
         const data = await res.json();
-        startSSE(data.id);
+        await startSSE(data.id);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to start analysis");
         setLoading(false);

@@ -389,3 +389,71 @@ async def test_export_csv_format(env):
     assert rows[1][0] == "sc-1"
     assert rows[1][2] == "claim"
     assert rows[1][4] == "false"
+
+
+# ─── SSE auth (stream tickets) ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stream_ticket_owner_gets_ticket(env):
+    """Owner of a check can mint a stream ticket."""
+    chk = _check(id="sc-1", user_id="user-a")
+    env.db.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: chk)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post("/api/source-check/sc-1/stream-ticket")
+    assert r.status_code == 200
+    assert r.json()["ticket"]
+
+
+@pytest.mark.asyncio
+async def test_stream_ticket_non_owner_403(env):
+    """Non-owner can't mint a ticket — closes the unauth-amplification hole."""
+    chk = _check(id="sc-1", user_id="user-OTHER")
+    env.db.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: chk)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post("/api/source-check/sc-1/stream-ticket")
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_stream_endpoint_requires_ticket():
+    """SSE without a ticket query param 422s — FastAPI rejects the missing
+    required Query parameter before any handler logic runs."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/source-check/sc-1/stream")
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_stream_endpoint_rejects_bad_ticket():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/source-check/sc-1/stream?ticket=garbage")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_stream_endpoint_rejects_ticket_for_other_resource():
+    """Ticket issued for sc-1 must not be reusable on sc-2."""
+    from app.utils.auth import create_stream_ticket
+
+    ticket = create_stream_ticket("user-a", "source_check", "sc-1")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get(f"/api/source-check/sc-2/stream?ticket={ticket}")
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_stream_endpoint_rejects_researcher_ticket_on_source_check():
+    """Cross-kind reuse — a researcher_profile ticket can't open a source_check stream."""
+    from app.utils.auth import create_stream_ticket
+
+    ticket = create_stream_ticket("user-a", "researcher_profile", "sc-1")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get(f"/api/source-check/sc-1/stream?ticket={ticket}")
+    assert r.status_code == 403

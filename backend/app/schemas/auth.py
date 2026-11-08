@@ -95,12 +95,19 @@ class NotificationPreferences(BaseModel):
     """All keys default-true/false to match DEFAULT_NOTIFICATION_PREFERENCES.
     Adding a key here without matching the constant will produce a stable
     response shape (existing rows fall back to defaults), so consumers can
-    safely treat new fields as optional."""
+    safely treat new fields as optional.
+
+    `extra='forbid'` rejects unknown keys with a 422 instead of silently
+    dropping them — the JSON column is small and we'd rather surface
+    typos than persist them as no-op cruft.
+    """
 
     email_on_completion: bool = True
     email_on_low_credibility: bool = True
     email_weekly_digest: bool = False
     email_product_updates: bool = False
+
+    model_config = {"extra": "forbid"}
 
 
 class LocaleUpdate(BaseModel):

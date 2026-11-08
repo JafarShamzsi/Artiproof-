@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -88,7 +88,12 @@ export default function ReportsPage() {
   // Annotations dialog state.
   const [annotateReport, setAnnotateReport] = useState<ReportItem | null>(null);
 
-  async function refresh() {
+  // useCallback so the function identity is stable across renders — without
+  // it, any future caller passing `refresh` to a child or another effect's
+  // deps would silently re-create on every render and miss closure-captured
+  // state. Even today the empty-deps useEffect below relies on calling the
+  // *first* render's reference; memoizing makes that contract explicit.
+  const refresh = useCallback(async () => {
     try {
       const r = await apiFetch("/api/reports/");
       if (!r.ok) throw new Error("Failed to load reports");
@@ -99,11 +104,11 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   const copyShareLink = async (token: string, reportId: string) => {
     setError(null);

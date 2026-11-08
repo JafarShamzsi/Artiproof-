@@ -3,7 +3,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -47,14 +47,36 @@ async def lifespan(app: FastAPI):
     # ─── Startup validation ───────────────────────────────────────────────
     is_production = settings.ENVIRONMENT.lower() == "production"
 
-    insecure_jwt = not settings.JWT_SECRET or settings.JWT_SECRET == "change-me-in-production"
-    if insecure_jwt:
+    # JWT_SECRET hardening — three failure classes, each gated on
+    # `is_production` because dev environments need to be permissive:
+    #   1. Empty / placeholder value — refuses to start in prod, warns in dev.
+    #   2. Too-short secret — anything under 32 chars is brute-forceable
+    #      against HS256; refuse in prod, warn in dev.
+    #   3. Anything else — fine.
+    _PLACEHOLDER_SECRETS = {
+        "",
+        "change-me-in-production",
+        "replace-with-strong-random-value",
+        "ci-test-secret-not-for-production",
+    }
+    is_placeholder = settings.JWT_SECRET in _PLACEHOLDER_SECRETS
+    is_too_short = len(settings.JWT_SECRET) < 32
+    if is_placeholder or is_too_short:
         if is_production:
             raise RuntimeError(
-                "JWT_SECRET must be set to a strong random value in production "
-                "(set the JWT_SECRET environment variable)."
+                "JWT_SECRET must be a strong random value (>= 32 chars) in "
+                "production. Generate one with `openssl rand -hex 32` and set "
+                "the JWT_SECRET environment variable."
             )
-        logger.warning("Using insecure/empty JWT_SECRET — set JWT_SECRET before deploying.")
+        if is_placeholder:
+            logger.warning(
+                "Using placeholder JWT_SECRET — set a real value before deploying."
+            )
+        elif is_too_short:
+            logger.warning(
+                "JWT_SECRET is shorter than 32 characters — generate a longer "
+                "value before deploying."
+            )
 
     if is_production and not settings.GOOGLE_CLIENT_ID:
         logger.warning("GOOGLE_CLIENT_ID is empty — Google sign-in will be disabled.")
@@ -207,16 +229,24 @@ app.include_router(seed_router)
 
 @app.get("/health")
 async def health_check():
-    """Simple liveness probe for local health-check clients."""
+    """Liveness probe — always 200 as long as the process is alive.
+
+    Used by local health-check clients. Intentionally does not test DB or
+    Redis: a degraded Redis shouldn't restart the API (that would only
+    create a restart loop while the dependency is recovering). For
+    *readiness* checks (DB+Redis up) use ``/api/health``.
+    """
     return {"status": "healthy", "service": "artiproof-api", "version": "1.0.0"}
 
 
 @app.get("/api/health")
-async def detailed_health(db: AsyncSession = Depends(get_db)):
-    """Detailed health + dependency check.
+async def detailed_health(response: Response, db: AsyncSession = Depends(get_db)):
+    """Readiness probe — pings DB + Redis, returns 503 when either is down.
 
-    Returns 200 even when a dependency is degraded so monitoring tools can
-    distinguish "down" (no response) from "degraded" (partial outage).
+    Public endpoint, so the response is intentionally terse: only the
+    hard dependencies (DB, Redis) appear. Per-integration configuration
+    state used to be exposed here, but anonymous callers don't need to
+    know which API keys are present — that's internal info.
     """
     services: dict[str, str] = {}
     overall = "ok"
@@ -241,10 +271,8 @@ async def detailed_health(db: AsyncSession = Depends(get_db)):
         if overall == "ok":
             overall = "degraded"
 
-    services["gemini"] = "configured" if settings.GEMINI_API_KEY else "missing"
-    services["google_factcheck"] = "configured" if settings.GOOGLE_FACTCHECK_API_KEY else "missing"
-    services["scopus"] = "configured" if settings.SCOPUS_API_KEY else "missing"
-    services["semantic_scholar"] = "configured" if settings.SEMANTIC_SCHOLAR_API_KEY else "missing"
+    if overall != "ok":
+        response.status_code = 503
 
     return {
         "status": overall,

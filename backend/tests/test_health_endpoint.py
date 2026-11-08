@@ -24,6 +24,14 @@ async def test_simple_health_returns_ok():
     assert out["version"]
 
 
+def _stub_response():
+    """Cheap stand-in for fastapi.Response — only ``status_code`` is read
+    by ``detailed_health``."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(status_code=200)
+
+
 @pytest.mark.asyncio
 async def test_detailed_health_with_stub_db():
     """`/api/health` reports services dict; DB stubbed via injection."""
@@ -33,29 +41,36 @@ async def test_detailed_health_with_stub_db():
     # `await session.execute(text("SELECT 1"))` should resolve to anything
     stub_session.execute.return_value = None
 
-    out = await detailed_health(db=stub_session)
+    response = _stub_response()
+    out = await detailed_health(response=response, db=stub_session)
 
     assert "status" in out
     assert "services" in out
     assert out["services"]["database"] == "ok"
-    # External-API keys are stripped by the autouse conftest fixture
-    assert out["services"]["gemini"] == "missing"
-    assert out["services"]["google_factcheck"] == "missing"
+    # Per-integration configuration state is intentionally NOT in the public
+    # response anymore (information disclosure). Only DB + Redis show.
+    assert "gemini" not in out["services"]
+    assert "google_factcheck" not in out["services"]
     # Redis is unlikely to be running in unit-test env — accept either result
     assert out["services"]["redis"] in {"ok"} or out["services"]["redis"].startswith("error")
 
 
 @pytest.mark.asyncio
 async def test_detailed_health_marks_degraded_on_db_failure():
-    """If the DB SELECT raises, status flips to 'degraded' but call doesn't 500."""
+    """If the DB SELECT raises, status flips to 'degraded' AND we set a 503
+    so local health-check clients see it."""
     from app.main import detailed_health
 
     failing_session = AsyncMock()
     failing_session.execute.side_effect = RuntimeError("connection refused")
 
-    out = await detailed_health(db=failing_session)
+    response = _stub_response()
+    out = await detailed_health(response=response, db=failing_session)
     assert out["status"] == "degraded"
     assert out["services"]["database"].startswith("error:")
+    # Critical regression check from the audit — endpoint must surface
+    # 503 when a hard dependency is down, not silently 200.
+    assert response.status_code == 503
 
 
 @pytest.mark.integration

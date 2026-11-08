@@ -56,8 +56,18 @@ export async function apiFetch(
     headers,
   });
 
-  if (res.status === 401 && !skipAuthRedirect && typeof window !== "undefined") {
-    // Token expired or invalid — boot back to login.
+  // 401 → boot to login. Guards: `typeof window` covers the basic SSR case;
+  // additional `document` + `signOut` checks defend against weird Next.js
+  // runtimes where `window` exists but document/signOut don't (RSC streaming
+  // edge runtime, jsdom test envs that polyfill window only). Without these
+  // a 401 from inside a Server Component would crash before returning.
+  if (
+    res.status === 401 &&
+    !skipAuthRedirect &&
+    typeof window !== "undefined" &&
+    typeof document !== "undefined" &&
+    typeof signOut === "function"
+  ) {
     await signOut({ callbackUrl: "/login", redirect: true });
   }
 

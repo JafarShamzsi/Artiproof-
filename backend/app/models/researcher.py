@@ -87,6 +87,14 @@ class PublicationAnalysis(Base, TimestampMixin):
     is_self_cited_heavily = sa.Column(sa.Boolean, nullable=False, server_default="false")
     flags = sa.Column(sa.JSON, nullable=True)
 
+    __table_args__ = (
+        sa.Index(
+            "ix_publication_analyses_profile_id_year",
+            "researcher_profile_id",
+            "year",
+        ),
+    )
+
 
 class ScrapedPublication(Base, TimestampMixin):
     __tablename__ = "scraped_publications"

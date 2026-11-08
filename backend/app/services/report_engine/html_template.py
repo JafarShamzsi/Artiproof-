@@ -1,8 +1,44 @@
 """
 HTML templates for PDF report generation.
+
+Every interpolation that can carry user- or model-supplied text routes
+through ``_e()`` so a hostile claim/citation/annotation can't inject
+``<script>`` or break out of an HTML attribute. Static numeric formats
+(``{:.0f}``) and fixed dict lookups (``v_color``) skip escaping by
+design.
+
+CSS color values are interpolated unescaped (``html.escape`` does not
+help in CSS context). They are constrained at write time by the schema
+validator and re-checked here via ``_safe_color()`` as belt-and-braces;
+anything that doesn't match the strict hex pattern falls back to the
+ArtiProof default.
 """
 
+import re
 from datetime import datetime
+from html import escape as _html_escape
+
+
+_HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
+def _e(value) -> str:
+    """Escape a value for HTML body or quoted-attribute context. ``None``
+    becomes an empty string; everything else is stringified first so a
+    surprise int/float doesn't blow up at render time."""
+    if value is None:
+        return ""
+    return _html_escape(str(value), quote=True)
+
+
+def _safe_color(value: str | None, default: str) -> str:
+    """Return ``value`` if it matches a strict hex-color pattern, else
+    ``default``. Defends the renderer against CSS injection if a bad
+    value somehow got past the schema validator (legacy DB rows, future
+    schema regression)."""
+    if isinstance(value, str) and _HEX_COLOR_RE.match(value):
+        return value
+    return default
 
 
 def render_source_check_report(
@@ -26,24 +62,33 @@ def render_source_check_report(
         verdict = c.get("verdict", "unverified")
         v_color = {"true": "#10b981", "false": "#ef4444", "misleading": "#eab308",
                    "partially_true": "#f59e0b", "unverified": "#71717a"}.get(verdict, "#71717a")
+        true_version = c.get("true_version")
         claims_html += f"""
         <div style="border-left: 3px solid {v_color}; padding: 8px 12px; margin: 8px 0; background: #f8fafc;">
-            <strong style="color: {v_color}; text-transform: uppercase; font-size: 11px;">{verdict}</strong>
+            <strong style="color: {v_color}; text-transform: uppercase; font-size: 11px;">{_e(verdict)}</strong>
             <span style="font-size: 11px; color: #64748b; margin-left: 8px;">{int(c.get('confidence', 0) * 100)}% confidence</span>
-            <p style="margin: 4px 0 0; font-size: 13px;">{c.get('claim_text', '')}</p>
-            <p style="margin: 4px 0 0; font-size: 12px; color: #64748b;">{c.get('explanation', '')}</p>
-            {"<p style='margin: 4px 0 0; font-size: 12px; color: #10b981;'><em>Correct: " + c.get('true_version', '') + "</em></p>" if c.get('true_version') else ""}
+            <p style="margin: 4px 0 0; font-size: 13px;">{_e(c.get('claim_text', ''))}</p>
+            <p style="margin: 4px 0 0; font-size: 12px; color: #64748b;">{_e(c.get('explanation', ''))}</p>
+            {"<p style='margin: 4px 0 0; font-size: 12px; color: #10b981;'><em>Correct: " + _e(true_version) + "</em></p>" if true_version else ""}
         </div>"""
 
     citations_html = ""
     for ci in citations:
         icon = "&#x274C;" if ci.get("is_retracted") else ("&#x26A0;" if not ci.get("is_accessible", True) else "&#x2705;")
+        # Slice raw, then escape — escaping first risks chopping an entity mid-sequence.
+        citation_text = (ci.get("original_citation") or "")[:60]
         citations_html += f"""
         <tr>
-            <td style="padding: 6px 8px; font-size: 12px;">{icon} {ci.get('original_citation', '')[:60]}</td>
+            <td style="padding: 6px 8px; font-size: 12px;">{icon} {_e(citation_text)}</td>
             <td style="padding: 6px 8px; font-size: 12px; text-align: center;">{"RETRACTED" if ci.get("is_retracted") else ("Inaccessible" if not ci.get("is_accessible", True) else "OK")}</td>
             <td style="padding: 6px 8px; font-size: 12px; text-align: center;">{ci.get('credibility_score', 0):.0f}</td>
         </tr>"""
+
+    narrative_html = "".join(
+        f"<p style='color: #334155; font-size: 13px; line-height: 1.6;'>{_e(p)}</p>"
+        for p in (narrative or "").split(chr(10) + chr(10))
+        if p.strip()
+    )
 
     return _wrap_html(title, f"""
         <div style="text-align: center; margin-bottom: 32px;">
@@ -69,7 +114,7 @@ def render_source_check_report(
         </div>
 
         <h2 style="color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">Executive Summary</h2>
-        {"".join(f"<p style='color: #334155; font-size: 13px; line-height: 1.6;'>{p}</p>" for p in narrative.split(chr(10)+chr(10)) if p.strip())}
+        {narrative_html}
 
         {"<h2 style='color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; margin-top: 24px;'>Claims Analysis</h2>" + claims_html if claims else ""}
 
@@ -96,11 +141,13 @@ def render_researcher_report(
     pubs_html = ""
     for p in publications[:30]:
         topic = f"{p.get('topic_match_score', 0) * 100:.0f}%" if p.get("topic_match_score") is not None else "—"
+        # Slice raw, escape after.
+        pub_title = (p.get("title") or "")[:50]
         pubs_html += f"""
         <tr>
-            <td style="padding: 5px 8px; font-size: 11px;">{p.get('title', '')[:50]}</td>
-            <td style="padding: 5px 8px; font-size: 11px;">{p.get('journal', '') or '—'}</td>
-            <td style="padding: 5px 8px; font-size: 11px; text-align: center;">{p.get('year', '—')}</td>
+            <td style="padding: 5px 8px; font-size: 11px;">{_e(pub_title)}</td>
+            <td style="padding: 5px 8px; font-size: 11px;">{_e(p.get('journal') or '—')}</td>
+            <td style="padding: 5px 8px; font-size: 11px; text-align: center;">{_e(p.get('year', '—'))}</td>
             <td style="padding: 5px 8px; font-size: 11px; text-align: right;">{p.get('citation_count', 0)}</td>
             <td style="padding: 5px 8px; font-size: 11px; text-align: center;">{topic}</td>
         </tr>"""
@@ -109,13 +156,19 @@ def render_researcher_report(
     if flags:
         flags_html = "<h2 style='color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; margin-top: 24px;'>Integrity Flags</h2><ul>"
         for f in flags:
-            flags_html += f"<li style='font-size: 13px; color: #b45309; margin: 4px 0;'>{f}</li>"
+            flags_html += f"<li style='font-size: 13px; color: #b45309; margin: 4px 0;'>{_e(f)}</li>"
         flags_html += "</ul>"
+
+    narrative_html = "".join(
+        f"<p style='color: #334155; font-size: 13px; line-height: 1.6;'>{_e(p)}</p>"
+        for p in (narrative or "").split(chr(10) + chr(10))
+        if p.strip()
+    )
 
     return _wrap_html(f"Researcher Integrity Report — {name}", f"""
         <div style="text-align: center; margin-bottom: 24px;">
-            <h2 style="color: #1e293b; margin: 0;">{name}</h2>
-            <p style="color: #64748b; margin: 4px 0;">{institution}</p>
+            <h2 style="color: #1e293b; margin: 0;">{_e(name)}</h2>
+            <p style="color: #64748b; margin: 4px 0;">{_e(institution)}</p>
         </div>
 
         <div style="text-align: center; margin-bottom: 32px;">
@@ -128,11 +181,11 @@ def render_researcher_report(
         <div style="display: flex; gap: 16px; margin-bottom: 24px;">
             <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 14px; color: #64748b;">Official h-index</div>
-                <div style="font-size: 28px; font-weight: bold;">{profile_data.get('official_h_index') or '—'}</div>
+                <div style="font-size: 28px; font-weight: bold;">{_e(profile_data.get('official_h_index') or '—')}</div>
             </div>
             <div style="flex: 1; background: #ecfdf5; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 14px; color: #10b981;">Adjusted h-index</div>
-                <div style="font-size: 28px; font-weight: bold; color: #10b981;">{profile_data.get('adjusted_h_index') or '—'}</div>
+                <div style="font-size: 28px; font-weight: bold; color: #10b981;">{_e(profile_data.get('adjusted_h_index') or '—')}</div>
             </div>
             <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 14px; color: #64748b;">Self-citation</div>
@@ -141,7 +194,7 @@ def render_researcher_report(
         </div>
 
         <h2 style="color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">Executive Summary</h2>
-        {"".join(f"<p style='color: #334155; font-size: 13px; line-height: 1.6;'>{p}</p>" for p in narrative.split(chr(10)+chr(10)) if p.strip())}
+        {narrative_html}
 
         {flags_html}
 
@@ -152,15 +205,17 @@ def render_researcher_report(
 def _branding_for(branding: dict | None) -> dict:
     """Resolve branding dict (potentially partial) to a fully-populated set
     of values the renderer can substitute. Falls back to ArtiProof's wine
-    palette when keys are missing."""
+    palette when keys are missing. Color values are constrained to the
+    strict hex pattern via ``_safe_color`` so a stray non-hex value can't
+    escape CSS context."""
     b = branding or {}
     return {
         "name": b.get("name") or "ArtiProof",
         "logo_url": b.get("logo_url"),
-        "primary_color": b.get("primary_color") or "#7C2828",
+        "primary_color": _safe_color(b.get("primary_color"), "#7C2828"),
         # Footer underline + secondary accents. Falls back to the brand
         # amber so reports without an explicit override still feel branded.
-        "secondary_color": b.get("secondary_color") or "#C8901E",
+        "secondary_color": _safe_color(b.get("secondary_color"), "#C8901E"),
         "tagline": b.get("tagline") or "Research Integrity Platform",
     }
 
@@ -183,9 +238,9 @@ def _annotations_html(annotations: list[dict] | None) -> str:
             f"<div style='border-left: 3px solid #C8901E; padding: 6px 12px; "
             f"margin: 4px 0; background: #FBF5E8;'>"
             f"<p style='margin: 0; font-size: 12px; color: #94670F;'>"
-            f"<strong>{author}</strong> "
-            f"<span style='color: #B79E89;'>· {when}</span></p>"
-            f"<p style='margin: 4px 0 0; font-size: 13px; color: #1A0808;'>{text}</p>"
+            f"<strong>{_e(author)}</strong> "
+            f"<span style='color: #B79E89;'>· {_e(when)}</span></p>"
+            f"<p style='margin: 4px 0 0; font-size: 13px; color: #1A0808;'>{_e(text)}</p>"
             f"</div>"
         )
     if not items:
@@ -215,20 +270,20 @@ def _wrap_html(
     notes_html = _annotations_html(annotations)
     if b["logo_url"]:
         header_logo = (
-            f'<img src="{b["logo_url"]}" alt="{b["name"]}" '
+            f'<img src="{_e(b["logo_url"])}" alt="{_e(b["name"])}" '
             f'style="max-height: 40px; max-width: 200px; margin-bottom: 4px;" />'
         )
     else:
         header_logo = (
             f'<h1 style="color: {b["primary_color"]}; margin: 0; font-size: 24px;">'
-            f'{b["name"]}</h1>'
+            f'{_e(b["name"])}</h1>'
         )
 
     return f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>{title}</title>
+<title>{_e(title)}</title>
 <style>
     @page {{ size: A4; margin: 2cm; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -241,14 +296,14 @@ def _wrap_html(
 <body>
     <div style="text-align: center; padding: 16px 0; border-bottom: 3px solid {b['primary_color']}; margin-bottom: 24px;">
         {header_logo}
-        <p style="color: #64748b; font-size: 12px; margin: 4px 0;">{b['tagline']}</p>
+        <p style="color: #64748b; font-size: 12px; margin: 4px 0;">{_e(b['tagline'])}</p>
     </div>
-    <h1 style="color: #1e293b; font-size: 22px; text-align: center;">{title}</h1>
+    <h1 style="color: #1e293b; font-size: 22px; text-align: center;">{_e(title)}</h1>
     <p style="text-align: center; color: #94a3b8; font-size: 12px;">Generated: {now}</p>
     {notes_html}
     {body}
     <div style="margin-top: 40px; padding-top: 16px; border-top: 1px solid {b['secondary_color']}; text-align: center;">
-        <p style="color: #94a3b8; font-size: 11px;">{b['name']} — generated by ArtiProof</p>
+        <p style="color: #94a3b8; font-size: 11px;">{_e(b['name'])} — generated by ArtiProof</p>
     </div>
 </body>
 </html>"""
@@ -283,6 +338,12 @@ def render_executive_summary_report(
     false_claims = sum(1 for c in claims if c.get("verdict") == "false")
     misleading = sum(1 for c in claims if c.get("verdict") == "misleading")
 
+    narrative_html = "".join(
+        f"<p style='color: #334155; font-size: 13px; line-height: 1.5; margin: 8px 0;'>{_e(p)}</p>"
+        for p in (narrative or "").split(chr(10) + chr(10))
+        if p.strip()
+    )[:2400]
+
     body = f"""
         <div style="display: flex; align-items: center; gap: 24px; margin-bottom: 24px;">
             <div style="flex-shrink: 0; width: 92px; height: 92px; border-radius: 50%;
@@ -298,7 +359,7 @@ def render_executive_summary_report(
         </div>
 
         <h2 style="color: #1e293b; font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 16px;">Summary</h2>
-        {"".join(f"<p style='color: #334155; font-size: 13px; line-height: 1.5; margin: 8px 0;'>{p}</p>" for p in narrative.split(chr(10)+chr(10)) if p.strip())[:2400]}
+        {narrative_html}
 
         <h2 style="color: #1e293b; font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 16px;">Findings</h2>
         <ul style="font-size: 13px; line-height: 1.6; color: #334155; padding-left: 20px;">
@@ -335,7 +396,7 @@ def render_comparison_report(
         )
         rows.append(f"""
             <tr>
-                <td style="padding: 8px;"><strong>{item.get('input_title') or 'Untitled'}</strong></td>
+                <td style="padding: 8px;"><strong>{_e(item.get('input_title') or 'Untitled')}</strong></td>
                 <td style="padding: 8px; text-align: center; color: {score_color}; font-weight: 600;">{score:.0f}</td>
                 <td style="padding: 8px; text-align: center;">{ai_pct:.0f}%</td>
                 <td style="padding: 8px; text-align: center;">{misinfo}</td>
@@ -389,10 +450,10 @@ def render_institutional_audit_report(
         )
         rows.append(f"""
             <tr>
-                <td style="padding: 8px;"><strong>{name}</strong><br/>
-                    <span style="font-size: 11px; color: #64748b;">{institution}</span></td>
-                <td style="padding: 8px; text-align: center;">{official if official is not None else '—'}</td>
-                <td style="padding: 8px; text-align: center;">{adjusted if adjusted is not None else '—'}</td>
+                <td style="padding: 8px;"><strong>{_e(name)}</strong><br/>
+                    <span style="font-size: 11px; color: #64748b;">{_e(institution)}</span></td>
+                <td style="padding: 8px; text-align: center;">{_e(official) if official is not None else '—'}</td>
+                <td style="padding: 8px; text-align: center;">{_e(adjusted) if adjusted is not None else '—'}</td>
                 <td style="padding: 8px; text-align: center; color: {score_color}; font-weight: 600;">{integrity:.0f}</td>
                 <td style="padding: 8px; text-align: center;">{self_cite:.1f}%</td>
                 <td style="padding: 8px; text-align: center;">{flag_count}</td>

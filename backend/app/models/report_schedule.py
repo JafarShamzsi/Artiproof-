@@ -34,3 +34,13 @@ class ReportSchedule(Base, TimestampMixin):
     active = sa.Column(sa.Boolean, nullable=False, server_default="true", index=True)
     last_run_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     next_run_at = sa.Column(sa.DateTime(timezone=True), nullable=False, index=True)
+
+    # Composite for the daily sweep query
+    # ``WHERE active = TRUE AND next_run_at <= now()``.
+    __table_args__ = (
+        sa.Index(
+            "ix_report_schedules_active_next_run_at",
+            "active",
+            "next_run_at",
+        ),
+    )

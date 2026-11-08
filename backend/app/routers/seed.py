@@ -24,8 +24,16 @@ router = APIRouter(prefix="/api/seed", tags=["Seed (dev only)"])
 
 
 def _ensure_seeding_allowed() -> None:
+    # Belt-and-braces: ENVIRONMENT==production hard-blocks regardless of
+    # the explicit flag, in case someone sets ENABLE_SEED_ROUTES=true in
+    # the wrong env file. Otherwise the flag must be opted-in per env.
     if settings.ENVIRONMENT.lower() == "production":
         raise HTTPException(status_code=403, detail="Seed endpoint disabled in production")
+    if not settings.ENABLE_SEED_ROUTES:
+        raise HTTPException(
+            status_code=403,
+            detail="Seed endpoint disabled — set ENABLE_SEED_ROUTES=true to enable",
+        )
 
 
 @router.post("/demo")

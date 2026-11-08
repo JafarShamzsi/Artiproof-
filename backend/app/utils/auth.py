@@ -122,6 +122,57 @@ async def get_current_user_allow_deactivated(
     return user
 
 
+# ─── SSE stream tickets ───────────────────────────────────────────────────
+#
+# The browser ``EventSource`` API can't attach Authorization headers, so the
+# SSE pipeline endpoints can't take a Bearer JWT directly. We trade-and-burn
+# instead: an authenticated client POSTs to ``/.../stream-ticket`` and gets
+# back a short-lived (60s) JWT bound to (user_id, resource_kind, resource_id).
+# That ticket is passed as ``?ticket=...`` on the SSE URL — limited blast
+# radius if it ever leaks (one-resource scope, expires in seconds, can't
+# itself be exchanged for a session token).
+
+_STREAM_TICKET_TTL_SECONDS = 60
+
+
+def create_stream_ticket(user_id: str, resource_kind: str, resource_id: str) -> str:
+    """Issue a short-lived JWT that authorizes a single SSE stream open."""
+    expire = datetime.now(timezone.utc) + timedelta(seconds=_STREAM_TICKET_TTL_SECONDS)
+    payload = {
+        "sub": user_id,
+        "kind": resource_kind,
+        "rid": resource_id,
+        "exp": expire,
+        "type": "stream",
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_stream_ticket(ticket: str, resource_kind: str, resource_id: str) -> str:
+    """Validate a stream ticket and return the user_id it was issued to.
+
+    Raises 401 on bad/expired ticket, 403 if the ticket was issued for a
+    different resource — the caller doesn't get to use someone else's
+    ticket on this stream.
+    """
+    try:
+        payload = jwt.decode(
+            ticket, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+        )
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Stream ticket expired")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid stream ticket")
+    if payload.get("type") != "stream":
+        raise HTTPException(status_code=401, detail="Wrong ticket type")
+    if payload.get("kind") != resource_kind or payload.get("rid") != resource_id:
+        raise HTTPException(status_code=403, detail="Ticket not valid for this resource")
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid ticket payload")
+    return user_id
+
+
 async def get_current_user_optional(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),

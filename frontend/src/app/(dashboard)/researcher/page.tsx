@@ -106,9 +106,30 @@ export default function ResearcherAnalysisPage() {
       const data = await res.json();
       const profileId = data.id;
 
-      // Start SSE stream — close any prior stream first
+      // Start SSE stream — close any prior stream first.
+      // EventSource can't carry an Authorization header, so we trade the
+      // bearer JWT for a one-shot 60s ticket scoped to this profile_id.
       eventSourceRef.current?.close();
-      const es = new EventSource(backendUrl(`/api/researcher/${profileId}/stream`));
+      let ticket: string;
+      try {
+        const ticketRes = await apiFetch(
+          `/api/researcher/${profileId}/stream-ticket`,
+          { method: "POST" },
+        );
+        if (!ticketRes.ok) {
+          setError(`Stream auth failed (HTTP ${ticketRes.status})`);
+          setLoading(false);
+          return;
+        }
+        ticket = ((await ticketRes.json()) as { ticket: string }).ticket;
+      } catch {
+        setError("Stream auth failed");
+        setLoading(false);
+        return;
+      }
+      const es = new EventSource(
+        backendUrl(`/api/researcher/${profileId}/stream?ticket=${encodeURIComponent(ticket)}`),
+      );
       eventSourceRef.current = es;
 
       es.onmessage = (e) => {

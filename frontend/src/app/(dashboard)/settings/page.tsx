@@ -130,7 +130,6 @@ interface ConnectionItem {
 interface AnalysisPreferences {
   check_citations: boolean;
   trace_misinfo_origins: boolean;
-  ai_detection_model: string;
   researcher_field_inference: boolean;
 }
 
@@ -2336,7 +2335,7 @@ function ConnectedAccountsSection() {
 // ─── Default analysis options ──────────────────────────────────────────────
 
 const ANALYSIS_TOGGLES: ReadonlyArray<{
-  key: keyof Omit<AnalysisPreferences, "ai_detection_model">;
+  key: keyof AnalysisPreferences;
   label: string;
   help: string;
 }> = [
@@ -2355,10 +2354,6 @@ const ANALYSIS_TOGGLES: ReadonlyArray<{
     label: "Researcher field inference",
     help: "Infer a researcher's field from their publications.",
   },
-];
-
-const AI_DETECTION_MODELS = [
-  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
 ];
 
 function AnalysisPreferencesSection() {
@@ -2411,16 +2406,9 @@ function AnalysisPreferencesSection() {
     }
   }
 
-  function toggle(key: keyof Omit<AnalysisPreferences, "ai_detection_model">) {
+  function toggle(key: keyof AnalysisPreferences) {
     if (!prefs) return;
     const next = { ...prefs, [key]: !prefs[key] };
-    setPrefs(next);
-    void persist(next);
-  }
-
-  function setModel(value: string) {
-    if (!prefs) return;
-    const next = { ...prefs, ai_detection_model: value };
     setPrefs(next);
     void persist(next);
   }
@@ -2476,30 +2464,6 @@ function AnalysisPreferencesSection() {
                 </div>
               );
             })}
-          </div>
-          <div className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-            <Label
-              htmlFor="analysis-model"
-              className="text-zinc-700 dark:text-zinc-300"
-            >
-              AI detection model
-            </Label>
-            <select
-              id="analysis-model"
-              value={prefs?.ai_detection_model ?? AI_DETECTION_MODELS[0].value}
-              onChange={(e) => setModel(e.target.value)}
-              disabled={saving}
-              className="block h-9 w-full rounded-lg border border-zinc-300 bg-white px-2.5 text-sm text-zinc-900 outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
-            >
-              {AI_DETECTION_MODELS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Used for AI-content detection on new source checks.
-            </p>
           </div>
         </>
       )}

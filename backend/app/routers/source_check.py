@@ -33,7 +33,11 @@ from app.schemas.source_check import (
     CitationCheckResponse,
 )
 from app.services.source_verification.orchestrator import SourceVerificationOrchestrator
-from app.utils.auth import get_current_user
+from app.utils.auth import (
+    create_stream_ticket,
+    decode_stream_ticket,
+    get_current_user,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/source-check", tags=["Source Verification"])
@@ -314,15 +318,17 @@ async def get_source_check(
     return _check_to_response(check, claims_q.scalars().all(), ai_q.scalars().all(), cit_q.scalars().all())
 
 
-@router.get("/{check_id}/stream")
-async def stream_source_check(check_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """SSE endpoint — runs the pipeline and streams progress events.
+@router.post("/{check_id}/stream-ticket")
+async def issue_source_check_stream_ticket(
+    check_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Issue a 60-second one-shot ticket the SSE endpoint will accept.
 
-    TODO(security, phase 5): this endpoint is currently unauthenticated because the
-    frontend uses the browser ``EventSource`` API, which cannot send Authorization
-    headers. Once the frontend migrates to ``@microsoft/fetch-event-source`` (or we
-    accept a signed query-param token), require ownership here — anyone with a
-    check ID can currently force a pipeline run for that check.
+    EventSource can't attach an Authorization header, so we authenticate
+    out-of-band: the client POSTs here with their bearer JWT, we verify
+    ownership, and hand back a narrow ticket bound to (user, check_id).
     """
     result = await db.execute(
         select(SourceCheck).where(
@@ -332,6 +338,36 @@ async def stream_source_check(check_id: str, request: Request, db: AsyncSession 
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
+    if check.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to stream this check")
+    return {"ticket": create_stream_ticket(current_user.id, "source_check", check_id)}
+
+
+@router.get("/{check_id}/stream")
+async def stream_source_check(
+    check_id: str,
+    request: Request,
+    ticket: str = Query(..., description="Stream ticket from /stream-ticket"),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE endpoint — runs the pipeline and streams progress events.
+
+    Authenticated via a short-lived ticket (``?ticket=...``) issued by
+    ``POST /{check_id}/stream-ticket``. The browser ``EventSource`` API
+    can't carry a Bearer header; the ticket is bound to (user, check_id)
+    and expires in 60s, so a leaked ticket grants only this single stream.
+    """
+    user_id = decode_stream_ticket(ticket, "source_check", check_id)
+    result = await db.execute(
+        select(SourceCheck).where(
+            SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)
+        )
+    )
+    check = result.scalar_one_or_none()
+    if not check:
+        raise HTTPException(status_code=404, detail="Source check not found")
+    if check.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to stream this check")
     if check.status == "completed":
         raise HTTPException(status_code=400, detail="Check already completed")
 

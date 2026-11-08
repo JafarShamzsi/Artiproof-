@@ -8,7 +8,7 @@ gated on SMTP infrastructure that's not wired yet — generated reports
 just appear in the user's /reports list.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,19 +28,38 @@ from app.utils.auth import get_current_user
 router = APIRouter(prefix="/api/me/report-schedules", tags=["Reports"])
 
 
+_REPORT_DELIVERY_HOUR_UTC = 9
+
+
 def _next_run(frequency: str, base: datetime | None = None) -> datetime:
     """Compute next-run timestamp from a base time + frequency.
 
-    Aligns to ~9am UTC on the target day so deliveries are predictable
-    rather than arriving at whenever the user happened to create the
-    schedule. Slightly compressed for testing — production tweak later.
+    Always aligns to 09:00 UTC on the target day so deliveries arrive
+    at a predictable time rather than whenever the user happened to
+    create the schedule. The earliest valid result is at least
+    `frequency`-many days after `base` — if 09:00 on `base + delta`
+    is in the past relative to that point, we bump one day.
     """
     base = base or datetime.now(timezone.utc)
     if frequency == "weekly":
-        return base + timedelta(days=7)
-    if frequency == "monthly":
-        return base + timedelta(days=30)
-    raise ValueError(f"Unknown frequency: {frequency}")
+        delta = timedelta(days=7)
+    elif frequency == "monthly":
+        delta = timedelta(days=30)
+    else:
+        raise ValueError(f"Unknown frequency: {frequency}")
+
+    target_after = base + delta
+    candidate = datetime.combine(
+        target_after.date(),
+        time(hour=_REPORT_DELIVERY_HOUR_UTC),
+        tzinfo=timezone.utc,
+    )
+    # If the 09:00-snap puts us *before* the earliest-allowed instant
+    # (e.g. base was 14:00, so target_after is 14:00 a week later, but
+    # 09:00 that same day is too early), push to the next morning.
+    if candidate < target_after:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def _response(s: ReportSchedule) -> ReportScheduleResponse:

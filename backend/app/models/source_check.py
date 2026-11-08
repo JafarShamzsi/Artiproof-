@@ -72,6 +72,11 @@ class ClaimAnalysis(Base, TimestampMixin):
 
     __table_args__ = (
         sa.CheckConstraint("confidence >= 0 AND confidence <= 1", name="confidence_range"),
+        sa.Index(
+            "ix_claim_analyses_source_check_id_created_at",
+            "source_check_id",
+            "created_at",
+        ),
     )
 
 

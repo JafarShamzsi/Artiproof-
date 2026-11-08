@@ -34,11 +34,13 @@ logger = logging.getLogger(__name__)
 
 
 def _next_run_after(frequency: str, base: datetime) -> datetime:
-    if frequency == "weekly":
-        return base + timedelta(days=7)
-    if frequency == "monthly":
-        return base + timedelta(days=30)
-    raise ValueError(f"Unknown frequency: {frequency}")
+    """Identical semantics to ``app.routers.report_schedules._next_run``
+    — both pick the next 09:00 UTC at least one frequency-period after
+    ``base``. Kept as a thin re-export so callers don't have to know the
+    router module exists."""
+    from app.routers.report_schedules import _next_run
+
+    return _next_run(frequency, base)
 
 
 def _window_start(frequency: str, now: datetime) -> datetime:
@@ -110,6 +112,11 @@ async def run_due_schedules(db: AsyncSession) -> int:
 
     generated = 0
     for schedule in schedules:
+        # Per-schedule commit: the previous version committed once at the
+        # end of the loop, so a single failing schedule's exception
+        # rolled back every successful one before it. Each iteration is
+        # now independently durable; on failure we rollback only the
+        # in-flight schedule's writes.
         try:
             window_start = _window_start(schedule.frequency, now)
             checks_q = await db.execute(
@@ -131,6 +138,7 @@ async def run_due_schedules(db: AsyncSession) -> int:
                 # so we don't keep retrying on the next sweep.
                 schedule.last_run_at = now
                 schedule.next_run_at = _next_run_after(schedule.frequency, now)
+                await db.commit()
                 continue
 
             branding = await _branding_for_user(user, db)
@@ -172,12 +180,16 @@ async def run_due_schedules(db: AsyncSession) -> int:
 
             schedule.last_run_at = now
             schedule.next_run_at = _next_run_after(schedule.frequency, now)
+            await db.commit()
             generated += 1
         except Exception:
             logger.exception("Failed to fire schedule %s", schedule.id)
+            try:
+                await db.rollback()
+            except Exception:
+                logger.debug("rollback for failed schedule %s also raised", schedule.id)
             continue
 
-    await db.commit()
     if generated:
         logger.info("Generated %d scheduled report(s)", generated)
     return generated

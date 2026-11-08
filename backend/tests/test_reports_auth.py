@@ -8,7 +8,7 @@ ownership-check branches in the router.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -24,7 +24,12 @@ def _fake_user(user_id: str = "user-a"):
     return SimpleNamespace(id=user_id, email=f"{user_id}@test", role="researcher")
 
 
-def _fake_report(*, report_id: str, owner_id: str):
+def _fake_report(
+    *,
+    report_id: str,
+    owner_id: str,
+    share_expires_at: datetime | None = None,
+):
     return SimpleNamespace(
         id=report_id,
         user_id=owner_id,
@@ -35,6 +40,8 @@ def _fake_report(*, report_id: str, owner_id: str):
         summary="Stub summary",
         pdf_path=None,
         share_token="stub-token",
+        share_expires_at=share_expires_at
+        or (datetime.now(timezone.utc) + timedelta(days=30)),
         deleted_at=None,
         created_at=datetime.now(timezone.utc),
     )
@@ -130,5 +137,99 @@ async def test_get_report_401_without_token():
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             r = await c.get("/api/reports/r1")
         assert r.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ─── Share-token expiry ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_shared_report_404s_when_share_link_expired():
+    """A report whose share_expires_at is in the past must 404 the shared
+    routes, even though the report itself still exists for the owner."""
+    expired = _fake_report(
+        report_id="r1",
+        owner_id="user-a",
+        share_expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+
+    async def _db():
+        yield _override_db(expired)
+
+    app.dependency_overrides[get_db] = _db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.get(f"/api/reports/shared/{expired.share_token}")
+        assert r.status_code == 404
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.get(f"/api/reports/shared/{expired.share_token}/download")
+        assert r.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_shared_report_200_when_link_alive():
+    alive = _fake_report(
+        report_id="r1",
+        owner_id="user-a",
+        share_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    async def _db():
+        yield _override_db(alive)
+
+    app.dependency_overrides[get_db] = _db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.get(f"/api/reports/shared/{alive.share_token}")
+        assert r.status_code == 200
+        assert r.json()["share_token"] == alive.share_token
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_rotate_share_token_owner_only():
+    """Non-owners cannot rotate; rotated link gets a fresh token + expiry."""
+    report = _fake_report(report_id="r1", owner_id="user-a")
+    # Mock db.commit + db.refresh as no-ops
+    db = AsyncMock()
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return report
+
+    db.execute.return_value = _Result()
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+
+    async def _db():
+        yield db
+
+    # Non-owner first.
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_current_user] = lambda: _fake_user("user-b")
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/api/reports/r1/rotate-share-token")
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+    # Owner — succeeds, token changes.
+    old_token = report.share_token
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_current_user] = lambda: _fake_user("user-a")
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/api/reports/r1/rotate-share-token")
+        assert r.status_code == 200
+        assert report.share_token != old_token
     finally:
         app.dependency_overrides.clear()

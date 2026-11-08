@@ -41,7 +41,15 @@ class Settings(BaseSettings):
     # Outbound HTTP identity (used by CrossRef and other politeness-required APIs)
     CONTACT_EMAIL: str = "info@example.invalid"
 
-    # Demo seeding (used by /api/seed/demo in non-production envs only)
+    # Demo seeding (used by /api/seed/demo). Two layers of gating:
+    #   - ENABLE_SEED_ROUTES must be true (default false). The previous
+    #     `ENVIRONMENT != "production"` check accidentally enabled the
+    #     route on staging / preview environments, where attackers can
+    #     enumerate and trample real test data. Operators must opt in
+    #     explicitly per environment.
+    #   - ENVIRONMENT cannot be "production" (belt-and-braces — even if
+    #     the flag is set in prod by mistake, the prod check still wins).
+    ENABLE_SEED_ROUTES: bool = False
     DEMO_EMAIL: str = "demo@example.invalid"
     DEMO_PASSWORD: str = "demo1234"
 

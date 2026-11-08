@@ -37,7 +37,11 @@ from app.schemas.researcher import (
     WatchlistEntry,
 )
 from app.services.academic_integrity.orchestrator import AcademicIntegrityOrchestrator
-from app.utils.auth import get_current_user
+from app.utils.auth import (
+    create_stream_ticket,
+    decode_stream_ticket,
+    get_current_user,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/researcher", tags=["Researcher Integrity"])
@@ -233,15 +237,16 @@ async def get_researcher_profile(
     return _profile_to_response(profile, publications)
 
 
-@router.get("/{profile_id}/stream")
-async def stream_researcher_analysis(profile_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """SSE endpoint — runs scraping first, then integrity analysis.
+@router.post("/{profile_id}/stream-ticket")
+async def issue_researcher_stream_ticket(
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Issue a 60-second one-shot ticket the SSE endpoint will accept.
 
-    TODO(security, phase 5): this endpoint is currently unauthenticated because the
-    frontend uses the browser ``EventSource`` API, which cannot send Authorization
-    headers. Once the frontend migrates to ``@microsoft/fetch-event-source`` (or we
-    accept a signed query-param token), require ownership here — anyone with a
-    profile ID can currently force the scrape + analysis pipeline.
+    Same pattern as ``/api/source-check/{id}/stream-ticket`` — bearer JWT
+    here, narrow ticket bound to (user, profile_id) on the SSE call.
     """
     result = await db.execute(
         select(ResearcherProfile).where(
@@ -251,6 +256,35 @@ async def stream_researcher_analysis(profile_id: str, request: Request, db: Asyn
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
+    if profile.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to stream this profile")
+    return {"ticket": create_stream_ticket(current_user.id, "researcher_profile", profile_id)}
+
+
+@router.get("/{profile_id}/stream")
+async def stream_researcher_analysis(
+    profile_id: str,
+    request: Request,
+    ticket: str = Query(..., description="Stream ticket from /stream-ticket"),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE endpoint — runs scraping first, then integrity analysis.
+
+    Authenticated via a short-lived ticket (``?ticket=...``) issued by
+    ``POST /{profile_id}/stream-ticket``. See source_check stream for the
+    rationale; ticket is bound to (user, profile_id) and expires in 60s.
+    """
+    user_id = decode_stream_ticket(ticket, "researcher_profile", profile_id)
+    result = await db.execute(
+        select(ResearcherProfile).where(
+            ResearcherProfile.id == profile_id, ResearcherProfile.deleted_at.is_(None)
+        )
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Researcher profile not found")
+    if profile.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to stream this profile")
 
     if profile.analysis_status == "completed":
         raise HTTPException(status_code=400, detail="Analysis already completed")
