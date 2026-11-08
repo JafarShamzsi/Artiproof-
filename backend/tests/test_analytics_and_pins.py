@@ -348,3 +348,128 @@ async def test_share_activity_toggle_persists(with_user):
         )
     assert r.status_code == 200
     assert env.user.share_activity_with_team is False
+
+
+# ─── Global search ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_search_requires_q(with_user):
+    with_user()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/dashboard/search")
+    # Missing required `q` param → FastAPI 422
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_search_returns_empty_when_no_matches(with_user):
+    """All three sub-queries return empty result sets."""
+    env = with_user()
+
+    class _Empty:
+        def all(self):
+            return []
+
+    env.db.execute.return_value = _Empty()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/dashboard/search?q=nothing")
+    assert r.status_code == 200
+    assert r.json() == {"q": "nothing", "items": []}
+
+
+@pytest.mark.asyncio
+async def test_search_groups_results_across_kinds_and_sorts_by_recency(with_user):
+    """Each of the three subqueries returns one row; route should merge,
+    sort by created_at desc, and uniformly shape every item."""
+    env = with_user()
+
+    older = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    newer = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    middle = datetime(2026, 3, 1, tzinfo=timezone.utc)
+
+    sc_row = SimpleNamespace(
+        id="sc-1",
+        input_title="Climate study",
+        input_type="url",
+        overall_credibility_score=88.0,
+        created_at=older,
+    )
+    rp_row = SimpleNamespace(
+        id="rp-1",
+        researcher_name="Dr. Climate",
+        institution="ADA University",
+        integrity_score=92.0,
+        created_at=newer,
+    )
+    rpt_row = SimpleNamespace(
+        id="rpt-1",
+        title="Climate report",
+        report_type="source_verification",
+        created_at=middle,
+    )
+
+    call_count = {"n": 0}
+
+    async def execute_side_effect(_q):
+        call_count["n"] += 1
+        rows = [[sc_row], [rp_row], [rpt_row]][call_count["n"] - 1]
+        return SimpleNamespace(all=lambda r=rows: r)
+
+    env.db.execute.side_effect = execute_side_effect
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/dashboard/search?q=climate")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["q"] == "climate"
+    assert len(body["items"]) == 3
+    # newer > middle > older
+    assert body["items"][0]["kind"] == "researcher"
+    assert body["items"][1]["kind"] == "report"
+    assert body["items"][2]["kind"] == "source_check"
+
+
+@pytest.mark.asyncio
+async def test_search_caps_at_limit(with_user):
+    """When all three subqueries return rows that sum > limit, the total
+    must be capped to the user-requested limit."""
+    env = with_user()
+
+    def make_rows(prefix: str, n: int):
+        return [
+            SimpleNamespace(
+                id=f"{prefix}-{i}",
+                input_title=f"{prefix}-{i}",
+                input_type="url",
+                overall_credibility_score=None,
+                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                researcher_name=f"{prefix}-{i}",
+                institution=None,
+                integrity_score=None,
+                title=f"{prefix}-{i}",
+                report_type="source_verification",
+            )
+            for i in range(n)
+        ]
+
+    call_count = {"n": 0}
+
+    async def execute_side_effect(_q):
+        call_count["n"] += 1
+        prefix = ["sc", "rp", "rpt"][call_count["n"] - 1]
+        rows = make_rows(prefix, 3)
+        return SimpleNamespace(all=lambda r=rows: r)
+
+    env.db.execute.side_effect = execute_side_effect
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/dashboard/search?q=foo&limit=5")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["items"]) == 5

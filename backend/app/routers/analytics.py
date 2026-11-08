@@ -1,4 +1,4 @@
-"""Dashboard analytics — score distribution, top issues, team activity.
+"""Dashboard analytics — score distribution, top issues, team activity, search.
 
 These endpoints compute aggregates on-the-fly. None of them write state.
 For users with a lot of data we may want to cache or denormalize later;
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -281,3 +281,123 @@ async def get_team_activity(
 
     items.sort(key=lambda i: i["created_at"] or "", reverse=True)
     return {"items": items[:TEAM_ACTIVITY_MAX_ITEMS]}
+
+
+# ─── Global search (command palette) ─────────────────────────────────────
+
+
+@router.get("/search")
+async def search(
+    q: str = Query(..., min_length=1, max_length=200),
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Substring-match the user's source checks, researcher profiles, and
+    reports. Backs the Cmd+K command palette.
+
+    Match strategy: case-insensitive ILIKE on the title-ish column of each
+    table — `input_title`, `researcher_name`, `title`. ILIKE is fine for
+    the data sizes we have today (single-digit thousands per user is
+    nothing for Postgres). If the corpus grows beyond ~1M rows, swap for
+    pg_trgm + GIN index.
+
+    Scoped strictly to the current user — never returns other users' data.
+    Soft-deleted rows excluded.
+
+    Each result is shaped uniformly so the frontend renders a single
+    grouped list:
+      { kind: "source_check" | "researcher" | "report", id, title,
+        score: float | null, created_at: ISO }
+    """
+    pattern = f"%{q.strip()}%"
+    user_id = current_user.id
+
+    # Each query takes 1/3 of the budget so we don't drown in results from
+    # one type. limit//3 with a min of 3 keeps even tiny limits useful.
+    per_kind = max(3, limit // 3)
+
+    sc_q = await db.execute(
+        select(
+            SourceCheck.id,
+            SourceCheck.input_title,
+            SourceCheck.input_type,
+            SourceCheck.overall_credibility_score,
+            SourceCheck.created_at,
+        )
+        .where(
+            SourceCheck.user_id == user_id,
+            SourceCheck.deleted_at.is_(None),
+            or_(
+                SourceCheck.input_title.ilike(pattern),
+                # Match the URL/text content too — useful when the title is null
+                # because the pipeline hasn't filled it in yet.
+                SourceCheck.input_content.ilike(pattern),
+            ),
+        )
+        .order_by(SourceCheck.created_at.desc())
+        .limit(per_kind)
+    )
+
+    rp_q = await db.execute(
+        select(
+            ResearcherProfile.id,
+            ResearcherProfile.researcher_name,
+            ResearcherProfile.institution,
+            ResearcherProfile.integrity_score,
+            ResearcherProfile.created_at,
+        )
+        .where(
+            ResearcherProfile.user_id == user_id,
+            ResearcherProfile.deleted_at.is_(None),
+            or_(
+                ResearcherProfile.researcher_name.ilike(pattern),
+                ResearcherProfile.institution.ilike(pattern),
+                ResearcherProfile.orcid.ilike(pattern),
+            ),
+        )
+        .order_by(ResearcherProfile.created_at.desc())
+        .limit(per_kind)
+    )
+
+    rpt_q = await db.execute(
+        select(Report.id, Report.title, Report.report_type, Report.created_at)
+        .where(
+            Report.user_id == user_id,
+            Report.deleted_at.is_(None),
+            Report.title.ilike(pattern),
+        )
+        .order_by(Report.created_at.desc())
+        .limit(per_kind)
+    )
+
+    items: list[dict] = []
+    for row in sc_q.all():
+        items.append({
+            "kind": "source_check",
+            "id": row.id,
+            "title": row.input_title or f"Source check ({row.input_type})",
+            "score": row.overall_credibility_score,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        })
+    for row in rp_q.all():
+        items.append({
+            "kind": "researcher",
+            "id": row.id,
+            "title": row.researcher_name,
+            "subtitle": row.institution,
+            "score": row.integrity_score,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        })
+    for row in rpt_q.all():
+        items.append({
+            "kind": "report",
+            "id": row.id,
+            "title": row.title,
+            "score": None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        })
+
+    # Newest first across all kinds, capped at the user's requested limit.
+    items.sort(key=lambda i: i["created_at"] or "", reverse=True)
+    return {"q": q, "items": items[:limit]}
