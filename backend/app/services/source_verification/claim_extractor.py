@@ -2,12 +2,15 @@
 Claim extractor — uses Gemini to break article text into individual verifiable claims.
 """
 
+import asyncio
 import json
 import logging
 from typing import Optional
 
 from app.config import settings
+from app.constants import ANALYSIS_MAX_CLAIMS_TOTAL, ANALYSIS_WINDOW_CONCURRENCY
 from app.services.gemini import call_gemini
+from app.services.source_verification.chunker import analyzed_chars, chunk_text
 from app.services.source_verification.language import LanguageResult, language_directive
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
@@ -146,3 +149,82 @@ async def extract_claims(
             "kept": MAX_CLAIMS,
         })
     return validated[:MAX_CLAIMS]
+
+
+async def extract_claims_full(
+    text: str,
+    warnings: Optional[list] = None,
+    language: Optional[LanguageResult] = None,
+    max_windows: Optional[int] = None,
+) -> list[dict]:
+    """Extract claims across the WHOLE document via overlapping windows.
+
+    Each window is one ``extract_claims`` LLM call (bounded concurrency, metered
+    through the usual chokepoint). Claim ``position`` offsets are corrected back
+    to the original document, and near-duplicate claims from the overlaps are
+    merged. When the document exceeds the window budget, only the leading
+    windows are analyzed and an honest ``text_truncated`` warning records the
+    real coverage (analyzed vs total chars) for the coverage badge.
+
+    ``max_windows`` caps how many windows (LLM calls) this analysis may spend;
+    ``None`` analyzes every window.
+    """
+    if not settings.GEMINI_API_KEY:
+        logger.warning("GEMINI_API_KEY not set, returning empty claims")
+        if warnings is not None:
+            warnings.append({"type": "missing_gemini_key", "module": "claim_extractor"})
+        return []
+
+    if len(text.strip()) < 50:
+        return []
+
+    chunks = chunk_text(text)
+    budget = len(chunks) if max_windows is None else max(1, max_windows)
+    analyzed = chunks[:budget]
+
+    if len(chunks) > len(analyzed) and warnings is not None:
+        warnings.append({
+            "type": "text_truncated",
+            "module": "claim_extractor",
+            "original_length": len(text),
+            "analyzed_length": analyzed_chars(analyzed),
+        })
+
+    sem = asyncio.Semaphore(ANALYSIS_WINDOW_CONCURRENCY)
+
+    async def _extract_window(chunk) -> list[dict]:
+        async with sem:
+            # Per-window warnings are dropped: windows are < MAX_TEXT_CHARS so
+            # they never self-truncate, and budget/cap warnings are recorded at
+            # the document level above/below.
+            claims = await extract_claims(chunk.text, warnings=None, language=language)
+        for c in claims:
+            pos = c.get("position")
+            if isinstance(pos, dict):
+                c["position"] = {
+                    "start": int(pos.get("start", 0) or 0) + chunk.start,
+                    "end": int(pos.get("end", 0) or 0) + chunk.start,
+                }
+        return claims
+
+    per_window = await asyncio.gather(*[_extract_window(c) for c in analyzed])
+
+    # Merge in document order, de-duplicating near-identical claims from the
+    # overlap regions (normalize whitespace + case).
+    seen: set[str] = set()
+    merged: list[dict] = []
+    for claims in per_window:
+        for c in claims:
+            key = " ".join(str(c.get("claim_text", "")).lower().split())
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(c)
+
+    if len(merged) > ANALYSIS_MAX_CLAIMS_TOTAL and warnings is not None:
+        warnings.append({
+            "type": "claims_capped",
+            "module": "claim_extractor",
+            "extracted": len(merged),
+            "kept": ANALYSIS_MAX_CLAIMS_TOTAL,
+        })
+    return merged[:ANALYSIS_MAX_CLAIMS_TOTAL]

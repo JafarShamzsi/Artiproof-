@@ -26,16 +26,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.constants import CREDIBILITY_SCORE_MAX, CREDIBILITY_SCORE_MIN
+from app.constants import ANALYSIS_WINDOW_BUDGET, CREDIBILITY_SCORE_MAX, CREDIBILITY_SCORE_MIN
 from app.models.source_check import (
     SourceCheck,
     ClaimAnalysis,
     AIDetectionResult,
     CitationCheck,
 )
+from app.models.user import User
 from app.schemas.breakdown import FORMULA_VERSION
 from app.services.source_verification.scraper import scrape_url
-from app.services.source_verification.claim_extractor import extract_claims
+from app.services.source_verification.claim_extractor import extract_claims_full
 from app.services.source_verification.fact_checker import verify_claim
 from app.services.source_verification.ai_detector import detect_ai_content
 from app.services.source_verification.citation_analyzer import analyze_all_citations
@@ -78,6 +79,7 @@ class SourceVerificationOrchestrator:
         self._fallback_used = False
         self._text_was_truncated = False
         self._language = UNKNOWN
+        self._window_budget = ANALYSIS_WINDOW_BUDGET["free"]
 
     def _track_api(self, name: str) -> None:
         if name not in self._apis_used:
@@ -163,6 +165,13 @@ class SourceVerificationOrchestrator:
         current_user_id.set(check.user_id)
         current_source_check_id.set(check.id)
 
+        # Per-tier full-document budget — how many windows (LLM calls) a single
+        # analysis may spend before it stops and reports honest partial coverage.
+        tier_row = await self.db.execute(select(User.tier).where(User.id == check.user_id))
+        self._window_budget = ANALYSIS_WINDOW_BUDGET.get(
+            tier_row.scalar_one_or_none() or "free", ANALYSIS_WINDOW_BUDGET["free"]
+        )
+
         check.status = "processing"
         await self.db.commit()
         yield {"step": "started", "status": "processing", "detail": "Pipeline started", "progress": 0.05}
@@ -231,7 +240,9 @@ class SourceVerificationOrchestrator:
         # ── Step 2: Extract claims ──
         yield {"step": "extracting_claims", "status": "processing", "detail": "Extracting factual claims...", "progress": 0.2}
         try:
-            claims = await extract_claims(text, warnings=self._warnings, language=self._language)
+            claims = await extract_claims_full(
+                text, warnings=self._warnings, language=self._language, max_windows=self._window_budget
+            )
             self._track_api("gemini")
             yield {"step": "extracting_claims", "status": "done", "detail": f"Found {len(claims)} claims", "progress": 0.3}
         except HTTP_RETRY_EXCEPTIONS as e:
