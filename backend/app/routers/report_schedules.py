@@ -1,11 +1,6 @@
-"""Recurring report schedules — `/api/me/report-schedules/*`.
+"""Schedule inspection/deletion remains available; creation/execution disabled.
 
-A daily Celery beat sweep walks the report_schedules table for active
-schedules with `next_run_at <= now()`, generates a report (defaulting to
-executive_summary template, all of the user's source checks since the
-previous run), and advances next_run_at by frequency. Email delivery is
-gated on SMTP infrastructure that's not wired yet — generated reports
-just appear in the user's /reports list.
+Legacy rows have no durable original tenant scope. See REPORT-SCOPE-SECURITY.md.
 """
 
 from datetime import datetime, time, timedelta, timezone
@@ -29,6 +24,7 @@ router = APIRouter(prefix="/api/me/report-schedules", tags=["Reports"])
 
 
 _REPORT_DELIVERY_HOUR_UTC = 9
+SCHEDULING_DISABLED = "Scheduled reports disabled: durable original tenant scope is unavailable"
 
 
 def _next_run(frequency: str, base: datetime | None = None) -> datetime:
@@ -94,32 +90,13 @@ async def create_schedule(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a new schedule. We cap at 5 active schedules per user to
-    keep the daily sweep predictable."""
-    # Schedule template can't be a multi-record one — those need explicit
-    # ids that don't exist at sweep time.
+    """Fail explicitly rather than bind a schedule to a mutable user pointer."""
     if data.template in ("comparison", "institutional_audit"):
         raise HTTPException(
             status_code=400,
             detail="Multi-record templates aren't valid for scheduled reports",
         )
-    count_q = await db.execute(
-        select(ReportSchedule).where(ReportSchedule.user_id == current_user.id)
-    )
-    if len(count_q.scalars().all()) >= 5:
-        raise HTTPException(status_code=400, detail="Maximum of 5 schedules per user")
-
-    schedule = ReportSchedule(
-        user_id=current_user.id,
-        frequency=data.frequency,
-        template=data.template,
-        active=True,
-        next_run_at=_next_run(data.frequency),
-    )
-    db.add(schedule)
-    await db.commit()
-    await db.refresh(schedule)
-    return _response(schedule)
+    raise HTTPException(status_code=503, detail=SCHEDULING_DISABLED)
 
 
 @router.patch("/{schedule_id}", response_model=ReportScheduleResponse)
@@ -136,6 +113,11 @@ async def update_schedule(
     if not schedule or schedule.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
+    if data.active is True:
+        raise HTTPException(status_code=503, detail=SCHEDULING_DISABLED)
+    # Existing active flags are not evidence of safe scope. Any successful
+    # update disables the row; users can still pause, inspect, or delete it.
+    schedule.active = False
     if data.active is not None:
         schedule.active = data.active
     if data.template is not None:

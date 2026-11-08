@@ -234,6 +234,28 @@ def _report_response(r: Report) -> ReportResponse:
 # ─── Generate ─────────────────────────────────────────────────────────────
 
 
+def _derived_scope(user: User, inputs: list) -> str | None:
+    """Access to an input is not permission to transfer it to another tenant."""
+    if not inputs:
+        raise HTTPException(status_code=400, detail="Report requires inputs")
+    for item in inputs:
+        if not is_owner_or_org_admin(user, item):
+            raise HTTPException(status_code=403, detail="Not authorized to use report input")
+    scopes = {getattr(item, "organization_id", None) for item in inputs}
+    if len(scopes) != 1:
+        raise HTTPException(status_code=400, detail="Report inputs must have the same personal or organization scope")
+    return scopes.pop()
+
+
+def _require_report_input_scope(report: Report, inputs: list, expected: int = 1) -> None:
+    """Regeneration must not pull new-scope data through an old report/share."""
+    if len(inputs) != expected or any(
+        getattr(item, "organization_id", None) != getattr(report, "organization_id", None)
+        for item in inputs
+    ):
+        raise HTTPException(status_code=410, detail="Report input scope changed or inputs are missing")
+
+
 @router.post("/generate", response_model=ReportResponse, status_code=201)
 @limiter.limit(tier_aware_limit_for_key)
 async def generate_report(
@@ -254,7 +276,12 @@ async def generate_report(
     rendering.
     """
     user_id = current_user.id
-    branding = await _branding_for_user(current_user, db)
+    # Resolve branding only after the input scope has been authorized. A new
+    # employer's branding must not be attached to personal/prior-org work.
+    async def branding_for_scope(scope):
+        if scope is None or scope != current_user.organization_id:
+            return None
+        return await _branding_for_user(current_user, db)
     template = data.template
 
     # Validate template/input combinations
@@ -306,6 +333,8 @@ async def generate_report(
         for c in checks:
             if not is_owner_or_org_admin(current_user, c):
                 raise HTTPException(status_code=403, detail="Not authorized to use one of the source checks")
+        organization_id = _derived_scope(current_user, checks)
+        branding = await branding_for_scope(organization_id)
         items = await _load_check_summaries_batched(checks, db)
         narrative = ""
         html = render_comparison_report(items, branding=branding)
@@ -342,6 +371,8 @@ async def generate_report(
                     status_code=403,
                     detail="Not authorized to use one of the researcher profiles",
                 )
+        organization_id = _derived_scope(current_user, profiles)
+        branding = await branding_for_scope(organization_id)
         items = _researcher_summaries(profiles)
         narrative = ""
         html = render_institutional_audit_report(items, branding=branding)
@@ -367,6 +398,8 @@ async def generate_report(
             raise HTTPException(status_code=404, detail="Source check not found")
         if not is_owner_or_org_admin(current_user, check):
             raise HTTPException(status_code=403, detail="Not authorized to use this source check")
+        organization_id = _derived_scope(current_user, [check])
+        branding = await branding_for_scope(organization_id)
         check_data = await _load_check_data(check, db)
         narrative = await generate_source_check_narrative(check_data)
         if template == "executive_summary":
@@ -397,6 +430,8 @@ async def generate_report(
             raise HTTPException(
                 status_code=403, detail="Not authorized to use this researcher profile"
             )
+        organization_id = _derived_scope(current_user, [profile])
+        branding = await branding_for_scope(organization_id)
         profile_data = await _load_researcher_data(profile, db)
         narrative = await generate_researcher_narrative(profile_data)
         if template == "executive_summary":
@@ -425,7 +460,7 @@ async def generate_report(
 
     report = Report(
         user_id=user_id,
-        organization_id=current_user.organization_id,
+        organization_id=organization_id,
         source_check_id=source_check_id,
         researcher_profile_id=researcher_profile_id,
         source_check_ids=source_check_ids,
@@ -635,7 +670,11 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> tuple[byte
     # Resolve owner's branding for white-label re-render.
     owner_q = await db.execute(select(User).where(User.id == report.user_id))
     owner = owner_q.scalar_one_or_none()
-    branding = await _branding_for_user(owner, db) if owner else None
+    branding = (
+        await _branding_for_user(owner, db)
+        if owner and getattr(report, "organization_id", None) is not None
+        and report.organization_id == owner.organization_id else None
+    )
 
     # Soft-deleted upstream records (deleted_at IS NOT NULL) must NOT be
     # rendered into a re-generated PDF — the share link would otherwise
@@ -653,6 +692,7 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> tuple[byte
         checks = list(result.scalars().all())
         if not checks:
             raise HTTPException(status_code=410, detail="Underlying source checks no longer exist")
+        _require_report_input_scope(report, checks, len(set(ids)))
         items = await _load_check_summaries_batched(checks, db)
         html = render_comparison_report(items, branding=branding, annotations=report.annotations)
 
@@ -669,6 +709,7 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> tuple[byte
         profiles = list(result.scalars().all())
         if not profiles:
             raise HTTPException(status_code=410, detail="Underlying researcher profiles no longer exist")
+        _require_report_input_scope(report, profiles, len(set(ids)))
         items = _researcher_summaries(profiles)
         html = render_institutional_audit_report(items, branding=branding, annotations=report.annotations)
 
@@ -682,6 +723,7 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> tuple[byte
         check = sc_result.scalar_one_or_none()
         if not check:
             raise HTTPException(status_code=410, detail="Underlying source check no longer exists")
+        _require_report_input_scope(report, [check])
         check_data = await _load_check_data(check, db)
         if template == "executive_summary":
             html = render_executive_summary_report(
@@ -704,6 +746,7 @@ async def _regenerate_report_pdf(report: Report, db: AsyncSession) -> tuple[byte
             raise HTTPException(
                 status_code=410, detail="Underlying researcher profile no longer exists"
             )
+        _require_report_input_scope(report, [profile])
         profile_data = await _load_researcher_data(profile, db)
         if template == "executive_summary":
             html = render_executive_summary_report(
