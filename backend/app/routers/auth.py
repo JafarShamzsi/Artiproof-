@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from passlib.hash import bcrypt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -85,16 +85,40 @@ async def register(request: Request, data: UserRegister, db: AsyncSession = Depe
 
     # Validate the invite up-front so we don't half-create a user and
     # then 400 on the attach. A bad invite token aborts before any row
-    # is inserted.
+    # is inserted. The persistent ``organization_invites`` row is
+    # additionally checked so a revoked or expired invite refuses even
+    # if the JWT itself is still otherwise valid.
     invite_payload: Optional[dict] = None
+    invite_row = None
     if data.invite_token:
         from app.utils.auth import decode_invite_token
+        from app.models.organization_invite import OrganizationInvite
 
         invite_payload = decode_invite_token(data.invite_token)
         if invite_payload["email"].lower() != data.email.lower():
             raise HTTPException(
                 status_code=400,
                 detail="Invite was issued to a different email address.",
+            )
+
+        # Find the corresponding persistent row. Pending rows added by
+        # the new ``/invites`` flow get marked accepted below; older
+        # tokens issued before the row existed silently pass through
+        # (the JWT signature + exp check from decode_invite_token is
+        # the only line of defense for those — that's fine, the worst
+        # case is a pre-existing token doesn't get audited as "accepted"
+        # in the new table).
+        invite_row_q = await db.execute(
+            select(OrganizationInvite).where(
+                OrganizationInvite.organization_id == invite_payload["org_id"],
+                func.lower(OrganizationInvite.email) == data.email.lower(),
+            ).order_by(OrganizationInvite.created_at.desc())
+        )
+        invite_row = invite_row_q.scalars().first()
+        if invite_row is not None and invite_row.status != "pending":
+            raise HTTPException(
+                status_code=400,
+                detail=f"This invite is no longer valid ({invite_row.status}).",
             )
 
     # New users always start as researchers — admin is privileged and only assignable
@@ -136,6 +160,25 @@ async def register(request: Request, data: UserRegister, db: AsyncSession = Depe
         )
         db.add(member)
         user.organization_id = org_id
+        # Mark the persistent invite row as accepted so the admin's
+        # Invites tab no longer shows it as pending and the audit trail
+        # records who closed the loop. Old tokens with no row skip this.
+        if invite_row is not None:
+            invite_row.status = "accepted"
+            invite_row.accepted_at = datetime.now(timezone.utc)
+            try:
+                from app.services.org_audit import record_org_action
+
+                await record_org_action(
+                    db=db,
+                    org_id=org_id,
+                    actor_user_id=user.id,
+                    action="member_added",
+                    target_user_id=user.id,
+                    payload={"email": user.email, "role": invite_payload["role"]},
+                )
+            except Exception:  # pragma: no cover — audit is best-effort
+                logger.exception("invite-accept audit write failed")
         await db.commit()
         await db.refresh(user)
 

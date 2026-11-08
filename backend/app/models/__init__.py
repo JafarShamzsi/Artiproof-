@@ -6,6 +6,8 @@ from app.models.celery_run_log import CeleryRunLog
 from app.models.gemini_metric import GeminiMetric
 from app.models.llm_metric import LLMMetric
 from app.models.organization import Organization
+from app.models.organization_audit_log import OrganizationAuditLog
+from app.models.organization_invite import OrganizationInvite
 from app.models.organization_member import OrganizationMember
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
@@ -33,6 +35,8 @@ __all__ = [
     "Base",
     "User",
     "Organization",
+    "OrganizationAuditLog",
+    "OrganizationInvite",
     "OrganizationMember",
     "Session",
     "SourceCheck",
