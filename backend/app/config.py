@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-3-5-haiku-20241022"
 
+    # Report narratives are written deterministically from the structured
+    # results by default — no LLM call, no hallucination, instant. Set true to
+    # have the LLM rewrite them for nicer prose (it falls back to the
+    # deterministic draft on any failure).
+    NARRATIVE_LLM_POLISH: bool = False
+
     # Google Fact Check
     GOOGLE_FACTCHECK_API_KEY: str = ""
     GOOGLE_CLIENT_ID: str = ""  # Required for Google sign-in: set via GOOGLE_CLIENT_ID env var
