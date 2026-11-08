@@ -22,6 +22,7 @@ import {
   MailCheck,
   MonitorSmartphone,
   Palette,
+  PlayCircle,
   Save,
   ShieldCheck,
   Sliders,
@@ -46,6 +47,8 @@ import {
 } from "@/components/ui/dialog";
 import { useColorMode } from "@/contexts/ColorModeContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useTour } from "@/contexts/TourContext";
+import { TOURS } from "@/lib/tours";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
@@ -217,6 +220,8 @@ export default function SettingsPage() {
       <ConnectedAccountsSection />
 
       <ThemeSection />
+
+      <OnboardingTourSection />
 
       <LanguageSection initialLocale={profile?.locale ?? "en"} />
 
@@ -961,6 +966,66 @@ function ThemeSection() {
           </div>
         </label>
       </div>
+    </SectionCard>
+  );
+}
+
+// ─── Onboarding tour ───────────────────────────────────────────────────────
+// Lets the user replay the dashboard tour or any of the per-feature tours
+// shipped with the platform. "Replay" wipes that tour's stored
+// completion version so the auto-start logic re-fires; the manual
+// "Start now" button forces it regardless of completion state.
+
+function OnboardingTourSection() {
+  const { startTour, isCompleted, resetTour } = useTour();
+  const entries = Object.values(TOURS);
+
+  return (
+    <SectionCard
+      icon={<PlayCircle className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
+      title="Guided tours"
+      description="Replay any of the in-product walkthroughs. New tours appear here whenever we ship a feature that needs a quick orientation."
+    >
+      <ul className="divide-y divide-border-default">
+        {entries.map((tour) => {
+          const done = isCompleted(tour.id);
+          return (
+            <li
+              key={tour.id}
+              className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-fg-primary">
+                  {tour.label}
+                </p>
+                <p className="text-xs text-fg-secondary">
+                  {tour.steps.length} steps · {done ? "Completed" : "Not yet seen"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {done && (
+                  <button
+                    type="button"
+                    onClick={() => resetTour(tour.id)}
+                    className="text-xs text-fg-tertiary underline-offset-2 hover:text-fg-secondary hover:underline"
+                  >
+                    Reset
+                  </button>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={done ? "outline" : "default"}
+                  onClick={() => startTour(tour.id, { force: true })}
+                >
+                  <PlayCircle className="mr-1.5 h-4 w-4" />
+                  {done ? "Replay" : "Start"}
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </SectionCard>
   );
 }

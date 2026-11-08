@@ -19,6 +19,9 @@ import {
   CommandPalette,
   useCommandPalette,
 } from "@/components/dashboard/CommandPalette";
+import { TourProvider } from "@/contexts/TourContext";
+import { TourOverlay } from "@/components/tour/TourOverlay";
+import { TourAutoStart } from "@/components/tour/TourAutoStart";
 import {
   LayoutDashboard,
   Search,
@@ -33,18 +36,18 @@ import {
 } from "lucide-react";
 
 const baseSidebarLinks = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/check", label: "Check Source", icon: Search },
-  { href: "/researcher", label: "Analyze Researcher", icon: Users },
-  { href: "/watchlist", label: "Watchlist", icon: Eye },
-  { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, tour: "nav-dashboard" },
+  { href: "/check", label: "Check Source", icon: Search, tour: "nav-check" },
+  { href: "/researcher", label: "Analyze Researcher", icon: Users, tour: "nav-researcher" },
+  { href: "/watchlist", label: "Watchlist", icon: Eye, tour: "nav-watchlist" },
+  { href: "/reports", label: "Reports", icon: FileText, tour: "nav-reports" },
+  { href: "/settings", label: "Settings", icon: Settings, tour: "nav-settings" },
 ] as const;
 
 // /admin is appended at render time only when the session role is admin —
 // non-admins never see the link AND the backend gates the endpoints with
 // `require_admin`, so a curious user typing the URL still hits 403.
-const adminLink = { href: "/admin", label: "Admin", icon: Shield } as const;
+const adminLink = { href: "/admin", label: "Admin", icon: Shield, tour: "nav-admin" } as const;
 
 function SidebarContent({
   collapsed,
@@ -78,6 +81,7 @@ function SidebarContent({
             <Link
               key={link.href}
               href={link.href}
+              data-tour={link.tour}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
@@ -126,9 +130,11 @@ export default function DashboardLayout({
   const isAdmin = sessionRole === "admin";
 
   return (
+    <TourProvider>
     <div className="flex h-[100dvh] bg-surface-base">
       {/* Desktop Sidebar */}
       <aside
+        data-tour="sidebar"
         className={cn(
           "hidden border-r border-border-default bg-surface-card transition-all duration-300 md:flex md:flex-col",
           collapsed ? "w-16" : "w-64"
@@ -182,6 +188,7 @@ export default function DashboardLayout({
               type="button"
               onClick={() => setPaletteOpen(true)}
               aria-label="Open command palette"
+              data-tour="cmd-palette"
               className="hidden h-9 items-center gap-2 rounded-lg border border-border-default bg-surface-base px-2.5 text-sm text-fg-secondary transition-colors hover:border-border-strong hover:bg-brand-soft hover:text-fg-primary sm:inline-flex md:w-64 md:justify-between"
             >
               <span className="flex items-center gap-2">
@@ -201,6 +208,7 @@ export default function DashboardLayout({
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Open account menu"
+                data-tour="account-menu"
                 className="relative flex h-9 w-9 items-center justify-center rounded-full hover:bg-brand-soft"
               >
                 <Avatar className="h-9 w-9">
@@ -242,19 +250,20 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content
-            - `pb-24` reserves vertical space for the CookieBanner that sits
-              `fixed bottom-0` from app/layout.tsx. Without it, on short pages
-              (Watchlist empty, Reports empty) the user can scroll the page
-              into a blank area below the content because the banner overlays
-              the bottom 60–90px and the visible area appears truncated.
-            - The reserved space stays even after the banner is dismissed —
-              the small extra padding is a worthwhile trade-off vs. listening
-              for a custom event from the banner and recomputing layout. */}
+            - Bottom padding tracks the CookieBanner's measured height via
+              the `--banner-h` CSS variable (set by CookieBanner on mount,
+              cleared on dismiss). When the banner is gone the padding
+              falls back to the base `1.5rem`, so dismissed users don't
+              scroll into a blank reservation area below the content.
+            - `overflow-anchor: none` on this main is set in globals.css
+              to stop the browser from auto-anchoring scroll position to
+              a child node when the theme toggle re-flows the page. */}
         <main
           id="main-content"
           tabIndex={-1}
           aria-label="Dashboard content"
-          className="flex-1 overflow-y-auto p-6 pb-24"
+          className="flex-1 overflow-y-auto p-6"
+          style={{ paddingBottom: "calc(1.5rem + var(--banner-h, 0px))" }}
         >
           {/* `min-h-full` so short-content pages (empty Watchlist, empty
               Reports, fresh dashboards) fill the visible viewport instead
@@ -270,6 +279,14 @@ export default function DashboardLayout({
       {/* Command palette — Cmd/Ctrl+K. State lives in the layout so the
           header search button and the global hotkey both control it. */}
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+
+      {/* Onboarding tour — auto-starts the dashboard-welcome tour for new
+          users (idempotent per stored completion version), and renders
+          the animated overlay whenever a tour is active. The overlay is
+          a no-op when no tour is running. */}
+      <TourAutoStart tourId="dashboard-welcome" />
+      <TourOverlay />
     </div>
+    </TourProvider>
   );
 }
