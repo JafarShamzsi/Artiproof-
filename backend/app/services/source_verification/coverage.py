@@ -153,6 +153,22 @@ def build_coverage(model_metadata: Any) -> CoverageSummary | None:
                 )
             )
 
+    detected_name = ctx.get("detected_language_name")
+    detected_code = ctx.get("detected_language")
+    if detected_name and detected_code and detected_code not in ("en", "und"):
+        notes.append(
+            CoverageNote(
+                kind="language_detected",
+                severity="info",
+                headline=f"Analyzed in {detected_name}",
+                detail=(
+                    f"The document was detected as {detected_name} and analyzed "
+                    "natively. Heuristic AI-detection signals are tuned for English, "
+                    "so the AI estimate is more approximate for other languages."
+                ),
+            )
+        )
+
     return CoverageSummary(
         notes=notes,
         claims_analyzed=claims_analyzed,

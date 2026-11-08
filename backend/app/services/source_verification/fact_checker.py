@@ -10,6 +10,7 @@ import httpx
 
 from app.config import settings
 from app.services.gemini import call_gemini
+from app.services.source_verification.language import LanguageResult, language_directive
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, HTTP_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
@@ -40,27 +41,27 @@ Return ONLY the JSON object, no other text."""
 
 
 @with_retry(max_retries=2, exceptions=HTTP_RETRY_EXCEPTIONS)
-async def _fetch_google_factcheck(claim_text: str) -> dict:
+async def _fetch_google_factcheck(claim_text: str, language_code: str = "en") -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             "https://factchecktools.googleapis.com/v1alpha1/claims:search",
             params={
                 "query": claim_text[:200],
                 "key": settings.GOOGLE_FACTCHECK_API_KEY,
-                "languageCode": "en",
+                "languageCode": language_code,
             },
         )
         resp.raise_for_status()
         return resp.json()
 
 
-async def check_with_google_factcheck(claim_text: str) -> list[dict]:
+async def check_with_google_factcheck(claim_text: str, language_code: str = "en") -> list[dict]:
     """Query Google Fact Check Tools API for existing fact-checks on this claim."""
     if not settings.GOOGLE_FACTCHECK_API_KEY:
         return []
 
     try:
-        data = await _fetch_google_factcheck(claim_text)
+        data = await _fetch_google_factcheck(claim_text, language_code=language_code)
     except httpx.HTTPStatusError as e:
         # 404/no results is expected for many claims; only log unusual codes.
         if e.response.status_code not in (400, 404):
@@ -86,14 +87,25 @@ async def check_with_google_factcheck(claim_text: str) -> list[dict]:
     return results
 
 
-async def verify_claim(claim_text: str, article_context: str = "") -> dict:
+async def verify_claim(
+    claim_text: str,
+    article_context: str = "",
+    language: Optional[LanguageResult] = None,
+) -> dict:
     """
     Verify a single claim using Google Fact Check API + Gemini analysis.
 
+    When ``language`` is a confident non-English detection, the Google Fact
+    Check query uses that language code (was hardcoded to English) and a
+    directive is prepended to the Gemini prompt so the explanation is written
+    natively. The verdict enum stays English (it's whitelist-validated).
+
     Returns dict with: verdict, confidence, explanation, true_version, sources
     """
-    # Step 1: Check Google Fact Check API for existing fact-checks
-    factcheck_results = await check_with_google_factcheck(claim_text)
+    # Step 1: Check Google Fact Check API for existing fact-checks, in the
+    # document's language when known.
+    lang_code = language.code if (language is not None and language.is_known) else "en"
+    factcheck_results = await check_with_google_factcheck(claim_text, language_code=lang_code)
 
     factcheck_context = ""
     if factcheck_results:
@@ -134,8 +146,10 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
     context_snippet = article_context[:500] if article_context else "No additional context available."
 
     try:
+        directive = language_directive(language, task="verify the claim above")
         raw = await _call_gemini_verify(
-            VERIFICATION_PROMPT.format(
+            directive
+            + VERIFICATION_PROMPT.format(
                 claim_text=claim_text,
                 context=context_snippet,
                 factcheck_context=factcheck_context,

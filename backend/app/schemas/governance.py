@@ -64,6 +64,9 @@ class AnalysisContext(BaseModel):
     text_truncated: Optional[bool] = None
     claims_extracted: Optional[int] = None
     paragraphs_analyzed: Optional[int] = None
+    detected_language: Optional[str] = None
+    detected_language_name: Optional[str] = None
+    language_reliable: Optional[bool] = None
     publications_count: Optional[int] = None
     citations_checked: Optional[int] = None
     field_used: Optional[str] = None

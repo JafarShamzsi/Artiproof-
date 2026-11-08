@@ -8,6 +8,7 @@ from typing import Optional
 
 from app.config import settings
 from app.services.gemini import call_gemini
+from app.services.source_verification.language import LanguageResult, language_directive
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,11 @@ async def _call_gemini(prompt: str) -> str:
     return await call_gemini(prompt, operation="claim_extractor")
 
 
-async def extract_claims(text: str, warnings: Optional[list] = None) -> list[dict]:
+async def extract_claims(
+    text: str,
+    warnings: Optional[list] = None,
+    language: Optional[LanguageResult] = None,
+) -> list[dict]:
     """Extract verifiable factual claims from article text using Gemini.
 
     Args:
@@ -61,6 +66,9 @@ async def extract_claims(text: str, warnings: Optional[list] = None) -> list[dic
         warnings: optional list the caller owns; this function appends
             structured warnings (truncation, fallback, parse failures) so
             the orchestrator can persist them to model_metadata.
+        language: optional detected document language. When non-English a
+            directive is prepended to the prompt so claims are extracted and
+            labelled natively; the EXTRACTION_PROMPT template is unchanged.
 
     Returns list of dicts with keys: claim_text, position, category
     """
@@ -84,7 +92,8 @@ async def extract_claims(text: str, warnings: Optional[list] = None) -> list[dic
         })
 
     try:
-        raw = await _call_gemini(EXTRACTION_PROMPT.format(text=truncated))
+        directive = language_directive(language, task="extract every specific, verifiable factual claim")
+        raw = await _call_gemini(directive + EXTRACTION_PROMPT.format(text=truncated))
     except Exception as e:
         # Already retried by the decorator. Log type so we can audit which
         # failure modes happen in prod.

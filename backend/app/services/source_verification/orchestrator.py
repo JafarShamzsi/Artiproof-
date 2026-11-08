@@ -39,6 +39,7 @@ from app.services.source_verification.claim_extractor import extract_claims
 from app.services.source_verification.fact_checker import verify_claim
 from app.services.source_verification.ai_detector import detect_ai_content
 from app.services.source_verification.citation_analyzer import analyze_all_citations
+from app.services.source_verification.language import UNKNOWN, detect_language
 from app.services.source_verification.origin_tracer import trace_origin
 from app.utils.retry import HTTP_RETRY_EXCEPTIONS
 
@@ -76,6 +77,7 @@ class SourceVerificationOrchestrator:
         self._apis_used: list[str] = []
         self._fallback_used = False
         self._text_was_truncated = False
+        self._language = UNKNOWN
 
     def _track_api(self, name: str) -> None:
         if name not in self._apis_used:
@@ -120,6 +122,7 @@ class SourceVerificationOrchestrator:
         self._warnings = []
         self._apis_used = []
         self._fallback_used = False
+        self._language = UNKNOWN
         self._text_was_truncated = False
 
         # ── Governance: snapshot the prompt bundle at pipeline start ──
@@ -215,10 +218,20 @@ class SourceVerificationOrchestrator:
 
         text_length = len(text)
 
+        # Detect the document language once, then adapt every downstream
+        # analyzer (claims, AI detection, fact-check) to it.
+        self._language = detect_language(text)
+        if self._language.is_known:
+            logger.info(
+                "Detected document language: %s (%s)",
+                self._language.name,
+                self._language.code,
+            )
+
         # ── Step 2: Extract claims ──
         yield {"step": "extracting_claims", "status": "processing", "detail": "Extracting factual claims...", "progress": 0.2}
         try:
-            claims = await extract_claims(text, warnings=self._warnings)
+            claims = await extract_claims(text, warnings=self._warnings, language=self._language)
             self._track_api("gemini")
             yield {"step": "extracting_claims", "status": "done", "detail": f"Found {len(claims)} claims", "progress": 0.3}
         except HTTP_RETRY_EXCEPTIONS as e:
@@ -238,14 +251,14 @@ class SourceVerificationOrchestrator:
         async def _fact_check_all():
             results = []
             for claim in claims:
-                fc = await verify_claim(claim["claim_text"], text[:1000])
+                fc = await verify_claim(claim["claim_text"], text[:1000], language=self._language)
                 results.append({**claim, **fc})
             return results
 
         try:
             fact_check_results, ai_results = await asyncio.gather(
                 _fact_check_all(),
-                detect_ai_content(text, warnings=self._warnings),
+                detect_ai_content(text, warnings=self._warnings, language=self._language),
             )
             if claims:
                 self._track_api("google_factcheck")
@@ -579,6 +592,9 @@ class SourceVerificationOrchestrator:
                 "text_truncated": self._text_was_truncated,
                 "claims_extracted": len(fact_check_results),
                 "paragraphs_analyzed": len(ai_results),
+                "detected_language": self._language.code if self._language.reliable else None,
+                "detected_language_name": self._language.name if self._language.is_known else None,
+                "language_reliable": self._language.reliable,
             },
         )
         check.status = "completed"

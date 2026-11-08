@@ -29,6 +29,11 @@ openai>=1.50.0,<2.0
 anthropic>=0.40.0,<1.0
 httpx>=0.28.1,<1.0
 
+# Language detection (document language -> multi-language analysis).
+# py3langid: deterministic, offline, bundled model covering ~97 languages
+# including az/ru. (langdetect ships no Azerbaijani model and misdetects it.)
+py3langid>=0.3.0,<0.4
+
 # Web scraping
 beautifulsoup4>=4.13.3,<5.0
 
