@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import async_session, get_db
 from app.routers import (
+    analytics_router,
     auth_router,
     dashboard_router,
     reports_router,
@@ -194,6 +195,7 @@ app.include_router(source_check_router)
 app.include_router(researcher_router)
 app.include_router(reports_router)
 app.include_router(dashboard_router)
+app.include_router(analytics_router)
 app.include_router(seed_router)
 
 

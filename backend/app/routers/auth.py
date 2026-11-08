@@ -755,3 +755,192 @@ async def update_analysis_preferences(
     current_user.updated_at = datetime.now(timezone.utc)
     await db.commit()
     return data
+
+
+# ─── Pinned items ─────────────────────────────────────────────────────────
+
+
+from app.constants import MAX_PINNED_ITEMS  # noqa: E402
+from app.schemas.auth import PinnedItem, PinRequest, ShareActivityRequest  # noqa: E402
+
+
+async def _hydrate_pins(db: AsyncSession, user: User) -> list[PinnedItem]:
+    """Hydrate the pinned_items JSON into rich items.
+
+    Pins for rows that no longer exist (deleted, etc.) are silently
+    filtered. The JSON column itself isn't pruned here — a separate cleanup
+    pass could do that, but tolerating stale entries keeps reads idempotent.
+    """
+    pins = user.pinned_items or []
+    if not isinstance(pins, list):
+        return []
+
+    by_kind: dict[str, list[str]] = {"source_check": [], "researcher": [], "report": []}
+    pinned_at: dict[tuple[str, str], str | None] = {}
+    for p in pins:
+        if not isinstance(p, dict):
+            continue
+        kind = p.get("kind")
+        pid = p.get("id")
+        if kind not in by_kind or not isinstance(pid, str):
+            continue
+        by_kind[kind].append(pid)
+        pinned_at[(kind, pid)] = p.get("pinned_at")
+
+    out: list[PinnedItem] = []
+
+    if by_kind["source_check"]:
+        sc_q = await db.execute(
+            select(SourceCheck).where(
+                SourceCheck.id.in_(by_kind["source_check"]),
+                SourceCheck.user_id == user.id,
+                SourceCheck.deleted_at.is_(None),
+            )
+        )
+        for sc in sc_q.scalars().all():
+            iso = pinned_at.get(("source_check", sc.id))
+            out.append(
+                PinnedItem(
+                    kind="source_check",
+                    id=sc.id,
+                    title=sc.input_title or f"Source check ({sc.input_type})",
+                    score=sc.overall_credibility_score,
+                    pinned_at=datetime.fromisoformat(iso) if iso else sc.created_at,
+                )
+            )
+
+    if by_kind["researcher"]:
+        rp_q = await db.execute(
+            select(ResearcherProfile).where(
+                ResearcherProfile.id.in_(by_kind["researcher"]),
+                ResearcherProfile.user_id == user.id,
+                ResearcherProfile.deleted_at.is_(None),
+            )
+        )
+        for rp in rp_q.scalars().all():
+            iso = pinned_at.get(("researcher", rp.id))
+            out.append(
+                PinnedItem(
+                    kind="researcher",
+                    id=rp.id,
+                    title=f"Researcher: {rp.researcher_name}",
+                    score=rp.integrity_score,
+                    pinned_at=datetime.fromisoformat(iso) if iso else rp.created_at,
+                )
+            )
+
+    if by_kind["report"]:
+        rpt_q = await db.execute(
+            select(Report).where(
+                Report.id.in_(by_kind["report"]),
+                Report.user_id == user.id,
+                Report.deleted_at.is_(None),
+            )
+        )
+        for r in rpt_q.scalars().all():
+            iso = pinned_at.get(("report", r.id))
+            out.append(
+                PinnedItem(
+                    kind="report",
+                    id=r.id,
+                    title=r.title,
+                    score=None,
+                    pinned_at=datetime.fromisoformat(iso) if iso else r.created_at,
+                )
+            )
+
+    out.sort(key=lambda p: p.pinned_at, reverse=True)
+    return out
+
+
+@router.get("/me/pins", response_model=list[PinnedItem])
+async def list_pins(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await _hydrate_pins(db, current_user)
+
+
+@router.post("/me/pins", response_model=list[PinnedItem], status_code=201)
+async def add_pin(
+    data: PinRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Pin an item to the dashboard. Verifies ownership before pinning so
+    a user can't pin something they don't own. Idempotent — pinning an
+    already-pinned item returns the current list."""
+    if data.kind == "source_check":
+        target = await db.get(SourceCheck, data.id)
+    elif data.kind == "researcher":
+        target = await db.get(ResearcherProfile, data.id)
+    elif data.kind == "report":
+        target = await db.get(Report, data.id)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid kind")
+
+    if target is None or target.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"{data.kind} not found")
+    if getattr(target, "deleted_at", None) is not None:
+        raise HTTPException(status_code=404, detail=f"{data.kind} not found")
+
+    pins = list(current_user.pinned_items or [])
+    if any(
+        isinstance(p, dict) and p.get("kind") == data.kind and p.get("id") == data.id
+        for p in pins
+    ):
+        return await _hydrate_pins(db, current_user)
+    if len(pins) >= MAX_PINNED_ITEMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"You can pin at most {MAX_PINNED_ITEMS} items. Unpin one first.",
+        )
+
+    pins.append({
+        "kind": data.kind,
+        "id": data.id,
+        "pinned_at": datetime.now(timezone.utc).isoformat(),
+    })
+    current_user.pinned_items = pins
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(current_user)
+    return await _hydrate_pins(db, current_user)
+
+
+@router.delete("/me/pins/{kind}/{item_id}", status_code=204)
+async def remove_pin(
+    kind: str,
+    item_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    pins = list(current_user.pinned_items or [])
+    new_pins = [
+        p
+        for p in pins
+        if not (
+            isinstance(p, dict) and p.get("kind") == kind and p.get("id") == item_id
+        )
+    ]
+    if len(new_pins) == len(pins):
+        raise HTTPException(status_code=404, detail="Pin not found")
+    current_user.pinned_items = new_pins or None
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+# ─── Team activity sharing toggle ─────────────────────────────────────────
+
+
+@router.put("/me/share-activity-with-team", response_model=UserResponse)
+async def update_share_activity(
+    data: ShareActivityRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.share_activity_with_team = data.share
+    current_user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(current_user)
+    return _user_to_response(current_user)
