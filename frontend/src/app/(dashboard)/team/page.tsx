@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { TeamWorkspace } from "./TeamWorkspace";
 
 export const metadata = {
@@ -16,5 +17,15 @@ export const metadata = {
  * team-tier session lands somewhere sensible instead of a 404.
  */
 export default function TeamPage() {
-  return <TeamWorkspace />;
+  return (
+    <Suspense
+      fallback={
+        <div role="status" className="py-20 text-sm text-fg-secondary">
+          Loading team…
+        </div>
+      }
+    >
+      <TeamWorkspace />
+    </Suspense>
+  );
 }
