@@ -61,6 +61,10 @@ class UserResponse(BaseModel):
     # Team-tier privacy toggle. Default true matches the model's server_default
     # so the Settings UI shows "on" before the user changes anything.
     share_activity_with_team: bool = True
+    # Surfaced for the Settings page: branding section calls
+    # `/api/organizations/{organization_id}/branding` and we need this id
+    # client-side. Null for free/pro users.
+    organization_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

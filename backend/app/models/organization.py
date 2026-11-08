@@ -20,3 +20,10 @@ class Organization(Base, TimestampMixin):
     name = sa.Column(sa.String, nullable=False)
     # Optional human-readable slug for URL generation later. Unique when set.
     slug = sa.Column(sa.String, nullable=True, unique=True)
+    # White-label branding for generated reports. URL-based for now — file
+    # upload is a future phase. Renderer falls back to ArtiProof's brand
+    # when logo_url is null.
+    logo_url = sa.Column(sa.String, nullable=True)
+    # CSS color (e.g. "#7C2828") substituted into the report header rule.
+    primary_color = sa.Column(sa.String(16), nullable=True)
+    secondary_color = sa.Column(sa.String(16), nullable=True)

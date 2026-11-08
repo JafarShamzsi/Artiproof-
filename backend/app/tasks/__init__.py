@@ -49,8 +49,10 @@ if celery_app is not None:
         from app.tasks import source_check_tasks  # noqa: F401
         from app.tasks import researcher_tasks  # noqa: F401
         from app.tasks import cleanup  # noqa: F401
+        from app.tasks import scheduled_reports  # noqa: F401
 
         cleanup.schedule_beat(celery_app)
+        scheduled_reports.schedule_beat(celery_app)
     except Exception:
         logger.exception("Failed to register Celery tasks / beat schedule")
 

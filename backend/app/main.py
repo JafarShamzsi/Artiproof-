@@ -16,6 +16,8 @@ from app.routers import (
     analytics_router,
     auth_router,
     dashboard_router,
+    organizations_router,
+    report_schedules_router,
     reports_router,
     researcher_router,
     security_router,
@@ -195,6 +197,8 @@ app.include_router(security_router)
 app.include_router(source_check_router)
 app.include_router(researcher_router)
 app.include_router(reports_router)
+app.include_router(report_schedules_router)
+app.include_router(organizations_router)
 app.include_router(dashboard_router)
 app.include_router(analytics_router)
 app.include_router(watchlist_router)

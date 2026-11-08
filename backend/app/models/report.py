@@ -25,3 +25,16 @@ class Report(Base, TimestampMixin, SoftDeleteMixin):
         default=lambda: secrets.token_urlsafe(32),
         index=True,
     )
+    # One of: "full" (default, the existing detail layout), "executive_summary"
+    # (1-page condensed), "comparison" (multi-source), "institutional_audit"
+    # (multi-researcher). Frontend picks; renderer dispatches on this.
+    template = sa.Column(sa.String, nullable=False, server_default="full")
+    # Per-report user notes appended at the top of the rendered PDF. Shape:
+    # list of {author_name, text, created_at: iso}.
+    annotations = sa.Column(sa.JSON, nullable=True)
+    # When the report represents multiple underlying records (comparison,
+    # institutional_audit), source_check_id and researcher_profile_id stay
+    # NULL and we use these arrays instead. Single-source/researcher reports
+    # leave these NULL and use the existing scalar FKs.
+    source_check_ids = sa.Column(sa.JSON, nullable=True)
+    researcher_profile_ids = sa.Column(sa.JSON, nullable=True)

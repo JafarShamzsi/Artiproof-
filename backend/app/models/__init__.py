@@ -2,6 +2,7 @@ from app.models.auth_token import AuthToken
 from app.models.base import Base
 from app.models.organization import Organization
 from app.models.report import Report
+from app.models.report_schedule import ReportSchedule
 from app.models.researcher import (
     CitationEdge,
     CoAuthorRelation,
@@ -36,4 +37,5 @@ __all__ = [
     "CoAuthorRelation",
     "ResearcherSnapshot",
     "Report",
+    "ReportSchedule",
 ]
