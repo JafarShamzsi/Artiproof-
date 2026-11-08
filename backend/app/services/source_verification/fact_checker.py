@@ -10,6 +10,7 @@ import httpx
 
 from app.config import settings
 from app.services.gemini import call_gemini
+from app.services.source_verification.evidence_retrieval import retrieve_evidence
 from app.services.source_verification.language import LanguageResult, language_directive
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, HTTP_RETRY_EXCEPTIONS, with_retry
 
@@ -100,23 +101,44 @@ async def verify_claim(
     directive is prepended to the Gemini prompt so the explanation is written
     natively. The verdict enum stays English (it's whitelist-validated).
 
-    Returns dict with: verdict, confidence, explanation, true_version, sources
+    The verdict is grounded in reference evidence retrieved for the claim
+    (Wikipedia, in the document's language); retrieved sources are folded into
+    ``sources`` and the passages are returned in ``evidence``.
+
+    Returns dict with: verdict, confidence, explanation, true_version, sources,
+    evidence
     """
     # Step 1: Check Google Fact Check API for existing fact-checks, in the
     # document's language when known.
     lang_code = language.code if (language is not None and language.is_known) else "en"
     factcheck_results = await check_with_google_factcheck(claim_text, language_code=lang_code)
 
-    factcheck_context = ""
-    if factcheck_results:
-        lines = ["Existing fact-checks found for similar claims:"]
-        for r in factcheck_results:
-            lines.append(f"  - {r['publisher']}: rated \"{r['rating']}\" — {r['title']}")
-        factcheck_context = "\n".join(lines)
-    else:
-        factcheck_context = "No existing fact-checks were found for this claim."
+    # Step 2: Retrieve reference evidence to ground the verdict (Wikipedia, in
+    # the document's language). Free, no key, best-effort — [] on any failure.
+    evidence = await retrieve_evidence(claim_text, language_code=lang_code)
+    evidence_dicts = [
+        {"title": e.title, "url": e.url, "snippet": e.snippet, "source": e.source}
+        for e in evidence
+    ]
+    evidence_sources = [{"name": e.title, "url": e.url} for e in evidence]
 
-    # Step 2: Use Gemini for deeper analysis
+    context_lines: list[str] = []
+    if factcheck_results:
+        context_lines.append("Existing fact-checks found for similar claims:")
+        for r in factcheck_results:
+            context_lines.append(f"  - {r['publisher']}: rated \"{r['rating']}\" — {r['title']}")
+    if evidence:
+        context_lines.append(
+            "Reference evidence retrieved for this claim — ground your verdict in "
+            "these sources and cite the ones you rely on:"
+        )
+        for e in evidence:
+            context_lines.append(f"  - {e.title}: {e.snippet} ({e.url})")
+    if not context_lines:
+        context_lines.append("No existing fact-checks or reference evidence were found for this claim.")
+    factcheck_context = "\n".join(context_lines)
+
+    # Step 3: Use Gemini for deeper analysis
     if not settings.GEMINI_API_KEY:
         # If no API key, use fact-check results only
         if factcheck_results:
@@ -133,14 +155,16 @@ async def verify_claim(
                 "confidence": 0.6,
                 "explanation": f"Based on fact-check by {factcheck_results[0]['publisher']}: {factcheck_results[0].get('rating', 'N/A')}",
                 "true_version": None,
-                "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results],
+                "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results] + evidence_sources,
+                "evidence": evidence_dicts,
             }
         return {
             "verdict": "unverified",
             "confidence": 0.3,
             "explanation": "Unable to verify — no API key configured and no existing fact-checks found.",
             "true_version": None,
-            "sources": [],
+            "sources": evidence_sources,
+            "evidence": evidence_dicts,
         }
 
     context_snippet = article_context[:500] if article_context else "No additional context available."
@@ -162,7 +186,8 @@ async def verify_claim(
             "confidence": 0.2,
             "explanation": "Verification service unavailable.",
             "true_version": None,
-            "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results],
+            "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results] + evidence_sources,
+            "evidence": evidence_dicts,
         }
 
     if raw.startswith("```"):
@@ -182,7 +207,8 @@ async def verify_claim(
             "confidence": 0.3,
             "explanation": "AI analysis returned unparseable results.",
             "true_version": None,
-            "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results],
+            "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results] + evidence_sources,
+            "evidence": evidence_dicts,
         }
 
     sources = result.get("sources", [])
@@ -198,6 +224,7 @@ async def verify_claim(
         sources = []
     for r in factcheck_results:
         sources.append({"name": r["publisher"], "url": r["url"]})
+    sources.extend(evidence_sources)
 
     valid_verdicts = {"true", "false", "misleading", "unverified", "partially_true"}
     verdict = result.get("verdict", "unverified")
@@ -210,6 +237,7 @@ async def verify_claim(
         "explanation": str(result.get("explanation", "Analysis completed.")),
         "true_version": result.get("true_version"),
         "sources": sources[:10],
+        "evidence": evidence_dicts,
     }
 
 

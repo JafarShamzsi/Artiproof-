@@ -262,6 +262,7 @@ class SourceVerificationOrchestrator:
             )
             if claims:
                 self._track_api("google_factcheck")
+                self._track_api("wikipedia")
             if any(r.get("detection_method") == "heuristic-fallback" for r in ai_results):
                 self._fallback_used = True
         except HTTP_RETRY_EXCEPTIONS as e:
