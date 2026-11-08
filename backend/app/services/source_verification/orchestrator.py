@@ -530,7 +530,7 @@ class SourceVerificationOrchestrator:
                 explanation=fc.get("explanation", ""),
                 true_version=fc.get("true_version"),
                 sources=fc.get("sources"), origin_trace=fc.get("origin_trace"),
-                position_in_text=fc.get("position"),
+                position_in_text=fc.get("position"), evidence=fc.get("evidence"),
             ))
 
         ai_total = 0.0

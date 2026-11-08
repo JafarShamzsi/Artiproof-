@@ -74,6 +74,9 @@ class ClaimAnalysis(Base, TimestampMixin):
     explanation = sa.Column(sa.Text, nullable=False)
     true_version = sa.Column(sa.Text, nullable=True)
     sources = sa.Column(sa.JSON, nullable=True)
+    # Reference passages retrieved to ground the verdict (Wikipedia, etc.):
+    # a list of {title, url, snippet, source}. See evidence_retrieval.py.
+    evidence = sa.Column(sa.JSON, nullable=True)
     origin_trace = sa.Column(sa.JSON, nullable=True)
     position_in_text = sa.Column(sa.JSON, nullable=True)
 

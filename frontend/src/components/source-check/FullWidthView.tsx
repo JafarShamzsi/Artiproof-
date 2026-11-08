@@ -38,6 +38,7 @@ export interface ClaimData {
   explanation: string;
   true_version: string | null;
   sources: Array<{ name?: string; url?: string }> | null;
+  evidence?: Array<{ title: string; url: string; snippet?: string; source?: string }> | null;
   origin_trace: {
     origin_platform?: string;
     first_seen?: string;
@@ -324,6 +325,26 @@ export function FullWidthView({
                           <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
                             Origin: {claim.origin_trace.origin_platform} ({claim.origin_trace.first_seen})
                           </p>
+                        </div>
+                      )}
+                      {claim.evidence && claim.evidence.length > 0 && (
+                        <div className="mt-2 rounded border border-zinc-200 bg-white/50 p-2 dark:border-zinc-700 dark:bg-zinc-900/30">
+                          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Evidence</p>
+                          <ul className="mt-1 space-y-1">
+                            {claim.evidence.map((ev, i) => (
+                              <li key={i} className="text-xs text-zinc-600 dark:text-zinc-400">
+                                <a
+                                  href={ev.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"
+                                >
+                                  {ev.title}
+                                </a>
+                                {ev.snippet ? <span> — {ev.snippet}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       )}
                     </div>

@@ -16,6 +16,8 @@ class ClaimAnalysisResponse(BaseModel):
     explanation: str
     true_version: Optional[str]
     sources: Optional[List[Any]]
+    # Reference passages retrieved to ground the verdict (Wikipedia, etc.).
+    evidence: Optional[List[Any]] = None
     origin_trace: Optional[Any]
     position_in_text: Optional[Any]
 

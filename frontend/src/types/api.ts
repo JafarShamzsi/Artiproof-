@@ -75,6 +75,7 @@ export interface ClaimAnalysis {
   explanation: string;
   true_version: string | null;
   sources: Array<{ name?: string; url?: string }> | null;
+  evidence?: Array<{ title: string; url: string; snippet?: string; source?: string }> | null;
   origin_trace: Record<string, unknown> | null;
   position_in_text: { start: number; end: number } | null;
 }
