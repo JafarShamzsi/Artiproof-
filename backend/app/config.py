@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     SENTRY_ENVIRONMENT: str = ""  # falls back to ENVIRONMENT when empty
     SENTRY_TRACES_SAMPLE_RATE: float = 0.05
 
+    # OpenTelemetry. Empty endpoint = no init (default). When set,
+    # observability.init_otel() wires FastAPI / SQLAlchemy / Celery
+    # auto-instrumentation and Gemini manual spans. Use the OTLP-HTTP
+    # endpoint of your collector (Honeycomb, Tempo, Grafana Cloud).
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
+
     # Billing webhook signing — per-processor HMAC secret. Empty string
     # means the webhook endpoint refuses every callback (production-safe
     # default; nothing is wired). The processor name in the URL must

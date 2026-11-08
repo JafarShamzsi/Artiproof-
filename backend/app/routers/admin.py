@@ -25,15 +25,19 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import TIER_LIMITS
 from app.database import get_db
+from app.models.celery_dlq import CeleryDLQ
+from app.models.celery_run_log import CeleryRunLog
+from app.models.gemini_metric import GeminiMetric
 from app.models.report import Report
 from app.models.researcher import ResearcherProfile
 from app.models.source_check import SourceCheck
 from app.models.user import User
+from app.services.gemini import estimate_cost_usd
 from app.utils.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -121,6 +125,80 @@ class AdminStatsResponse(BaseModel):
     researcher_analyses_last_24h: int
     researcher_failures_last_24h: int
     reports_last_24h: int
+
+
+# ─── Telemetry schemas (Phase E) ───────────────────────────────────────────
+
+
+class GeminiCostByOperation(BaseModel):
+    operation: str
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+
+class GeminiCostByUser(BaseModel):
+    user_id: str
+    email: Optional[str] = None
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+
+class GeminiCostSummary(BaseModel):
+    """Aggregate Gemini spend over a window. The cost column is computed
+    from raw tokens × current pricing — refreshes automatically when the
+    pricing table in app.services.gemini.client is updated."""
+
+    window_days: int
+    total_calls: int
+    total_input_tokens: int
+    total_output_tokens: int
+    total_cost_usd: float
+    error_rate: float  # share of calls with non-null error_class
+    by_operation: list[GeminiCostByOperation]
+    top_users: list[GeminiCostByUser]
+
+
+class CeleryRunRow(BaseModel):
+    id: str
+    task_name: str
+    task_id: str
+    status: str
+    duration_ms: Optional[int] = None
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    exception_class: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class CeleryDLQRow(BaseModel):
+    id: str
+    task_name: str
+    task_id: str
+    args: list
+    kwargs: dict
+    exception_class: str
+    exception_message: Optional[str] = None
+    retry_count: int
+    failed_at: datetime
+    resolved_at: Optional[datetime] = None
+    resolved_by_user_id: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class CeleryDLQRetryResponse(BaseModel):
+    """Result of /api/admin/celery/dlq/{id}/retry. ``enqueued=true`` when
+    Celery was reachable; ``false`` falls back to "marked resolved without
+    retry" — operator should investigate manually."""
+
+    dlq_id: str
+    enqueued: bool
+    new_task_id: Optional[str] = None
 
 
 # ─── Endpoints ─────────────────────────────────────────────────────────────
@@ -416,4 +494,228 @@ async def admin_stats(
         researcher_analyses_last_24h=rp_total,
         researcher_failures_last_24h=rp_failures,
         reports_last_24h=rpt_total,
+    )
+
+
+# ─── Telemetry endpoints (Phase E) ─────────────────────────────────────────
+
+
+@router.get("/gemini/cost-summary", response_model=GeminiCostSummary)
+async def gemini_cost_summary(
+    days: int = Query(30, ge=1, le=365),
+    top_n_users: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Aggregate Gemini spend over the trailing ``days`` window.
+
+    Cost is computed at read-time from raw tokens × the pricing table in
+    ``app.services.gemini.client`` — when prices change, refreshing this
+    endpoint reprices the whole window.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Overall totals.
+    totals_q = await db.execute(
+        select(
+            func.count(GeminiMetric.id),
+            func.coalesce(func.sum(GeminiMetric.input_tokens), 0),
+            func.coalesce(func.sum(GeminiMetric.output_tokens), 0),
+            func.sum(
+                # Counting non-NULL error_class rows.
+                case((GeminiMetric.error_class.isnot(None), 1), else_=0)
+            ),
+        ).where(GeminiMetric.created_at >= since)
+    )
+    total_calls, total_in, total_out, total_errors = totals_q.one()
+    total_calls = int(total_calls or 0)
+    total_in = int(total_in or 0)
+    total_out = int(total_out or 0)
+    total_errors = int(total_errors or 0)
+    error_rate = round(total_errors / total_calls, 4) if total_calls else 0.0
+
+    # Per-operation rollup. Group by (operation, model) so a model
+    # change inside an operation doesn't smear pricing.
+    by_op_q = await db.execute(
+        select(
+            GeminiMetric.operation,
+            GeminiMetric.model,
+            func.count(GeminiMetric.id),
+            func.coalesce(func.sum(GeminiMetric.input_tokens), 0),
+            func.coalesce(func.sum(GeminiMetric.output_tokens), 0),
+        )
+        .where(GeminiMetric.created_at >= since)
+        .group_by(GeminiMetric.operation, GeminiMetric.model)
+        .order_by(func.count(GeminiMetric.id).desc())
+    )
+    # Merge per-model rows back into one row per operation, summing cost.
+    op_acc: dict[str, dict[str, float]] = {}
+    for op, model, calls, in_t, out_t in by_op_q.all():
+        bucket = op_acc.setdefault(
+            op or "unknown",
+            {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+        )
+        bucket["calls"] += int(calls or 0)
+        bucket["input_tokens"] += int(in_t or 0)
+        bucket["output_tokens"] += int(out_t or 0)
+        bucket["cost_usd"] += estimate_cost_usd(
+            input_tokens=int(in_t or 0),
+            output_tokens=int(out_t or 0),
+            model=model or "",
+        )
+    by_operation = sorted(
+        [GeminiCostByOperation(operation=op, **v) for op, v in op_acc.items()],
+        key=lambda r: r.cost_usd,
+        reverse=True,
+    )
+
+    # Top-N users by tokens. Joined with users.email so the operator can
+    # see which account is racking up cost.
+    by_user_q = await db.execute(
+        select(
+            GeminiMetric.user_id,
+            User.email,
+            GeminiMetric.model,
+            func.count(GeminiMetric.id),
+            func.coalesce(func.sum(GeminiMetric.input_tokens), 0),
+            func.coalesce(func.sum(GeminiMetric.output_tokens), 0),
+        )
+        .join(User, User.id == GeminiMetric.user_id, isouter=True)
+        .where(
+            GeminiMetric.created_at >= since,
+            GeminiMetric.user_id.isnot(None),
+        )
+        .group_by(GeminiMetric.user_id, User.email, GeminiMetric.model)
+    )
+    user_acc: dict[str, dict] = {}
+    for uid, email, model, calls, in_t, out_t in by_user_q.all():
+        bucket = user_acc.setdefault(
+            uid,
+            {
+                "user_id": uid,
+                "email": email,
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_usd": 0.0,
+            },
+        )
+        bucket["calls"] += int(calls or 0)
+        bucket["input_tokens"] += int(in_t or 0)
+        bucket["output_tokens"] += int(out_t or 0)
+        bucket["cost_usd"] += estimate_cost_usd(
+            input_tokens=int(in_t or 0),
+            output_tokens=int(out_t or 0),
+            model=model or "",
+        )
+    top_users = sorted(
+        [GeminiCostByUser(**v) for v in user_acc.values()],
+        key=lambda r: r.cost_usd,
+        reverse=True,
+    )[:top_n_users]
+
+    total_cost = round(sum(r.cost_usd for r in by_operation), 4)
+
+    return GeminiCostSummary(
+        window_days=days,
+        total_calls=total_calls,
+        total_input_tokens=total_in,
+        total_output_tokens=total_out,
+        total_cost_usd=total_cost,
+        error_rate=error_rate,
+        by_operation=by_operation,
+        top_users=top_users,
+    )
+
+
+@router.get("/celery/runs", response_model=list[CeleryRunRow])
+async def celery_runs(
+    hours: int = Query(24, ge=1, le=720),
+    status: Optional[str] = Query(
+        None,
+        description='Filter by status: "success" | "failed" | "retry".',
+    ),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Recent Celery task executions across all workers. Used by the
+    Operations tab of the admin panel."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    q = select(CeleryRunLog).where(CeleryRunLog.started_at >= since)
+    if status:
+        q = q.where(CeleryRunLog.status == status)
+    q = q.order_by(CeleryRunLog.started_at.desc()).limit(limit)
+    rows = (await db.execute(q)).scalars().all()
+    return [CeleryRunRow.model_validate(r) for r in rows]
+
+
+@router.get("/celery/dlq", response_model=list[CeleryDLQRow])
+async def celery_dlq(
+    resolved: bool = Query(
+        False, description="false = active backlog only, true = history"
+    ),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Dead-letter queue contents. Default to active (unresolved) rows."""
+    q = select(CeleryDLQ)
+    if resolved:
+        q = q.where(CeleryDLQ.resolved_at.isnot(None))
+    else:
+        q = q.where(CeleryDLQ.resolved_at.is_(None))
+    q = q.order_by(CeleryDLQ.failed_at.desc()).limit(limit)
+    rows = (await db.execute(q)).scalars().all()
+    return [CeleryDLQRow.model_validate(r) for r in rows]
+
+
+@router.post("/celery/dlq/{dlq_id}/retry", response_model=CeleryDLQRetryResponse)
+async def celery_dlq_retry(
+    dlq_id: str,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Re-enqueue the original task. Marks the DLQ row resolved either way
+    — operator can re-mark it active by clearing ``resolved_at`` in SQL
+    if the retry itself fails permanently."""
+    row = await db.get(CeleryDLQ, dlq_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="DLQ entry not found")
+    if row.resolved_at is not None:
+        raise HTTPException(
+            status_code=409, detail="DLQ entry already resolved"
+        )
+
+    new_task_id: Optional[str] = None
+    enqueued = False
+    try:
+        from app.tasks import celery_app
+
+        if celery_app is not None:
+            async_result = celery_app.send_task(
+                row.task_name,
+                args=list(row.args or []),
+                kwargs=dict(row.kwargs or {}),
+            )
+            new_task_id = async_result.id
+            enqueued = True
+    except Exception:
+        logger.exception("DLQ retry send_task failed for %s", dlq_id)
+        enqueued = False
+
+    row.resolved_at = datetime.now(timezone.utc)
+    row.resolved_by_user_id = admin.id
+    await db.commit()
+
+    logger.info(
+        "admin DLQ retry by=%s dlq_id=%s task=%s enqueued=%s",
+        admin.id,
+        dlq_id,
+        row.task_name,
+        enqueued,
+    )
+
+    return CeleryDLQRetryResponse(
+        dlq_id=dlq_id, enqueued=enqueued, new_task_id=new_task_id
     )

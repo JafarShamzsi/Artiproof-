@@ -7,25 +7,13 @@ import asyncio
 import json
 import logging
 
-from google import genai
-from google.genai import types
-
 from app.config import settings
+from app.services.gemini import call_gemini
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 15
-
-_client: "genai.Client | None" = None
-
-
-def _gemini_client() -> "genai.Client | None":
-    """Lazy module-level singleton — one Client per process, not per call."""
-    global _client
-    if _client is None and settings.GEMINI_API_KEY:
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    return _client
 
 TOPIC_PROMPT = """You are an academic topic relevance analyst. For each paper below, assess how well the paper's topic matches the journal/venue it was published in.
 
@@ -45,18 +33,7 @@ Return ONLY the JSON array, no other text."""
 
 @with_retry(max_retries=2, exceptions=GEMINI_RETRY_EXCEPTIONS)
 async def _call_gemini(prompt: str) -> str:
-    client = _gemini_client()
-    if client is None:
-        return ""  # caller already guarded on settings.GEMINI_API_KEY
-    response = await client.aio.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.1,
-            max_output_tokens=4096,
-        ),
-    )
-    return (response.text or "").strip()
+    return await call_gemini(prompt, operation="topic_analyzer")
 
 
 async def _process_batch(batch: list[tuple[int, dict]]) -> list[dict]:

@@ -150,6 +150,16 @@ class SourceVerificationOrchestrator:
             yield {"step": "error", "status": "failed", "detail": "Source check not found", "progress": 0}
             return
 
+        # Telemetry plumbing: stash user_id + check_id on ContextVars so
+        # the centralized Gemini client attributes its usage row to this
+        # pipeline. Doing it here (rather than in the Celery task layer)
+        # means the same context applies whether the pipeline runs in a
+        # worker or directly from a streaming request.
+        from app.context import current_source_check_id, current_user_id
+
+        current_user_id.set(check.user_id)
+        current_source_check_id.set(check.id)
+
         check.status = "processing"
         await self.db.commit()
         yield {"step": "started", "status": "processing", "detail": "Pipeline started", "progress": 0.05}

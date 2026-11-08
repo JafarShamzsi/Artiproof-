@@ -57,3 +57,15 @@ python-multipart>=0.0.20,<1.0
 # it too. Loaded lazily in app.main so an unconfigured SENTRY_DSN does
 # nothing.
 sentry-sdk[fastapi,sqlalchemy,celery]>=2.18.0,<3.0
+
+# OpenTelemetry — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT. None of these
+# packages do anything at import time; init_otel() in app.observability
+# gates everything on the env var, so a default install never reaches
+# out to anything. Production OTel collectors (Honeycomb, Grafana,
+# Tempo, Datadog) all speak OTLP.
+opentelemetry-api>=1.27.0,<2.0
+opentelemetry-sdk>=1.27.0,<2.0
+opentelemetry-instrumentation-fastapi>=0.48b0,<1.0
+opentelemetry-instrumentation-sqlalchemy>=0.48b0,<1.0
+opentelemetry-instrumentation-celery>=0.48b0,<1.0
+opentelemetry-exporter-otlp>=1.27.0,<2.0

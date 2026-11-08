@@ -86,6 +86,14 @@ class AcademicIntegrityOrchestrator:
             yield {"step": "error", "status": "failed", "detail": "Profile not found", "progress": 0}
             return
 
+        # Telemetry plumbing: stash user_id + profile_id on ContextVars so
+        # the centralized Gemini client can attribute its usage row to
+        # this pipeline without us threading the id through every helper.
+        from app.context import current_researcher_profile_id, current_user_id
+
+        current_user_id.set(profile.user_id)
+        current_researcher_profile_id.set(profile.id)
+
         profile.analysis_status = "processing"
         await self.db.commit()
         yield {"step": "started", "status": "processing", "detail": "Analysis started", "progress": 0.05}

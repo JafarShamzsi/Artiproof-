@@ -56,5 +56,14 @@ if celery_app is not None:
     except Exception:
         logger.exception("Failed to register Celery tasks / beat schedule")
 
+    # Telemetry + DLQ signal handlers. Best-effort; failure here only
+    # disables the run-log/DLQ surface, not the tasks themselves.
+    try:
+        from app.tasks.observability import register_observability_signals
+
+        register_observability_signals(celery_app)
+    except Exception:
+        logger.exception("Failed to register Celery observability signals")
+
 
 __all__ = ["celery_app"]

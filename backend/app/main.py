@@ -187,6 +187,20 @@ async def lifespan(app: FastAPI):
             raise RuntimeError(msg) from e
         logger.warning(msg)
 
+    # OpenTelemetry init — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT. No-op
+    # when the env var is empty, which is the default. Wraps the FastAPI
+    # app + SQLAlchemy engine + Celery for distributed tracing.
+    try:
+        from app.observability import init_otel
+
+        if init_otel(app):
+            logger.info(
+                "OpenTelemetry instrumentation active — endpoint=%s",
+                settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+            )
+    except Exception:
+        logger.exception("OTel init failed — continuing without it")
+
     logger.info("ArtiProof backend ready — env=%s", settings.ENVIRONMENT)
 
     yield
@@ -194,6 +208,12 @@ async def lifespan(app: FastAPI):
     # ─── Graceful shutdown ────────────────────────────────────────────────
     # Dispose of the async engine so pooled connections are returned cleanly.
     logger.info("Shutting down ArtiProof backend...")
+    try:
+        from app.observability import shutdown_otel
+
+        shutdown_otel()
+    except Exception:
+        logger.exception("Error shutting down OpenTelemetry")
     try:
         from app.database import engine
         await engine.dispose()
@@ -258,9 +278,7 @@ if settings.APP_URL and settings.APP_URL not in cors_origins:
     cors_origins.append(settings.APP_URL)
 
 # Default to None (no regex) so previews must be explicitly enabled. The previous
-# `https://.*\.vercel\.app` allowed *any* tenant's preview to call our API with
-# credentials, which is far too permissive — set CORS_ORIGIN_REGEX in env to
-# something tied to this project's deploys (e.g. r"https://artiproof-[a-z0-9-]+\.vercel\.app").
+# Origin matching is explicit; the local showcase has no hosting bindings.
 cors_regex = settings.CORS_ORIGIN_REGEX or None
 
 app.add_middleware(
@@ -347,7 +365,7 @@ app.include_router(seed_router)
 async def health_check():
     """Liveness probe — always 200 as long as the process is alive.
 
-    Used by local health-check clients. Intentionally does not test DB or
+    Used by local liveness clients. Intentionally does not test DB or
     Redis: a degraded Redis shouldn't restart the API (that would only
     create a restart loop while the dependency is recovering). For
     *readiness* checks (DB+Redis up) use ``/api/health``.
