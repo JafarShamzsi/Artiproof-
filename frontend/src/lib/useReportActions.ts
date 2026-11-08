@@ -111,10 +111,11 @@ export function useReportActions(opts: Opts) {
         toast.error(msg);
         return;
       }
-      // Surface the renderer used so the user understands when the
-      // bare-text fallback shipped instead of the styled WeasyPrint
-      // PDF. Operators see a one-time warning in the backend logs at
-      // startup; users see this toast at download time.
+      // X-Report-Renderer tells us which engine produced the PDF.
+      // "weasyprint" and "pymupdf-story" are both fully-styled, structured
+      // renders — no caveat needed. Only "pymupdf-text" (the rare
+      // last-resort reached if the Story renderer itself errored) is bare
+      // text and worth flagging to the user.
       const renderer = res.headers.get("X-Report-Renderer");
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -125,9 +126,9 @@ export function useReportActions(opts: Opts) {
       a.click();
       a.remove();
       URL.revokeObjectURL(objectUrl);
-      if (renderer === "pymupdf-fallback") {
+      if (renderer === "pymupdf-text") {
         toast.warning(
-          "Styled PDF unavailable on this host — sent a plain-text version. Ask your operator to install WeasyPrint's dependencies (GTK/Pango) for the styled report.",
+          "This report rendered in a simplified text-only mode. Try downloading again — if it keeps happening, let support know.",
           { duration: 8000 },
         );
       }

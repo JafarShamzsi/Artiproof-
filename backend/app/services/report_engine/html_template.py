@@ -41,6 +41,54 @@ def _safe_color(value: str | None, default: str) -> str:
     return default
 
 
+def _stat_row(
+    cards: list[tuple],
+    *,
+    value_size: int = 24,
+    label_size: int = 12,
+    label_first: bool = False,
+) -> str:
+    """Render a row of stat cards as a ``<table>``.
+
+    A table (not flexbox) is used deliberately: the PyMuPDF Story fallback
+    renderer has no flexbox/inline-block/table-cell support, so those all
+    collapse to a vertical stack — only a real ``<table>`` lays the cards
+    out side-by-side. WeasyPrint renders the same table identically. The
+    inline ``border: none`` overrides the global ``table``/``td`` border
+    rules so the cards stay borderless.
+
+    Each card is ``(value_html, label, value_color, card_bg)`` with an
+    optional 5th element ``label_color`` (defaults to slate).
+    """
+    n = len(cards) or 1
+    width = f"{100 // n}%"
+    tds = []
+    for card in cards:
+        value, label, value_color, card_bg = card[0], card[1], card[2], card[3]
+        label_color = card[4] if len(card) > 4 else "#64748b"
+        value_html = (
+            f'<div style="font-size: {value_size}px; font-weight: bold; '
+            f'color: {value_color};">{value}</div>'
+        )
+        label_html = (
+            f'<div style="font-size: {label_size}px; color: {label_color};">'
+            f"{_e(label)}</div>"
+        )
+        inner = (label_html + value_html) if label_first else (value_html + label_html)
+        tds.append(
+            f'<td style="width: {width}; border: none; padding: 0 8px; '
+            f'vertical-align: top;">'
+            f'<div style="background: {card_bg}; padding: 12px; '
+            f'border-radius: 8px; text-align: center;">{inner}</div></td>'
+        )
+    return (
+        '<table style="width: 100%; border: none; border-collapse: collapse; '
+        'margin-bottom: 24px;"><tr style="background: transparent;">'
+        + "".join(tds)
+        + "</tr></table>"
+    )
+
+
 def render_source_check_report(
     check_data: dict,
     narrative: str,
@@ -49,9 +97,12 @@ def render_source_check_report(
 ) -> str:
     """Render a source verification report as HTML."""
     title = check_data.get("input_title") or "Source Verification Report"
-    score = check_data.get("overall_credibility_score", 0)
-    ai_pct = check_data.get("ai_content_percentage", 0)
-    misinfo = check_data.get("misinfo_claims_found", 0)
+    # `or 0` (not just a .get default): a pending/failed analysis stores
+    # NULL scores, and the key is present-but-None — formatting/comparing
+    # None below would 500 the whole report.
+    score = check_data.get("overall_credibility_score") or 0
+    ai_pct = check_data.get("ai_content_percentage") or 0
+    misinfo = check_data.get("misinfo_claims_found") or 0
     claims = check_data.get("claims", [])
     citations = check_data.get("citations", [])
 
@@ -98,20 +149,11 @@ def render_source_check_report(
             <p style="margin-top: 8px; color: #64748b; font-size: 14px;">Credibility Score</p>
         </div>
 
-        <div style="display: flex; gap: 16px; margin-bottom: 24px;">
-            <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #3b82f6;">{ai_pct:.0f}%</div>
-                <div style="font-size: 11px; color: #64748b;">AI Content</div>
-            </div>
-            <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #f59e0b;">{misinfo}</div>
-                <div style="font-size: 11px; color: #64748b;">Misinfo Claims</div>
-            </div>
-            <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #8b5cf6;">{len(citations)}</div>
-                <div style="font-size: 11px; color: #64748b;">Citations Checked</div>
-            </div>
-        </div>
+        {_stat_row([
+            (f"{ai_pct:.0f}%", "AI Content", "#3b82f6", "#f1f5f9"),
+            (f"{misinfo}", "Misinfo Claims", "#f59e0b", "#f1f5f9"),
+            (f"{len(citations)}", "Citations Checked", "#8b5cf6", "#f1f5f9"),
+        ])}
 
         <h2 style="color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">Executive Summary</h2>
         {narrative_html}
@@ -131,7 +173,9 @@ def render_researcher_report(
     """Render a researcher integrity report as HTML."""
     name = profile_data.get("researcher_name", "Unknown")
     institution = profile_data.get("institution") or "Unknown"
-    integrity = profile_data.get("integrity_score", 0)
+    # `or 0`: integrity_score is NULL for a profile whose analysis is
+    # still pending/failed — None >= 70 would 500 the report.
+    integrity = profile_data.get("integrity_score") or 0
     score_color = "#10b981" if integrity >= 70 else "#eab308" if integrity >= 40 else "#ef4444"
 
     publications = profile_data.get("publications", [])
@@ -190,20 +234,11 @@ def render_researcher_report(
             <p style="margin-top: 8px; color: #64748b; font-size: 14px;">Integrity Score</p>
         </div>
 
-        <div style="display: flex; gap: 16px; margin-bottom: 24px;">
-            <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 14px; color: #64748b;">Official h-index</div>
-                <div style="font-size: 28px; font-weight: bold;">{_e(profile_data.get('official_h_index') or '—')}</div>
-            </div>
-            <div style="flex: 1; background: #ecfdf5; padding: 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 14px; color: #10b981;">Adjusted h-index</div>
-                <div style="font-size: 28px; font-weight: bold; color: #10b981;">{_e(profile_data.get('adjusted_h_index') or '—')}</div>
-            </div>
-            <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 14px; color: #64748b;">Self-citation</div>
-                <div style="font-size: 28px; font-weight: bold;">{(profile_data.get('self_citation_rate') or 0) * 100:.1f}%</div>
-            </div>
-        </div>
+        {_stat_row([
+            (_e(profile_data.get('official_h_index') or '—'), "Official h-index", "#1e293b", "#f1f5f9"),
+            (_e(profile_data.get('adjusted_h_index') or '—'), "Adjusted h-index", "#10b981", "#ecfdf5", "#10b981"),
+            (f"{(profile_data.get('self_citation_rate') or 0) * 100:.1f}%", "Self-citation", "#1e293b", "#f1f5f9"),
+        ], value_size=28, label_size=14, label_first=True)}
 
         <h2 style="color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">Executive Summary</h2>
         {narrative_html}
@@ -336,9 +371,11 @@ def render_executive_summary_report(
     narrative, and a one-line bullet summary of flagged findings. Designed
     to fit on a single A4 page.
     """
-    score = check_data.get("overall_credibility_score", 0)
-    ai_pct = check_data.get("ai_content_percentage", 0)
-    misinfo = check_data.get("misinfo_claims_found", 0)
+    # `or 0` guards against NULL scores from a pending/failed analysis
+    # (present-but-None) that would otherwise 500 the executive summary.
+    score = check_data.get("overall_credibility_score") or 0
+    ai_pct = check_data.get("ai_content_percentage") or 0
+    misinfo = check_data.get("misinfo_claims_found") or 0
     citations = check_data.get("citations", []) or []
     claims = check_data.get("claims", []) or []
     title = check_data.get("input_title") or "Source Verification Report"

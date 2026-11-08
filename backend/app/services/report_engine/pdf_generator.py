@@ -1,20 +1,25 @@
 """PDF generator — converts HTML reports to PDF.
 
-Primary path: WeasyPrint (faithful CSS rendering — the report HTML is
-designed for it). On Windows hosts where WeasyPrint's native GTK / Cairo
-/ Pango dependencies aren't installed, WeasyPrint's import fails and we
-fall through to a PyMuPDF-based plain-text renderer.
+Two *structured* renderers tried in order, plus a plain-text safety net:
 
-The fallback produces a basic-but-readable PDF (title heading, sectioned
-paragraphs, no styling). It's intentionally ugly because it should never
-ship to production — operators install GTK and the styled WeasyPrint
-path takes over.
+  1. WeasyPrint ("weasyprint") — faithful CSS rendering incl. flexbox and
+     border-radius; the report HTML is designed for it. Needs native
+     GTK / Cairo / Pango libs, so it can be unavailable on bare Windows
+     hosts or minimal containers.
+  2. PyMuPDF Story ("pymupdf-story") — used when WeasyPrint is absent or
+     errors at runtime. Renders the SAME HTML (and its ``<style>`` block)
+     into a structured, styled PDF with NO native dependencies, so it
+     works identically in local dev, Docker, and local service. Degrades
+     gracefully vs WeasyPrint (square score badge, no flexbox) but is
+     never a raw text/CSS dump.
+  3. Plain-text ("pymupdf-text") — last resort, reached only if the Story
+     renderer itself raises. Title + sectioned paragraphs, no styling.
 
 Public API:
-  - html_to_pdf(html) -> (bytes, renderer_name) — returns the bytes
-    AND a renderer label ("weasyprint" | "pymupdf-fallback") so the
-    route can set X-Report-Renderer for the frontend to surface a
-    caveat toast.
+  - html_to_pdf(html) -> (bytes, renderer_name) — the bytes AND the
+    renderer label above, so the route can stamp X-Report-Renderer (ops
+    can see when WeasyPrint is down; the frontend only warns for the
+    bare "pymupdf-text" last resort).
   - save_pdf(bytes) -> filepath — unchanged.
   - WEASYPRINT_AVAILABLE — module-level bool, evaluated once at import.
 """
@@ -59,10 +64,16 @@ def html_to_pdf(html: str) -> Tuple[bytes, str]:
     """Convert HTML string to PDF bytes + a renderer label.
 
     Returns a (pdf_bytes, renderer) tuple where `renderer` is one of:
-      - "weasyprint" — full CSS rendering, what the design expects
-      - "pymupdf-fallback" — basic text-only fallback (Windows / no GTK)
+      - "weasyprint"    — full CSS rendering, what the design expects
+      - "pymupdf-story" — structured PyMuPDF render (no native libs).
+                          Applies the report's CSS (headings, colored
+                          cards, tables) — degrades gracefully vs
+                          WeasyPrint (square score badge, stacked stat
+                          cards) but is NOT a bare text dump.
+      - "pymupdf-text"  — last-resort plain-text render, only if the
+                          Story renderer itself errored.
     The route layer reads `renderer` and stamps an `X-Report-Renderer`
-    response header so the frontend can show a caveat toast.
+    response header (ops can see when WeasyPrint is down).
     """
     if WEASYPRINT_AVAILABLE and _WEASYPRINT_HTML is not None:
         try:
@@ -70,10 +81,59 @@ def html_to_pdf(html: str) -> Tuple[bytes, str]:
         except Exception:
             logger.exception(
                 "WeasyPrint PDF generation failed at runtime — falling "
-                "back to plain-text renderer for this request"
+                "back to the PyMuPDF Story renderer for this request"
             )
-            return _html_to_simple_pdf(html), "pymupdf-fallback"
-    return _html_to_simple_pdf(html), "pymupdf-fallback"
+    # No WeasyPrint (or it errored): render structured HTML with PyMuPDF's
+    # Story engine, which needs no native system libraries and still
+    # honours the report's CSS. Only if that ALSO fails do we drop to the
+    # plain-text last resort.
+    try:
+        return _html_to_pdf_story(html), "pymupdf-story"
+    except Exception:
+        logger.exception(
+            "PyMuPDF Story renderer failed — using plain-text last resort"
+        )
+        return _html_to_simple_pdf(html), "pymupdf-text"
+
+
+def _html_to_pdf_story(html: str) -> bytes:
+    """Structured fallback renderer using PyMuPDF's Story API.
+
+    Unlike the plain-text path, Story parses the HTML *and its ``<style>``
+    block* and lays out a real document: headings, paragraphs, colored
+    claim cards, and tables all survive. It does not support every CSS
+    feature WeasyPrint does (no flexbox, no ``border-radius``), so the
+    score badge renders square and the stat cards stack — acceptable
+    degradation, and crucially never a raw-CSS dump.
+
+    Needs no native system libraries (pure MuPDF), so it works identically
+    in local dev, Docker, and local service.
+    """
+    import io
+
+    import fitz
+
+    buf = io.BytesIO()
+    writer = fitz.DocumentWriter(buf)
+    story = fitz.Story(html=html)
+    media = fitz.paper_rect("a4")
+    # ~12.7mm content margins; the @page margin in the HTML is ignored by
+    # Story, so we inset the draw area ourselves.
+    area = media + (36, 36, -36, -36)
+
+    more = 1
+    pages = 0
+    while more:
+        dev = writer.begin_page(media)
+        more, _ = story.place(area)
+        story.draw(dev)
+        writer.end_page()
+        pages += 1
+        if pages >= 200:  # defensive cap against a pathological layout loop
+            logger.warning("Story renderer hit 200-page cap; truncating report")
+            break
+    writer.close()
+    return buf.getvalue()
 
 
 def _html_to_simple_pdf(html: str) -> bytes:
@@ -172,6 +232,12 @@ def _extract_title(html: str) -> str | None:
 
 
 def _html_to_plain_text(html: str) -> str:
+    # Drop <style>/<script> blocks (tags AND their contents) first — the
+    # generic tag-stripper below only removes the tags, which would leave
+    # the raw CSS/JS body as visible text (the "HTML dump" bug).
+    html = re.sub(
+        r"(?is)<\s*(style|script)\b[^>]*>.*?<\s*/\s*\1\s*>", "", html
+    )
     # Strip the title before plain-text conversion so it doesn't appear
     # twice in the rendered PDF (header + first paragraph).
     html_no_h1 = re.sub(r"<h1[^>]*>.*?</h1>", "", html, flags=re.IGNORECASE | re.DOTALL)
