@@ -69,8 +69,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     if (highContrast) {
       root.setAttribute("data-high-contrast", "true");
+      // Also set data-presentation="true" so the existing projector-
+      // readability CSS rules (text-zinc-* boosting, accent brightening)
+      // in globals.css apply when the user enables high contrast. This
+      // unifies the two modes; if we ever need to distinguish them
+      // (e.g. high-contrast adds heavier borders that presentation
+      // doesn't need) we can split the attributes later.
+      root.setAttribute("data-presentation", "true");
     } else {
       root.removeAttribute("data-high-contrast");
+      root.removeAttribute("data-presentation");
     }
   }, [highContrast]);
 

@@ -179,8 +179,14 @@ export default function AdminPage() {
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (tierFilter) params.set("tier", tierFilter);
 
-    const [statsRes, usersRes, failedRes, costRes, dlqRes, llmRes] =
-      await Promise.all([
+    // Promise.allSettled — not all — so one failing endpoint (network
+    // blip, transient 5xx, ad-blocker eating /llm/providers) doesn't
+    // strand the whole panel on a spinner forever. The previous
+    // Promise.all path threw mid-await and skipped setLoading(false).
+    // try/finally guarantees the spinner clears even on unexpected
+    // exceptions (JSON parse, URL parsing, etc.).
+    try {
+      const results = await Promise.allSettled([
         apiFetch("/api/admin/stats"),
         apiFetch(`/api/admin/users?${params.toString()}`),
         apiFetch("/api/admin/pipelines/failed?hours=72&limit=20"),
@@ -188,24 +194,36 @@ export default function AdminPage() {
         apiFetch("/api/admin/celery/dlq?limit=25"),
         apiFetch("/api/admin/llm/providers"),
       ]);
+      const ok = (r: (typeof results)[number]) =>
+        r.status === "fulfilled" ? r.value : null;
+      const statsRes = ok(results[0]);
+      const usersRes = ok(results[1]);
+      const failedRes = ok(results[2]);
+      const costRes = ok(results[3]);
+      const dlqRes = ok(results[4]);
+      const llmRes = ok(results[5]);
 
-    if (statsRes.status === 403 || usersRes.status === 403) {
-      setForbidden(true);
+      if (statsRes?.status === 403 || usersRes?.status === 403) {
+        setForbidden(true);
+        return;
+      }
+
+      if (statsRes?.ok) setStats((await statsRes.json()) as AdminStats);
+      if (usersRes?.ok) {
+        const body = (await usersRes.json()) as UserListResponse;
+        setUsers(body.items);
+        setTotal(body.total);
+      }
+      if (failedRes?.ok)
+        setFailed((await failedRes.json()) as FailedPipeline[]);
+      if (costRes?.ok)
+        setCostSummary((await costRes.json()) as GeminiCostSummary);
+      if (dlqRes?.ok) setDlq((await dlqRes.json()) as DLQRow[]);
+      if (llmRes?.ok)
+        setLlmStatus((await llmRes.json()) as LLMProviderStatus);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    if (statsRes.ok) setStats((await statsRes.json()) as AdminStats);
-    if (usersRes.ok) {
-      const body = (await usersRes.json()) as UserListResponse;
-      setUsers(body.items);
-      setTotal(body.total);
-    }
-    if (failedRes.ok) setFailed((await failedRes.json()) as FailedPipeline[]);
-    if (costRes.ok) setCostSummary((await costRes.json()) as GeminiCostSummary);
-    if (dlqRes.ok) setDlq((await dlqRes.json()) as DLQRow[]);
-    if (llmRes.ok) setLlmStatus((await llmRes.json()) as LLMProviderStatus);
-    setLoading(false);
   }, [page, debouncedSearch, tierFilter]);
 
   const handleDlqRetry = async (dlqId: string) => {

@@ -315,6 +315,17 @@
       scroll-behavior: auto;
     }
   }
+  /* Prevent the browser's CSS scroll-anchoring from re-positioning the
+     dashboard's scrollable main when its content reflows (e.g. theme
+     toggle changes a few CSS-var-driven sizes, cookie banner mounts /
+     unmounts, async-loaded sections collapse). Without this, the user
+     reported "changing theme throws me to the bottom blank area" —
+     scroll-anchor was tracking a far-down element after layout shifted.
+     Apply only on the scrollable main, not the whole doc, so anchor
+     links from the landing still work normally. */
+  #main-content {
+    overflow-anchor: none;
+  }
 
   /* Standardize Lucide icon stroke weight site-wide. The default 2.0 is a
      little punchy for our Nature-paper voice; 1.5 reads more refined.
@@ -761,6 +772,48 @@ body::after {
 
 .dark body::after {
   display: none;
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   HIGH-CONTRAST MODE — accessibility boost.
+
+   Triggered by Alt+H or the toggle in Settings → Theme. Sets
+   `data-high-contrast="true"` on <html>. This block layers ADDITIONAL
+   rules on top of the presentation-mode boost (which is also activated
+   so the existing text-zinc-* brightening applies — see ThemeContext).
+
+   What it does beyond presentation mode:
+     - Heavier visible borders on cards / inputs (not just tints)
+     - Higher-contrast focus rings (4px ring vs default 2px)
+     - Underlines all links explicitly
+     - Disables low-opacity decorative backgrounds (/10, /20 tints) so
+       text on those surfaces clears AA contrast unambiguously
+     ─────────────────────────────────────────────────────────────────── */
+[data-high-contrast="true"] {
+  /* Border tokens — pushed two tiers stronger so every Card / Dialog
+     edge is unambiguous. */
+  --border-subtle: var(--fg-secondary);
+  --border-default: var(--fg-secondary);
+  --border-strong: var(--fg-primary);
+}
+[data-high-contrast="true"] a:not([class*="ink-underline"]):not([role="button"]):not([class*="btn"]) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+[data-high-contrast="true"] :focus-visible {
+  outline: 3px solid var(--brand) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 1px var(--surface-base) !important;
+}
+[data-high-contrast="true"] button:not(:disabled),
+[data-high-contrast="true"] [role="button"]:not([aria-disabled="true"]) {
+  /* Add a visible 1px border to every interactive button — without
+     this, ghost / variant=link buttons look identical to surrounding
+     text in high-contrast mode and are unreachable to low-vision
+     users without a mouse. */
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--border-strong);
 }
 
 /* Glow halo behind primary CTA buttons. Sits behind the element via a

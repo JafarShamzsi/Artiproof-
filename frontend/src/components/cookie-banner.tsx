@@ -118,6 +118,7 @@ export function CookieBanner() {
   // dialog never receives focus and a keyboard-only user can't act on it.
   const primaryActionRef = useRef<HTMLButtonElement>(null);
   const settingsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const bannerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // localStorage and navigator are browser-only — initialising the
@@ -159,6 +160,38 @@ export function CookieBanner() {
     }
   }, [visible, showSettings]);
 
+  // Publish the banner's height as a CSS variable on <html> so the
+  // dashboard layout's <main> can reserve exactly enough bottom padding
+  // to stop content from being clipped — but ONLY while the banner is
+  // visible. When the user dismisses, the variable falls to 0 and pages
+  // no longer show 96px of dead padding at the bottom.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!visible) {
+      root.style.removeProperty("--banner-h");
+      return;
+    }
+    const measure = () => {
+      const h = bannerRef.current?.offsetHeight ?? 0;
+      if (h > 0) root.style.setProperty("--banner-h", `${h}px`);
+    };
+    measure();
+    // The banner expands when the user clicks "Customise" — track its
+    // height changes so the layout padding stays in sync. ResizeObserver
+    // is absent in jsdom (test env) — fall back to the one-shot measure
+    // above and a window resize listener, which is enough for layout
+    // sync in dev / prod browsers that lack RO support (none currently).
+    const hasResizeObserver = typeof ResizeObserver !== "undefined";
+    const ro = hasResizeObserver ? new ResizeObserver(measure) : null;
+    if (ro && bannerRef.current) ro.observe(bannerRef.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", measure);
+      root.style.removeProperty("--banner-h");
+    };
+  }, [visible]);
+
   const accept = useCallback((next: ConsentState) => {
     persist(next);
     setVisible(false);
@@ -169,6 +202,7 @@ export function CookieBanner() {
 
   return (
     <div
+      ref={bannerRef}
       role="dialog"
       aria-modal="false"
       aria-labelledby="cookie-banner-title"
