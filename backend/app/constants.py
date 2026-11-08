@@ -86,6 +86,26 @@ DEFAULT_ANALYSIS_PREFERENCES: dict[str, object] = {
     "researcher_field_inference": True,
 }
 
+# ─── Full-document analysis (chunked) ──────────────────────────────────────
+# Long inputs are split into overlapping character windows so claims are
+# extracted from the whole document, not just the first window. Each window is
+# one LLM call, so the per-analysis budget (max windows) is tier-gated to bound
+# cost; beyond the budget the analysis stops and reports honest partial coverage.
+ANALYSIS_WINDOW_CHARS = 12000
+ANALYSIS_WINDOW_OVERLAP = 1000
+ANALYSIS_WINDOW_CONCURRENCY = 4
+ANALYSIS_MAX_CLAIMS_TOTAL = 40  # merged claim cap across all windows
+ANALYSIS_WINDOW_BUDGET: dict[str, int] = {
+    "free": 2,    # ~23k chars
+    "pro": 8,     # ~89k chars
+    "team": 20,   # ~221k chars
+}
+# AI-text detection is statistical (cheap), so it covers the whole document;
+# this cap only guards against pathological inputs. The opt-in LLM cross-check
+# stays bounded separately.
+ANALYSIS_MAX_PARAGRAPHS = 200
+ANALYSIS_LLM_CROSSCHECK_PARAGRAPHS = 20
+
 # How long password-reset and email-verification tokens are valid for.
 PASSWORD_RESET_TOKEN_TTL_HOURS = 1
 EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24
