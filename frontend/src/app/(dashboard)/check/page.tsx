@@ -773,7 +773,12 @@ function PastChecks() {
             description={
               q || status || minScoreParam || maxScoreParam
                 ? "Try clearing or relaxing the filters."
-                : "Run your first source check above. Results will appear here."
+                : "Run your first source check above — paste a URL, text, or PDF. Results will appear here."
+            }
+            action={
+              q || status || minScoreParam || maxScoreParam
+                ? undefined
+                : { label: "See a sample report", href: "/demo" }
             }
           />
         ) : (

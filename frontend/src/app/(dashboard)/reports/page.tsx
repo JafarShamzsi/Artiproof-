@@ -207,12 +207,30 @@ export default function ReportsPage() {
               <Loader2 className="h-6 w-6 animate-spin text-brand dark:text-brand-fg" />
             </div>
           ) : reports.length === 0 ? (
-            <div className="flex flex-col items-center py-12">
+            <div className="flex flex-col items-center px-4 py-12 text-center">
               <FileText className="mb-3 h-10 w-10 text-zinc-500" />
-              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">No reports generated yet.</p>
-              <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                Reports can be generated from source check or researcher analysis results.
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                No reports generated yet
               </p>
+              <p className="mt-1 max-w-sm text-xs text-zinc-600 dark:text-zinc-400">
+                Reports are produced from completed source checks and
+                researcher analyses. Run one of those first, then use the
+                Report action from its results page.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <a
+                  href="/check"
+                  className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white transition-colors hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+                >
+                  Run a source check
+                </a>
+                <a
+                  href="/researcher"
+                  className="inline-flex h-9 items-center rounded-lg border border-zinc-300 px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Analyze a researcher
+                </a>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
