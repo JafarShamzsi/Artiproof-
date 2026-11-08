@@ -17,6 +17,7 @@ ArtiProof default.
 import re
 from datetime import datetime
 from html import escape as _html_escape
+from urllib.parse import quote
 
 
 _HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -41,6 +42,40 @@ def _safe_color(value: str | None, default: str) -> str:
     return default
 
 
+def _source_score_display(score: float | None) -> tuple[str, str]:
+    if score is None:
+        return "Unavailable", "#71717a"
+    return f"{score:.0f}", "#10b981" if score >= 70 else "#eab308" if score >= 40 else "#ef4444"
+
+
+def _assessment_display(value: float | None, suffix: str = "") -> str:
+    return "Not assessed" if value is None else f"{value:.0f}{suffix}"
+
+
+def _researcher_evidence_html(profile_data: dict) -> str:
+    findings = profile_data.get("citation_ring_flags") or {}
+    coverage = findings.get("coverage") or {}
+    breakdown = profile_data.get("integrity_breakdown") or {}
+    parts = ["<h3>Citation evidence and coverage</h3>"]
+    if breakdown.get("final") is None and breakdown.get("explanation"):
+        parts.append(f"<p>{_e(breakdown['explanation'])}</p>")
+    if coverage.get("papers_attempted") is not None and coverage.get("papers_succeeded") is not None:
+        parts.append(f"<p>{_e(coverage['papers_succeeded'])} of {_e(coverage['papers_attempted'])} attempted publication lookups succeeded. "
+                     f"Up to {_e(coverage.get('citations_per_paper_limit', 50))} incoming citations sampled per paper.</p>")
+    else:
+        parts.append("<p>Citation coverage is not recorded for this analysis. Rerun before relying on historical scores or ring labels.</p>")
+    if findings.get("citation_evidence_status") == "partial":
+        parts.append("<p>Some citation evidence is unavailable or unidentified. The overall assessment is unavailable.</p>")
+    for author in (findings.get("citation_concentration") or [])[:10]:
+        parts.append(f"<p>{_e(author.get('name', 'Unknown'))}: {_e(author.get('citations_to_target'))} incoming citation relationships in this sample.</p>")
+        for relationship in (author.get("relationships") or [])[:5]:
+            citing = quote(str(relationship.get("citing_paper_id", "")), safe="")
+            cited = quote(str(relationship.get("cited_paper_id", "")), safe="")
+            parts.append(f'<p><a href="https://www.semanticscholar.org/paper/{citing}">Citing paper {_e(relationship.get("citing_paper_id"))}</a> &rarr; '
+                         f'<a href="https://www.semanticscholar.org/paper/{cited}">Cited paper {_e(relationship.get("cited_paper_id"))}</a></p>')
+    return "".join(parts)
+
+
 def render_source_check_report(
     check_data: dict,
     narrative: str,
@@ -49,13 +84,13 @@ def render_source_check_report(
 ) -> str:
     """Render a source verification report as HTML."""
     title = check_data.get("input_title") or "Source Verification Report"
-    score = check_data.get("overall_credibility_score", 0)
-    ai_pct = check_data.get("ai_content_percentage", 0)
-    misinfo = check_data.get("misinfo_claims_found", 0)
+    score = check_data.get("overall_credibility_score")
+    ai_pct = _assessment_display(check_data.get("ai_content_percentage"), "%")
+    misinfo = _assessment_display(check_data.get("misinfo_claims_found"))
     claims = check_data.get("claims", [])
     citations = check_data.get("citations", [])
 
-    score_color = "#10b981" if score >= 70 else "#eab308" if score >= 40 else "#ef4444"
+    score_text, score_color = _source_score_display(score)
 
     claims_html = ""
     for c in claims:
@@ -93,14 +128,15 @@ def render_source_check_report(
     return _wrap_html(title, f"""
         <div style="text-align: center; margin-bottom: 32px;">
             <div style="display: inline-block; width: 100px; height: 100px; border-radius: 50%;
-                        border: 5px solid {score_color}; line-height: 90px; font-size: 36px;
-                        font-weight: bold; color: {score_color};">{score:.0f}</div>
+                        border: 5px solid {score_color}; line-height: 90px; font-size: {16 if score is None else 36}px;
+                        font-weight: bold; color: {score_color};">{score_text}</div>
             <p style="margin-top: 8px; color: #64748b; font-size: 14px;">Credibility Score</p>
+            <p style="font-size:12px; color:#64748b;">Score summarizes recorded findings in the analyzed sample, not overall accuracy. AI style and link accessibility are separate signals.</p>
         </div>
 
         <div style="display: flex; gap: 16px; margin-bottom: 24px;">
             <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #3b82f6;">{ai_pct:.0f}%</div>
+                <div style="font-size: 24px; font-weight: bold; color: #3b82f6;">{ai_pct}</div>
                 <div style="font-size: 11px; color: #64748b;">AI Content</div>
             </div>
             <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
@@ -131,8 +167,10 @@ def render_researcher_report(
     """Render a researcher integrity report as HTML."""
     name = profile_data.get("researcher_name", "Unknown")
     institution = profile_data.get("institution") or "Unknown"
-    integrity = profile_data.get("integrity_score", 0)
-    score_color = "#10b981" if integrity >= 70 else "#eab308" if integrity >= 40 else "#ef4444"
+    integrity = profile_data.get("integrity_score")
+    score_text, score_color = _source_score_display(integrity)
+    self_rate = profile_data.get("self_citation_rate")
+    self_text = "Not assessed" if self_rate is None else f"{self_rate * 100:.1f}%"
 
     publications = profile_data.get("publications", [])
     ring_flags = profile_data.get("citation_ring_flags") or {}
@@ -159,7 +197,7 @@ def render_researcher_report(
         # carries the "patterns, not proof" framing.
         flags_html = (
             "<h2 style='color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; "
-            "padding-bottom: 6px; margin-top: 24px;'>Mutual Citation Patterns</h2>"
+            "padding-bottom: 6px; margin-top: 24px;'>Incoming Citation Patterns</h2>"
             "<div style='background:#fef3c7; border-left:4px solid #b45309; padding:10px 12px; "
             "border-radius:6px; margin:8px 0 12px; font-size:12px; color:#7c2d12; line-height:1.5;'>"
             "<strong>Patterns, not proof.</strong> Findings below are statistical signals from "
@@ -185,23 +223,24 @@ def render_researcher_report(
 
         <div style="text-align: center; margin-bottom: 32px;">
             <div style="display: inline-block; width: 100px; height: 100px; border-radius: 50%;
-                        border: 5px solid {score_color}; line-height: 90px; font-size: 36px;
-                        font-weight: bold; color: {score_color};">{integrity:.0f}</div>
+                        border: 5px solid {score_color}; line-height: 90px; font-size: {16 if integrity is None else 36}px;
+                        font-weight: bold; color: {score_color};">{score_text}</div>
             <p style="margin-top: 8px; color: #64748b; font-size: 14px;">Integrity Score</p>
+            <p style="font-size:12px; color:#64748b;">Sample-based heuristic. Incoming citations do not establish rings or misconduct; adjusted metrics are estimates.</p>
         </div>
 
         <div style="display: flex; gap: 16px; margin-bottom: 24px;">
             <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 14px; color: #64748b;">Official h-index</div>
-                <div style="font-size: 28px; font-weight: bold;">{_e(profile_data.get('official_h_index') or '—')}</div>
+                <div style="font-size: 28px; font-weight: bold;">{_e(profile_data.get('official_h_index')) if profile_data.get('official_h_index') is not None else '—'}</div>
             </div>
             <div style="flex: 1; background: #ecfdf5; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 14px; color: #10b981;">Adjusted h-index</div>
-                <div style="font-size: 28px; font-weight: bold; color: #10b981;">{_e(profile_data.get('adjusted_h_index') or '—')}</div>
+                <div style="font-size: 28px; font-weight: bold; color: #10b981;">{_e(profile_data.get('adjusted_h_index')) if profile_data.get('adjusted_h_index') is not None else '—'}</div>
             </div>
             <div style="flex: 1; background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 14px; color: #64748b;">Self-citation</div>
-                <div style="font-size: 28px; font-weight: bold;">{(profile_data.get('self_citation_rate') or 0) * 100:.1f}%</div>
+                <div style="font-size: 28px; font-weight: bold;">{self_text}</div>
             </div>
         </div>
 
@@ -209,6 +248,8 @@ def render_researcher_report(
         {narrative_html}
 
         {flags_html}
+
+        {_researcher_evidence_html(profile_data)}
 
         {"<h2 style='color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; margin-top: 24px;'>Publications</h2><table style='width: 100%; border-collapse: collapse;'><thead><tr style='background: #f1f5f9;'><th style='padding: 5px 8px; text-align: left; font-size: 11px;'>Title</th><th style='padding: 5px 8px; text-align: left; font-size: 11px;'>Journal</th><th style='padding: 5px 8px; text-align: center; font-size: 11px;'>Year</th><th style='padding: 5px 8px; text-align: right; font-size: 11px;'>Cites</th><th style='padding: 5px 8px; text-align: center; font-size: 11px;'>Topic</th></tr></thead><tbody>" + pubs_html + "</tbody></table>" if publications else ""}
     """, branding, annotations)
@@ -336,15 +377,14 @@ def render_executive_summary_report(
     narrative, and a one-line bullet summary of flagged findings. Designed
     to fit on a single A4 page.
     """
-    score = check_data.get("overall_credibility_score", 0)
-    ai_pct = check_data.get("ai_content_percentage", 0)
-    misinfo = check_data.get("misinfo_claims_found", 0)
+    score = check_data.get("overall_credibility_score")
+    ai_pct = check_data.get("ai_content_percentage")
+    ai_text = _assessment_display(ai_pct, "%")
+    misinfo = _assessment_display(check_data.get("misinfo_claims_found"))
     citations = check_data.get("citations", []) or []
     claims = check_data.get("claims", []) or []
     title = check_data.get("input_title") or "Source Verification Report"
-    score_color = (
-        "#10b981" if score >= 70 else "#eab308" if score >= 40 else "#ef4444"
-    )
+    score_text, score_color = _source_score_display(score)
     retracted = sum(1 for c in citations if c.get("is_retracted"))
     inaccessible = sum(1 for c in citations if not c.get("is_accessible", True))
     false_claims = sum(1 for c in claims if c.get("verdict") == "false")
@@ -360,17 +400,18 @@ def render_executive_summary_report(
         <div style="display: flex; align-items: center; gap: 24px; margin-bottom: 24px;">
             <div style="flex-shrink: 0; width: 92px; height: 92px; border-radius: 50%;
                         border: 4px solid {score_color}; display: flex; align-items: center;
-                        justify-content: center; font-size: 32px; font-weight: bold;
-                        color: {score_color};">{score:.0f}</div>
+                        justify-content: center; font-size: {16 if score is None else 32}px; font-weight: bold;
+                        color: {score_color};">{score_text}</div>
             <div style="flex: 1;">
                 <p style="margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280;">Credibility</p>
                 <p style="margin: 4px 0; font-size: 14px; color: #1e293b;">
-                    {ai_pct:.0f}% AI · {misinfo} misinfo · {len(citations)} citations
+                    {ai_text} AI · {misinfo} misinfo · {len(citations)} citations
                 </p>
             </div>
         </div>
 
         <h2 style="color: #1e293b; font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 16px;">Summary</h2>
+        <p style="font-size:12px; color:#64748b;">Score summarizes recorded findings in the analyzed sample, not overall accuracy. Review coverage and supporting evidence.</p>
         {narrative_html}
 
         <h2 style="color: #1e293b; font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 16px;">Findings</h2>
@@ -379,8 +420,8 @@ def render_executive_summary_report(
             {"<li><strong>" + str(misleading) + "</strong> misleading claim" + ("s" if misleading != 1 else "") + " identified.</li>" if misleading else ""}
             {"<li><strong>" + str(retracted) + "</strong> retracted citation" + ("s" if retracted != 1 else "") + ".</li>" if retracted else ""}
             {"<li><strong>" + str(inaccessible) + "</strong> inaccessible citation" + ("s" if inaccessible != 1 else "") + ".</li>" if inaccessible else ""}
-            {"<li>AI content detected in <strong>" + f"{ai_pct:.0f}%" + "</strong> of analyzed paragraphs.</li>" if ai_pct >= 50 else ""}
-            {"<li>No major findings — score and citations look clean.</li>" if (false_claims + misleading + retracted + inaccessible == 0 and ai_pct < 50) else ""}
+            {"<li>AI style estimate: <strong>" + ai_text + "</strong> for analyzed paragraphs.</li>" if ai_pct is not None and ai_pct >= 50 else ""}
+            {"<li>Credibility score unavailable: required verification evidence is missing. Available findings do not establish overall accuracy.</li>" if score is None else ""}
         </ul>
     """
     return _wrap_html(f"Executive Summary: {title}", body, branding, annotations)
@@ -398,19 +439,17 @@ def render_comparison_report(
 
     rows = []
     for item in items:
-        score = item.get("overall_credibility_score", 0) or 0
-        ai_pct = item.get("ai_content_percentage", 0) or 0
-        misinfo = item.get("misinfo_claims_found", 0) or 0
+        score = item.get("overall_credibility_score")
+        ai_pct = _assessment_display(item.get("ai_content_percentage"), "%")
+        misinfo = _assessment_display(item.get("misinfo_claims_found"))
         citations = item.get("citations", []) or []
         retracted = sum(1 for c in citations if c.get("is_retracted"))
-        score_color = (
-            "#10b981" if score >= 70 else "#eab308" if score >= 40 else "#ef4444"
-        )
+        score_text, score_color = _source_score_display(score)
         rows.append(f"""
             <tr>
                 <td style="padding: 8px;"><strong>{_e(item.get('input_title') or 'Untitled')}</strong></td>
-                <td style="padding: 8px; text-align: center; color: {score_color}; font-weight: 600;">{score:.0f}</td>
-                <td style="padding: 8px; text-align: center;">{ai_pct:.0f}%</td>
+                <td style="padding: 8px; text-align: center; color: {score_color}; font-weight: 600;">{score_text}</td>
+                <td style="padding: 8px; text-align: center;">{ai_pct}</td>
                 <td style="padding: 8px; text-align: center;">{misinfo}</td>
                 <td style="padding: 8px; text-align: center;">{retracted}</td>
                 <td style="padding: 8px; text-align: center;">{len(citations)}</td>
@@ -453,21 +492,20 @@ def render_institutional_audit_report(
         institution = item.get("institution") or "—"
         official = item.get("official_h_index")
         adjusted = item.get("adjusted_h_index")
-        integrity = item.get("integrity_score", 0) or 0
-        self_cite = (item.get("self_citation_rate") or 0) * 100
+        integrity = item.get("integrity_score")
+        score_text, score_color = _source_score_display(integrity)
+        self_rate = item.get("self_citation_rate")
+        self_text = "Not assessed" if self_rate is None else f"{self_rate * 100:.1f}%"
         ring_flags = item.get("citation_ring_flags") or {}
-        flag_count = len(ring_flags.get("flags") or [])
-        score_color = (
-            "#10b981" if integrity >= 70 else "#eab308" if integrity >= 40 else "#ef4444"
-        )
+        flag_count = len(ring_flags.get("flags") or []) if integrity is not None else "Not assessed"
         rows.append(f"""
             <tr>
                 <td style="padding: 8px;"><strong>{_e(name)}</strong><br/>
                     <span style="font-size: 11px; color: #64748b;">{_e(institution)}</span></td>
                 <td style="padding: 8px; text-align: center;">{_e(official) if official is not None else '—'}</td>
                 <td style="padding: 8px; text-align: center;">{_e(adjusted) if adjusted is not None else '—'}</td>
-                <td style="padding: 8px; text-align: center; color: {score_color}; font-weight: 600;">{integrity:.0f}</td>
-                <td style="padding: 8px; text-align: center;">{self_cite:.1f}%</td>
+                <td style="padding: 8px; text-align: center; color: {score_color}; font-weight: 600;">{score_text}</td>
+                <td style="padding: 8px; text-align: center;">{self_text}</td>
                 <td style="padding: 8px; text-align: center;">{flag_count}</td>
             </tr>
         """)
@@ -475,7 +513,8 @@ def render_institutional_audit_report(
     body = f"""
         <p style="font-size: 13px; color: #334155;">
             Integrity audit across {len(items)} researcher{"s" if len(items) != 1 else ""}.
-            Adjusted h-index reflects self-citation + ring-detection corrections.
+            Adjusted h-index estimates the effect of a sampled self-citation rate.
+            Incoming citation concentration does not establish reciprocal rings or misconduct.
         </p>
         <table style="width: 100%; border-collapse: collapse; margin-top: 12px;">
             <thead>

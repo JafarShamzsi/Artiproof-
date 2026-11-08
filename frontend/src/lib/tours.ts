@@ -73,7 +73,7 @@ export interface TourDefinition {
 /** Dashboard welcome — auto-starts on first sign-in. */
 export const DASHBOARD_WELCOME_TOUR: TourDefinition = {
   id: "dashboard-welcome",
-  version: 1,
+  version: 2,
   label: "Dashboard tour",
   steps: [
     {
@@ -94,7 +94,7 @@ export const DASHBOARD_WELCOME_TOUR: TourDefinition = {
       target: '[data-tour="nav-check"]',
       placement: "right",
       title: "Check a source",
-      body: "Drop in text, a URL, or a PDF — we run five integrity engines and surface what's plagiarised, fabricated, or AI-generated.",
+      body: "Submit text, a URL, or a PDF for claim review and AI style estimates. Web article links also receive citation checks. Inspect coverage and source links; these results do not certify accuracy or authorship.",
     },
     {
       id: "nav-researcher",

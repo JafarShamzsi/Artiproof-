@@ -275,14 +275,6 @@ def decode_invite_token(token: str) -> dict:
         if not payload.get(required):
             raise HTTPException(status_code=400, detail="Invalid invite link")
     return payload
-    if payload.get("type") != "stream":
-        raise HTTPException(status_code=401, detail="Wrong ticket type")
-    if payload.get("kind") != resource_kind or payload.get("rid") != resource_id:
-        raise HTTPException(status_code=403, detail="Ticket not valid for this resource")
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid ticket payload")
-    return user_id
 
 
 async def get_current_user_optional(

@@ -52,6 +52,9 @@ def _window_start(frequency: str, now: datetime) -> datetime:
     )
 
 
+from app.services.report_engine.assets import embed_report_logo
+
+
 async def _branding_for_user(user: User, db: AsyncSession) -> dict | None:
     if user.tier != "team" or not user.organization_id:
         return None
@@ -65,7 +68,7 @@ async def _branding_for_user(user: User, db: AsyncSession) -> dict | None:
         return None
     return {
         "name": org.name,
-        "logo_url": org.logo_url,
+        "logo_url": await embed_report_logo(org.logo_url),
         "primary_color": org.primary_color,
         "tagline": "Research Integrity Platform",
     }
@@ -80,21 +83,24 @@ async def _summary_check_data(checks: List[SourceCheck]) -> dict:
         return {
             "input_title": "No activity in this window",
             "input_type": "summary",
-            "overall_credibility_score": 0,
-            "ai_content_percentage": 0,
-            "misinfo_claims_found": 0,
+            "overall_credibility_score": None,
+            "ai_content_percentage": None,
+            "misinfo_claims_found": None,
+            "scored_checks": 0,
             "claims": [],
             "citations": [],
         }
-    avg_score = sum((c.overall_credibility_score or 0) for c in checks) / len(checks)
-    total_misinfo = sum((c.misinfo_claims_found or 0) for c in checks)
-    avg_ai = sum((c.ai_content_percentage or 0) for c in checks) / len(checks)
+    completed = [c for c in checks if c.status == "completed"]
+    scores = [c.overall_credibility_score for c in completed if c.overall_credibility_score is not None]
+    ai_scores = [c.ai_content_percentage for c in completed if c.ai_content_percentage is not None]
+    misinfo = [c.misinfo_claims_found for c in completed if c.misinfo_claims_found is not None]
     return {
-        "input_title": f"{len(checks)} sources analyzed",
+        "input_title": f"{len(completed)} completed source checks (latest 20)",
         "input_type": "summary",
-        "overall_credibility_score": round(avg_score, 1),
-        "ai_content_percentage": round(avg_ai, 1),
-        "misinfo_claims_found": total_misinfo,
+        "overall_credibility_score": round(sum(scores) / len(scores), 1) if scores else None,
+        "ai_content_percentage": round(sum(ai_scores) / len(ai_scores), 1) if ai_scores else None,
+        "misinfo_claims_found": sum(misinfo) if misinfo else None,
+        "scored_checks": len(scores),
         "claims": [],
         "citations": [],
     }
@@ -127,6 +133,7 @@ async def run_due_schedules(db: AsyncSession) -> int:
                 .where(
                     SourceCheck.user_id == schedule.user_id,
                     SourceCheck.created_at >= window_start,
+                    SourceCheck.status == "completed",
                     SourceCheck.deleted_at.is_(None),
                 )
                 .order_by(SourceCheck.created_at.desc())
@@ -146,13 +153,18 @@ async def run_due_schedules(db: AsyncSession) -> int:
 
             branding = await _branding_for_user(user, db)
             check_data = await _summary_check_data(checks)
+            score = check_data["overall_credibility_score"]
+            score_text = f"{score:.0f}" if score is not None else "unavailable"
+            misinfo = check_data["misinfo_claims_found"]
+            misinfo_text = str(misinfo) if misinfo is not None else "not assessed"
             window_label = "weekly" if schedule.frequency == "weekly" else "monthly"
             narrative = (
                 f"Activity summary for the past {window_label} window. "
-                f"{len(checks)} source check"
-                f"{'s' if len(checks) != 1 else ''} ran. "
-                f"Average credibility score: {check_data['overall_credibility_score']:.0f}. "
-                f"Total misinformation claims flagged: {check_data['misinfo_claims_found']}."
+                f"This report samples the latest {len(checks)} completed source checks "
+                f"(up to 20) in that window. "
+                f"Average credibility score: {score_text} "
+                f"from {check_data['scored_checks']} scored checks. "
+                f"Total misinformation claims flagged in assessed checks: {misinfo_text}."
             )
 
             template = schedule.template or "executive_summary"

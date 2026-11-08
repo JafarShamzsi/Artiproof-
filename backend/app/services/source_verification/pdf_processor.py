@@ -48,7 +48,12 @@ def extract_text_with_positions(pdf_path: str) -> dict:
         }
     """
     try:
-        doc = fitz.open(pdf_path)
+        if pdf_path.startswith("artifact://"):
+            from app.services.artifact_storage import read_pdf
+
+            doc = fitz.open(stream=read_pdf(pdf_path), filetype="pdf")
+        else:
+            doc = fitz.open(pdf_path)
     except Exception as e:
         raise ValueError(f"Invalid or corrupted PDF file: {e}") from e
 

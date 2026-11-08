@@ -40,6 +40,13 @@ async def build_citation_graph(
     # are heavily self-cited (issue 13) and count suspicious citations
     # without relying on title-string matching (issue 14).
     per_paper: dict[str, dict] = {}
+    relationships = []
+    attempted_paper_ids = []
+    unavailable_paper_ids = []
+    incomplete_author_records = 0
+    unidentified_citations = 0
+    missing_paper_ids = 0
+    seen_papers = set()
 
     sorted_pubs = sorted(publications, key=lambda p: p.get("citation_count", 0), reverse=True)
     papers_to_check = sorted_pubs[:max_papers_to_check]
@@ -47,20 +54,42 @@ async def build_citation_graph(
     for pub in papers_to_check:
         paper_id = pub.get("paper_id")
         if not paper_id:
+            missing_paper_ids += 1
             continue
+        if paper_id in seen_papers:
+            continue
+        seen_papers.add(paper_id)
+        attempted_paper_ids.append(paper_id)
 
         citations = await fetch_paper_citations(paper_id, limit=50)
-        paper_total = len(citations)
+        if citations is None:
+            unavailable_paper_ids.append(paper_id)
+            continue
+        # Each citing-paper/cited-paper relationship counts once. Duplicate
+        # authors must not count a self-citation twice or inflate an edge.
+        unique_citations = {}
+        for citing in citations:
+            citing_id = citing.get("paper_id")
+            if not citing_id:
+                unidentified_citations += 1
+                continue
+            unique_citations.setdefault(citing_id, citing)
+        paper_total = len(unique_citations)
         paper_self = 0
         # author_id -> count of times they cited THIS paper
         paper_citers: Counter = Counter()
         total_checked += paper_total
 
-        for citing in citations:
-            for author in citing.get("authors", []):
-                aid = author.get("id")
-                if not aid:
-                    continue
+        for citing_id, citing in unique_citations.items():
+            authors = citing.get("authors") or []
+            known_authors = {a["id"]: a for a in authors if a.get("id")}
+            if not authors or any(not a.get("id") for a in authors):
+                incomplete_author_records += 1
+            relationships.append({
+                "citing_paper_id": citing_id, "cited_paper_id": paper_id,
+                "author_ids": list(known_authors),
+            })
+            for aid, author in known_authors.items():
 
                 citing_author_names[aid] = author.get("name", "Unknown")
 
@@ -100,6 +129,7 @@ async def build_citation_graph(
             "target": target_author_id,
             "weight": count,
             "papers": edges_data.get(author_id, [])[:5],
+            "relationships": [r for r in relationships if author_id in r["author_ids"]],
         })
 
     return {
@@ -112,4 +142,21 @@ async def build_citation_graph(
         "self_citations": self_citations,
         "total_citations_checked": total_checked,
         "per_paper_citations": per_paper,
+        "relationships": relationships,
+        "citation_evidence_status": (
+            "unavailable" if not per_paper else
+            "partial" if unavailable_paper_ids or missing_paper_ids or incomplete_author_records or unidentified_citations else
+            "succeeded"
+        ),
+        "coverage": {
+            "publications_available": len(publications),
+            "papers_attempted": len(attempted_paper_ids),
+            "papers_succeeded": len(per_paper),
+            "unavailable_paper_ids": unavailable_paper_ids,
+            "missing_paper_ids": missing_paper_ids,
+            "incomplete_author_records": incomplete_author_records,
+            "unidentified_citations": unidentified_citations,
+            "paper_limit": max_papers_to_check, "citations_per_paper_limit": 50,
+            "scope": "Leading citation samples from selected publications; not a complete citation network.",
+        },
     }

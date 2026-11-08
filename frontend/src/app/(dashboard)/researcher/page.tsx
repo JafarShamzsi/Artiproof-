@@ -119,14 +119,14 @@ export default function ResearcherAnalysisPage() {
           { method: "POST" },
         );
         if (!ticketRes.ok) {
-          setError(`Stream auth failed (HTTP ${ticketRes.status})`);
           setLoading(false);
+          router.push(`/researcher/${profileId}`);
           return;
         }
         ticket = ((await ticketRes.json()) as { ticket: string }).ticket;
       } catch {
-        setError("Stream auth failed");
         setLoading(false);
+        router.push(`/researcher/${profileId}`);
         return;
       }
       const es = new EventSource(
@@ -144,9 +144,7 @@ export default function ResearcherAnalysisPage() {
             es.close();
             eventSourceRef.current = null;
             setLoading(false);
-            if (event.status === "completed") {
-              router.push(`/researcher/${profileId}`);
-            }
+            router.push(`/researcher/${profileId}`);
           }
         } catch {
           // Malformed event — ignore

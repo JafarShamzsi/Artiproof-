@@ -19,19 +19,14 @@ if celery_app is not None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(_run_pipeline(check_id))
+            from app.services.analysis_runs import execute_resource
+
+            return loop.run_until_complete(execute_resource("source_check", check_id))
         finally:
             loop.close()
 
 
 async def _run_pipeline(check_id: str) -> dict:
-    from app.database import async_session
-    from app.services.source_verification.orchestrator import (
-        SourceVerificationOrchestrator,
-    )
+    from app.services.analysis_runs import execute_resource
 
-    async with async_session() as db:
-        orchestrator = SourceVerificationOrchestrator(db)
-        await orchestrator.run_pipeline(check_id)
-
-    return {"check_id": check_id, "status": "completed"}
+    return await execute_resource("source_check", check_id)

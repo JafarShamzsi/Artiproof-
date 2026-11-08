@@ -39,12 +39,12 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "ArtiProof — Research integrity, automated",
   description:
-    "Five integrity engines in one workflow: plagiarism, AI detection, citation rings, fact-checking, and researcher integrity scoring. Built for universities across Azerbaijan and the Eastern Partnership.",
+    "Review source claims, citation links and AI style estimates. Explore researcher publication metrics in a separate lookup, with findings and coverage for human review.",
   metadataBase: new URL("https://example.invalid"),
   openGraph: {
     title: "ArtiProof — Research integrity, automated",
     description:
-      "Plagiarism, AI detection, citation rings, fact-checking, researcher scoring — one platform.",
+      "Source claim review, citation checks and separate researcher lookups, with coverage and limitations alongside the findings.",
     url: "https://example.invalid",
     siteName: "ArtiProof",
     type: "website",
@@ -54,7 +54,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "ArtiProof — Research integrity, automated",
     description:
-      "Five integrity engines in one workflow.",
+      "Source checks and researcher analysis to support human review.",
   },
   robots: {
     index: true,

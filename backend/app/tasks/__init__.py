@@ -34,6 +34,9 @@ try:
         result_serializer="json",
         task_time_limit=300,
         task_soft_time_limit=240,
+        broker_connection_timeout=2,
+        task_publish_retry=False,
+        broker_transport_options={"socket_connect_timeout": 2, "socket_timeout": 2},
         timezone="UTC",
     )
 except ImportError:
@@ -50,9 +53,11 @@ if celery_app is not None:
         from app.tasks import researcher_tasks  # noqa: F401
         from app.tasks import cleanup  # noqa: F401
         from app.tasks import scheduled_reports  # noqa: F401
+        from app.tasks import analysis_tasks
 
         cleanup.schedule_beat(celery_app)
         scheduled_reports.schedule_beat(celery_app)
+        analysis_tasks.schedule_beat(celery_app)
     except Exception:
         logger.exception("Failed to register Celery tasks / beat schedule")
 

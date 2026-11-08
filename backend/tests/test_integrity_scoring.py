@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 
 from app.services.academic_integrity.rating_adjuster import (
-    WEIGHT_RING_PER_CONFIDENCE,
     WEIGHT_SELF_CITE_ELEVATED,
     WEIGHT_SELF_CITE_FLAGGED,
     _calculate_h_index,
@@ -33,7 +32,8 @@ def _empty_ring_data(**overrides):
         "potential_rings": [],
         "flags": [],
         "citation_velocity_anomalies": [],
-        "total_citations_checked": 0,
+        "total_citations_checked": 5,
+        "citation_evidence_status": "succeeded",
     }
     base.update(overrides)
     return base
@@ -84,7 +84,7 @@ class TestSelfCitationDeductions:
 
 
 class TestRingMembership:
-    def test_ring_member_reduces_score_by_confidence(self):
+    def test_unsupported_ring_candidate_does_not_reduce_score(self):
         result = calculate_adjusted_metrics(
             publications=_publications([10]),
             ring_data=_empty_ring_data(
@@ -96,11 +96,11 @@ class TestRingMembership:
             official_h_index=1,
             official_citation_count=10,
         )
-        # 100 - (WEIGHT_RING_PER_CONFIDENCE * 0.8)
-        expected = 100 - (WEIGHT_RING_PER_CONFIDENCE * 0.8)
-        assert result["integrity_score"] == pytest.approx(expected, rel=1e-3)
+        assert result["integrity_score"] == 100
         reasons = [a["reason"] for a in result["breakdown"]["adjustments"]]
-        assert "citation_ring_member" in reasons
+        assert "citation_ring_member" not in reasons
+        assert result["adjusted_citation_count"] == 10
+        assert "unsupported_ring_assessment_ignored" in result["breakdown"]["warnings"]
 
 
 class TestAdjustedHIndex:
@@ -122,7 +122,8 @@ class TestAdjustedHIndex:
             official_h_index=None,
             official_citation_count=0,
         )
-        assert result["adjusted_h_index"] == 0
+        assert result["adjusted_h_index"] is None
+        assert result["integrity_score"] is None
 
 
 class TestBreakdownShape:

@@ -33,7 +33,7 @@ from app.models.source_check import (
     AIDetectionResult,
     CitationCheck,
 )
-from app.schemas.breakdown import FORMULA_VERSION
+from app.schemas.breakdown import SOURCE_FORMULA_VERSION as FORMULA_VERSION
 from app.services.source_verification.scraper import scrape_url
 from app.services.source_verification.claim_extractor import extract_claims
 from app.services.source_verification.fact_checker import verify_claim
@@ -61,10 +61,7 @@ logger = logging.getLogger(__name__)
 WEIGHT_FALSE_CLAIM = 15.0
 WEIGHT_MISLEADING = 10.0
 WEIGHT_PARTIALLY_TRUE = 5.0
-WEIGHT_UNVERIFIED = 3.0
-WEIGHT_AI_PER_PERCENT_OVER_50 = 0.3
 WEIGHT_RETRACTED_CITATION = 15.0
-WEIGHT_INACCESSIBLE_CITATION = 5.0
 
 
 class SourceVerificationOrchestrator:
@@ -106,6 +103,9 @@ class SourceVerificationOrchestrator:
             status="pending",
         )
         self.db.add(check)
+        from app.services.analysis_runs import queue_run
+
+        await queue_run(self.db, "source_check", check)
         await self.db.commit()
         return check.id
 
@@ -154,7 +154,7 @@ class SourceVerificationOrchestrator:
         # the centralized Gemini client attributes its usage row to this
         # pipeline. Doing it here (rather than in the Celery task layer)
         # means the same context applies whether the pipeline runs in a
-        # worker or directly from a streaming request.
+        # worker; streaming requests only observe persisted progress.
         from app.context import current_source_check_id, current_user_id
 
         current_user_id.set(check.user_id)
@@ -164,7 +164,9 @@ class SourceVerificationOrchestrator:
         await self.db.commit()
         yield {"step": "started", "status": "processing", "detail": "Pipeline started", "progress": 0.05}
 
-        text = check.input_content
+        # URL strings and document filenames are not source text. If extraction
+        # fails, do not send those identifiers to downstream analysis instead.
+        text = check.input_content if check.input_type == "text" else ""
         citations_from_scraper = []
         pdf_extracted_data = None  # Position data for PDF annotation
 
@@ -190,6 +192,7 @@ class SourceVerificationOrchestrator:
                 scraped = await scrape_url(check.input_content)
                 self._track_api("url_scraper")
                 if scraped.get("error"):
+                    self._warnings.append({"type": "scraping_failed"})
                     yield {"step": "scraping", "status": "warning", "detail": f"Scraping issue: {scraped['error']}", "progress": 0.15}
                 if scraped.get("body"):
                     text = scraped["body"]
@@ -207,6 +210,26 @@ class SourceVerificationOrchestrator:
                 yield {"step": "scraping", "status": "error", "detail": str(e), "progress": 0.15}
 
         if not text or len(text.strip()) < 50:
+            from app.schemas.governance import build_model_metadata
+
+            self._warnings.append({"type": "insufficient_source_text"})
+            check.overall_credibility_score = None
+            check.ai_content_percentage = None
+            check.misinfo_claims_found = None
+            check.score_breakdown = None
+            check.model_metadata = build_model_metadata(
+                model_provider="google",
+                model_name=settings.GEMINI_MODEL,
+                formula_version=FORMULA_VERSION,
+                prompt_version=self._prompt_version,
+                prompt_hashes=self._prompt_hashes_live,
+                prompt_drift_detected=self._prompt_drift_detected,
+                apis_used=self._apis_used,
+                fallback_used=False,
+                processing_warnings=self._warnings,
+                context={"text_length": len(text), "claims_extracted": 0,
+                         "paragraphs_analyzed": 0},
+            )
             check.status = "failed"
             check.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
@@ -238,36 +261,39 @@ class SourceVerificationOrchestrator:
         async def _fact_check_all():
             results = []
             for claim in claims:
-                fc = await verify_claim(claim["claim_text"], text[:1000])
-                results.append({**claim, **fc})
+                try:
+                    fc = await verify_claim(claim["claim_text"], text[:1000])
+                    results.append({**claim, **fc})
+                except Exception:
+                    logger.exception("Claim verification failed")
+                    self._warnings.append({"type": "claim_verification_unavailable"})
+                    results.append({**claim, "verdict": "unverified", "confidence": 0.0,
+                                    "explanation": "Verification service unavailable for this claim.", "sources": []})
             return results
 
-        try:
-            fact_check_results, ai_results = await asyncio.gather(
-                _fact_check_all(),
-                detect_ai_content(text, warnings=self._warnings),
-            )
-            if claims:
-                self._track_api("google_factcheck")
-            if any(r.get("detection_method") == "heuristic-fallback" for r in ai_results):
-                self._fallback_used = True
-        except HTTP_RETRY_EXCEPTIONS as e:
-            logger.warning("Parallel analysis transient failure: %s", e)
-            fact_check_results = []
-            ai_results = []
-            self._warnings.append({"type": "parallel_analysis_failed", "error": type(e).__name__, "transient": True})
-            yield {"step": "analyzing", "status": "error", "detail": str(e), "progress": 0.6}
-        except Exception as e:
-            logger.exception("Parallel analysis failed")
-            fact_check_results = []
-            ai_results = []
-            self._warnings.append({"type": "parallel_analysis_failed", "error": type(e).__name__})
-            yield {"step": "analyzing", "status": "error", "detail": str(e), "progress": 0.6}
-
-        yield {"step": "fact_checking", "status": "done", "detail": f"Verified {len(fact_check_results)} claims", "progress": 0.55}
-        yield {"step": "ai_detection", "status": "done", "detail": f"Analyzed {len(ai_results)} paragraphs", "progress": 0.6}
+        fact_output, ai_output = await asyncio.gather(
+            _fact_check_all(), detect_ai_content(text, warnings=self._warnings), return_exceptions=True,
+        )
+        for output in (fact_output, ai_output):
+            if isinstance(output, asyncio.CancelledError):
+                raise output
+        fact_check_results = fact_output if isinstance(fact_output, list) else []
+        ai_results = ai_output if isinstance(ai_output, list) else []
+        if not isinstance(fact_output, list):
+            self._warnings.append({"type": "fact_check_failed"})
+        if not isinstance(ai_output, list):
+            self._warnings.append({"type": "ai_detection_failed"})
+        if claims and settings.GOOGLE_FACTCHECK_API_KEY:
+            self._track_api("google_factcheck")
+        if any(r.get("detection_method") == "heuristic-fallback" for r in ai_results):
+            self._fallback_used = True
+        assessed = sum(r.get("verdict") in {"true", "false", "misleading", "partially_true"} and r.get("confidence", 0) > 0 for r in fact_check_results)
+        yield {"step": "fact_checking", "status": "done" if isinstance(fact_output, list) else "error", "detail": f"Assessed {assessed} of {len(claims)} extracted claims", "progress": 0.55}
+        yield {"step": "ai_detection", "status": "done" if isinstance(ai_output, list) else "error", "detail": f"Analyzed {len(ai_results)} paragraphs" if isinstance(ai_output, list) else "AI style assessment unavailable", "progress": 0.6}
 
         # ── Step 5: Analyze citations ──
+        if check.input_type != "url":
+            self._warnings.append({"type": "citation_extraction_unsupported"})
         yield {"step": "citations", "status": "processing", "detail": "Checking citations...", "progress": 0.65}
         try:
             citation_results = await analyze_all_citations(citations_from_scraper, warnings=self._warnings)
@@ -388,12 +414,32 @@ class SourceVerificationOrchestrator:
         fact_check_results: list[dict],
         ai_percentage: float,
         citation_results: list[dict],
-    ) -> tuple[float, dict]:
+    ) -> tuple[float | None, dict]:
         """Compute the credibility score and the breakdown that explains it.
 
-        The numeric output matches the previous formula exactly so existing
-        seeded scores stay valid; only the breakdown is new.
+        Withhold the headline when claim verification supplied no usable
+        evidence or a required analysis step failed. Findings remain available.
         """
+        verified_verdicts = {"true", "false", "misleading", "partially_true"}
+        has_claim_evidence = any(
+            fc.get("verdict") in verified_verdicts and fc.get("confidence", 0.0) > 0
+            for fc in fact_check_results
+        )
+        unavailable_warnings = {
+            "pdf_extraction_failed", "scraping_failed", "claim_extraction_failed",
+            "parallel_analysis_failed", "citation_analysis_failed", "missing_gemini_key",
+            "insufficient_source_text",
+            "fact_check_failed",
+        }
+        warning_types = [w.get("type", "") for w in self._warnings]
+        if not has_claim_evidence or unavailable_warnings.intersection(warning_types):
+            return None, {
+                "base": 100.0, "deductions": [],
+                "warnings": list(dict.fromkeys([*warning_types, "insufficient_verification_evidence"])),
+                "final": None, "confidence": 0.0,
+                "formula_version": FORMULA_VERSION,
+                "assessment_status": "unavailable",
+            }
         score = 100.0
         deductions: list[dict] = []
 
@@ -404,7 +450,6 @@ class SourceVerificationOrchestrator:
                 "false": WEIGHT_FALSE_CLAIM,
                 "misleading": WEIGHT_MISLEADING,
                 "partially_true": WEIGHT_PARTIALLY_TRUE,
-                "unverified": WEIGHT_UNVERIFIED,
             }.get(verdict)
             if weight is None:
                 continue
@@ -420,19 +465,6 @@ class SourceVerificationOrchestrator:
                 },
             })
 
-        if ai_percentage > 50:
-            impact = -round((ai_percentage - 50) * WEIGHT_AI_PER_PERCENT_OVER_50, 2)
-            score += impact
-            deductions.append({
-                "reason": "ai_content_detected",
-                "impact": impact,
-                "detail": {
-                    "ai_percentage": round(ai_percentage, 1),
-                    "threshold": 50,
-                    "per_percent_weight": WEIGHT_AI_PER_PERCENT_OVER_50,
-                },
-            })
-
         retracted = sum(1 for cr in citation_results if cr.get("is_retracted"))
         if retracted:
             impact = -round(retracted * WEIGHT_RETRACTED_CITATION, 2)
@@ -443,18 +475,12 @@ class SourceVerificationOrchestrator:
                 "detail": {"count": retracted, "weight_each": WEIGHT_RETRACTED_CITATION},
             })
 
-        inaccessible = sum(1 for cr in citation_results if not cr.get("is_accessible", True))
-        if inaccessible:
-            impact = -round(inaccessible * WEIGHT_INACCESSIBLE_CITATION, 2)
-            score += impact
-            deductions.append({
-                "reason": "inaccessible_citations",
-                "impact": impact,
-                "detail": {"count": inaccessible, "weight_each": WEIGHT_INACCESSIBLE_CITATION},
-            })
-
         final = max(CREDIBILITY_SCORE_MIN, min(CREDIBILITY_SCORE_MAX, round(score, 1)))
         confidence = self._calculate_confidence(fact_check_results, citation_results)
+        partial = any(
+            fc.get("verdict") not in verified_verdicts or fc.get("confidence", 0) <= 0
+            for fc in fact_check_results
+        ) or any(w in {"text_truncated", "claims_capped", "citation_extraction_unsupported"} for w in warning_types)
 
         breakdown = {
             "base": 100.0,
@@ -463,6 +489,9 @@ class SourceVerificationOrchestrator:
             "final": final,
             "confidence": confidence,
             "formula_version": FORMULA_VERSION,
+            "assessment_status": "partial" if partial else "available",
+            "limitations": ["Score summarizes recorded findings in the analyzed sample, not whole-source accuracy.",
+                            "AI style, inaccessible links and unverified claims do not count as factual errors."],
         }
         return final, breakdown
 
@@ -473,27 +502,23 @@ class SourceVerificationOrchestrator:
     ) -> float:
         """Estimate how confident we are in the score (0-1).
 
-        Lower confidence when many claims were unverified, citations were
-        unreachable, text was truncated, or we fell back to heuristics.
+        Fraction of extracted claims with a known verdict, reduced for
+        truncated input. This indicator is not calibrated accuracy.
         """
         factors: list[float] = []
 
+        if not fact_check_results and not citation_results:
+            return 0.0
+
         if fact_check_results:
-            verified = sum(1 for c in fact_check_results if c.get("verdict") not in ("unverified", None))
+            verified = sum(1 for c in fact_check_results if c.get("verdict") in {"true", "false", "misleading", "partially_true"} and c.get("confidence", 1) > 0)
             factors.append(verified / len(fact_check_results))
 
-        if citation_results:
-            accessible = sum(1 for c in citation_results if c.get("is_accessible", True))
-            factors.append(accessible / len(citation_results))
-
-        if self._text_was_truncated:
-            factors.append(0.7)
-        if self._fallback_used:
-            factors.append(0.6)
-
         if not factors:
-            return 0.5
-        return round(sum(factors) / len(factors), 2)
+            return 0.0
+        # A truncation caveat must never increase a low evidence indicator.
+        # AI style fallback and link availability do not measure factual accuracy.
+        return round((sum(factors) / len(factors)) * (0.7 if self._text_was_truncated else 1.0), 2)
 
     async def _save_results(
         self,
@@ -555,8 +580,13 @@ class SourceVerificationOrchestrator:
         )
 
         check.overall_credibility_score = credibility
-        check.ai_content_percentage = round(ai_percentage, 1)
-        check.misinfo_claims_found = misinfo_count
+        check.ai_content_percentage = round(ai_percentage, 1) if ai_results else None
+        claims_assessed = any(
+            fc.get("verdict") in {"true", "false", "misleading", "partially_true"}
+            and fc.get("confidence", 0.0) > 0
+            for fc in fact_check_results
+        )
+        check.misinfo_claims_found = misinfo_count if claims_assessed else None
         check.score_breakdown = breakdown
         # All metadata goes through the Pydantic governance schema so
         # a typo or missing field surfaces at save time, not at audit
@@ -573,7 +603,9 @@ class SourceVerificationOrchestrator:
             prompt_drift_detected=self._prompt_drift_detected,
             apis_used=self._apis_used,
             fallback_used=self._fallback_used,
-            processing_warnings=self._warnings,
+            processing_warnings=(self._warnings + [
+                {"type": "insufficient_verification_evidence"}
+            ] if credibility is None else self._warnings),
             context={
                 "text_length": text_length,
                 "text_truncated": self._text_was_truncated,

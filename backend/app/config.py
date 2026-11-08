@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic_settings import BaseSettings
 
 
@@ -11,6 +13,17 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Both API and workers must use the same private artifact backend.
+    ARTIFACT_BACKEND: str = "local"
+    ARTIFACT_LOCAL_ROOT: str = ""
+    ARTIFACT_LEGACY_ROOT: str = ""
+    ARTIFACT_S3_BUCKET: str = ""
+    ARTIFACT_S3_REGION: str = "us-east-1"
+    ARTIFACT_S3_ENDPOINT: str = ""
+    ARTIFACT_S3_PREFIX: str = "artiproof/artifacts/v1"
+    # Preserve unreferenced source copies during a planned migration rollback window.
+    ARTIFACT_CLEANUP_HOLD_UNTIL: datetime | None = None
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]

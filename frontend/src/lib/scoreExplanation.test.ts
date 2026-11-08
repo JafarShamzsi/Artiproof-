@@ -4,16 +4,16 @@ import { explainCredibility, explainIntegrity, explainScore } from "./scoreExpla
 
 describe("explainCredibility", () => {
   it("labels scores by bucket", () => {
-    expect(explainCredibility({ score: 95 }).label).toBe("Highly Credible");
-    expect(explainCredibility({ score: 75 }).label).toBe("Credible");
-    expect(explainCredibility({ score: 55 }).label).toBe("Mixed");
-    expect(explainCredibility({ score: 40 }).label).toBe("Low Credibility");
-    expect(explainCredibility({ score: 10 }).label).toBe("Not Credible");
+    expect(explainCredibility({ score: 95 }).label).toBe("Few recorded deductions");
+    expect(explainCredibility({ score: 75 }).label).toBe("Some recorded deductions");
+    expect(explainCredibility({ score: 55 }).label).toBe("Several recorded deductions");
+    expect(explainCredibility({ score: 40 }).label).toBe("Many recorded deductions");
+    expect(explainCredibility({ score: 10 }).label).toBe("Large recorded deductions");
   });
 
-  it("treats missing score as 0 (critical)", () => {
-    expect(explainCredibility({ score: null }).tone).toBe("critical");
-    expect(explainCredibility({ score: undefined }).tone).toBe("critical");
+  it("does not equate missing evidence with a critical zero", () => {
+    expect(explainCredibility({ score: null }).label).toBe("Assessment unavailable");
+    expect(explainCredibility({ score: undefined }).label).toBe("Assessment unavailable");
   });
 
   it("flags misinformation count with singular/plural copy", () => {
@@ -25,11 +25,11 @@ describe("explainCredibility", () => {
 
   it("uses graduated AI thresholds (low/mid/high)", () => {
     const high = explainCredibility({ score: 60, aiPercent: 50 });
-    expect(high.reasons.some((r) => r.includes("AI-generated"))).toBe(true);
+    expect(high.reasons.some((r) => r.includes("separate from factual accuracy"))).toBe(true);
     expect(high.reasons.some((r) => r.includes("50%"))).toBe(true);
 
     const mid = explainCredibility({ score: 60, aiPercent: 20 });
-    expect(mid.reasons.some((r) => r.includes("Some AI-generated"))).toBe(true);
+    expect(mid.reasons.some((r) => r.includes("AI style estimate"))).toBe(true);
 
     // Below the 10% mid threshold, no explicit "AI-generated" detection
     // reason should appear (the fallback default-clean reason may still
@@ -49,24 +49,41 @@ describe("explainCredibility", () => {
       citationsTotal: 5,
     });
     expect(clean.reasons.length).toBe(1);
-    expect(clean.reasons[0]).toMatch(/citations|verified|signal/i);
+    expect(clean.reasons[0]).toContain("unassessed content may contain issues");
   });
 });
 
 describe("explainIntegrity", () => {
+  it.each([null, undefined])("keeps missing evidence separate from zero (%s)", (score) => {
+    expect(explainIntegrity({ score }).label).toBe("Assessment unavailable");
+    expect(explainIntegrity({ score: 0 }).label).not.toBe("Assessment unavailable");
+  });
+
+  it("does not turn high scores into a clean bill of health", () => {
+    const explanation = explainIntegrity({ score: 100 });
+    expect(explanation.summary).toContain("not a validated assessment");
+    expect(explanation.reasons.join(" ")).toContain("does not establish absence of misconduct");
+    expect(explanation.label).not.toBe("Exemplary");
+  });
+
+  it("describes topic match as an estimate, including a real zero", () => {
+    expect(explainIntegrity({ score: 80, topicRelevanceScore: 0 }).reasons)
+      .toContain("Average estimated paper-to-venue topic match: 0%");
+  });
+
   it("labels scores by bucket", () => {
-    expect(explainIntegrity({ score: 90 }).label).toBe("Exemplary");
-    expect(explainIntegrity({ score: 75 }).label).toBe("Sound");
-    expect(explainIntegrity({ score: 55 }).label).toBe("Mixed");
-    expect(explainIntegrity({ score: 35 }).label).toBe("Weak");
-    expect(explainIntegrity({ score: 10 }).label).toBe("Serious Concerns");
+    expect(explainIntegrity({ score: 90 }).label).toBe("Few heuristic deductions");
+    expect(explainIntegrity({ score: 75 }).label).toBe("Some heuristic deductions");
+    expect(explainIntegrity({ score: 55 }).label).toBe("Several heuristic deductions");
+    expect(explainIntegrity({ score: 35 }).label).toBe("Many heuristic deductions");
+    expect(explainIntegrity({ score: 10 }).label).toBe("Large heuristic deductions");
   });
 
   it("calls out very-high and elevated self-citation distinctly", () => {
     const very = explainIntegrity({ score: 40, selfCitationRate: 0.5 });
-    expect(very.reasons.some((r) => r.includes("Very high self-citation"))).toBe(true);
+    expect(very.reasons.some((r) => r.includes("Very high sampled self-citation"))).toBe(true);
     const elevated = explainIntegrity({ score: 60, selfCitationRate: 0.3 });
-    expect(elevated.reasons.some((r) => r.includes("Elevated self-citation"))).toBe(true);
+    expect(elevated.reasons.some((r) => r.includes("Elevated sampled self-citation"))).toBe(true);
     const ok = explainIntegrity({ score: 80, selfCitationRate: 0.1 });
     expect(ok.reasons.some((r) => /self-citation/i.test(r))).toBe(false);
   });
@@ -80,11 +97,11 @@ describe("explainIntegrity", () => {
 describe("explainScore dispatcher", () => {
   it("routes credibility inputs to explainCredibility", () => {
     const a = explainScore("credibility", { score: 90 });
-    expect(a.label).toBe("Highly Credible");
+    expect(a.label).toBe("Few recorded deductions");
   });
 
   it("routes integrity inputs to explainIntegrity", () => {
     const a = explainScore("integrity", { score: 90 });
-    expect(a.label).toBe("Exemplary");
+    expect(a.label).toBe("Few heuristic deductions");
   });
 });

@@ -37,7 +37,7 @@ from app.schemas.researcher import (
     ResearcherSnapshotItem,
     WatchlistEntry,
 )
-from app.services.academic_integrity.orchestrator import AcademicIntegrityOrchestrator
+from app.services.analysis_runs import queue_run
 from app.utils.auth import (
     create_stream_ticket,
     decode_stream_ticket,
@@ -49,6 +49,14 @@ from app.utils.rate_limit import limiter, tier_aware_limit_for_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/researcher", tags=["Researcher Integrity"])
+
+
+def _researcher_formula_version(record) -> str | None:
+    for field in ("integrity_breakdown", "model_metadata"):
+        data = getattr(record, field, None)
+        if isinstance(data, dict) and isinstance(data.get("formula_version"), str):
+            return data["formula_version"]
+    return None
 
 
 def _profile_to_response(profile: ResearcherProfile, publications=None) -> ResearcherProfileResponse:
@@ -118,6 +126,7 @@ async def analyze_researcher(
         )
 
     profile = ResearcherProfile(
+        id=str(uuid.uuid4()),
         user_id=user_id,
         organization_id=current_user.organization_id,
         researcher_name=data.researcher_name or "Unknown",
@@ -127,6 +136,7 @@ async def analyze_researcher(
         analysis_status="pending",
     )
     db.add(profile)
+    await queue_run(db, "researcher", profile)
     await db.commit()
     await db.refresh(profile)
 
@@ -139,7 +149,7 @@ async def analyze_researcher(
         if celery_app is not None:
             celery_app.send_task("researcher.run_pipeline", args=[profile.id])
     except Exception:
-        logger.exception("Failed to enqueue researcher pipeline (will run on SSE connect)")
+        logger.exception("Prompt delivery failed; durable dispatcher will retry")
 
     return _profile_to_response(profile)
 
@@ -305,39 +315,14 @@ async def stream_researcher_analysis(
     if profile.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to stream this profile")
 
-    if profile.analysis_status == "completed":
-        raise HTTPException(status_code=400, detail="Analysis already completed")
+    from app.services.analysis_runs import observe_run, stream_cursor
 
-    from app.services.scrapers.scrape_orchestrator import ScrapeOrchestrator
-
-    scrape_orchestrator = ScrapeOrchestrator(db)
-    analysis_orchestrator = AcademicIntegrityOrchestrator(db)
-
-    async def event_generator():
-        try:
-            # Phase 1: Scrape data from external APIs
-            async for event in scrape_orchestrator.run_scraping(profile_id):
-                if await request.is_disconnected():
-                    return
-                # Scale scraping progress to 0-50%
-                event["progress"] = event["progress"] * 0.5
-                yield {"event": event.get("step", "progress"), "data": json.dumps(event)}
-                if event.get("status") == "failed":
-                    return
-
-            # Phase 2: Run integrity analysis on scraped data
-            async for event in analysis_orchestrator.run_pipeline_streaming(profile_id):
-                if await request.is_disconnected():
-                    return
-                # Scale analysis progress to 50-100%
-                event["progress"] = 0.5 + event["progress"] * 0.5
-                yield {"event": event.get("step", "progress"), "data": json.dumps(event)}
-
-        except Exception as e:
-            logger.exception("SSE stream error")
-            yield {"event": "error", "data": json.dumps({"step": "error", "status": "failed", "detail": str(e), "progress": 1.0})}
-
-    return EventSourceResponse(event_generator())
+    run_id = profile.current_run_id
+    if not run_id:
+        raise HTTPException(409, "This legacy analysis has no resumable run; submit a rerun")
+    after = stream_cursor(request)
+    await db.rollback()  # Return the request connection before the long-lived stream.
+    return EventSourceResponse(observe_run(run_id, request, after=after))
 
 
 @router.get("/{profile_id}/publications")
@@ -495,15 +480,7 @@ async def create_bulk_researcher_analyses(
             analysis_status="pending",
         )
         db.add(profile)
-        await db.flush()  # need profile.id for the enqueue
-
-        try:
-            from app.tasks import celery_app
-
-            if celery_app is not None:
-                celery_app.send_task("researcher.run_pipeline", args=[profile.id])
-        except Exception:
-            logger.exception("Failed to enqueue bulk researcher pipeline")
+        await queue_run(db, "researcher", profile)
 
         created.append(profile)
 
@@ -546,7 +523,7 @@ async def rerun_researcher_analysis(
     at it remain valid.
 
     This route resets analysis_status + scrape_status to 'pending' and
-    enqueues; the SSE endpoint will run the pipeline as usual. Frontend
+    queues a durable worker run. Frontend
     can either open the SSE stream to watch progress or poll the profile
     GET endpoint.
     """
@@ -561,6 +538,8 @@ async def rerun_researcher_analysis(
         raise HTTPException(status_code=404, detail="Researcher profile not found")
     if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized to re-analyze this")
+
+    await queue_run(db, "researcher", profile)
 
     # Reset for the next pipeline run. Don't clear the live metric columns
     # yet — _save_results needs them for the snapshot capture before it
@@ -645,6 +624,7 @@ async def list_snapshots(
             self_citation_rate=s.self_citation_rate,
             topic_relevance_score=s.topic_relevance_score,
             total_publications=s.total_publications,
+            formula_version=_researcher_formula_version(s),
         )
         for s in snap_q.scalars().all()
     ]
@@ -663,9 +643,8 @@ async def list_watchlist(
 ):
     """Hydrated watchlist — current metrics + delta vs the latest snapshot.
 
-    `integrity_score_delta` is None when there's no prior snapshot (the
-    profile has only been analyzed once); otherwise it's `current - previous`,
-    rounded to 1 decimal.
+    `integrity_score_delta` is present only for available scores with the
+    same recorded formula version; unknown or different methods are not compared.
     """
     raw = current_user.watchlist or []
     if not isinstance(raw, list):
@@ -718,7 +697,10 @@ async def list_watchlist(
             continue
         snap = latest_snap.get(rid)
         delta = None
-        if snap is not None and p.integrity_score is not None and snap.integrity_score is not None:
+        current_version = _researcher_formula_version(p)
+        if (snap is not None and current_version is not None
+                and current_version == _researcher_formula_version(snap)
+                and p.integrity_score is not None and snap.integrity_score is not None):
             delta = round(p.integrity_score - snap.integrity_score, 1)
 
         try:

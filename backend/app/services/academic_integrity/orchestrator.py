@@ -5,7 +5,7 @@ Steps (sequential — graph must be built before ring detection):
 1. Resolve researcher profile (Semantic Scholar / ORCID / Scopus / Google Scholar)
 2. Fetch publications
 3. Build citation graph
-4. Detect citation rings and manipulation
+4. Summarize incoming citation patterns (no ring inference)
 5. Analyze topic relevance (Gemini)
 6. Calculate adjusted ratings
 7. Save all results
@@ -18,14 +18,14 @@ break the resilience contract.
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.researcher import ResearcherProfile, PublicationAnalysis
-from app.schemas.breakdown import FORMULA_VERSION
+from app.schemas.breakdown import RESEARCHER_FORMULA_VERSION as FORMULA_VERSION
 from app.services.academic_integrity.scholar_scraper import (
     resolve_researcher,
     fetch_publications,
@@ -33,7 +33,7 @@ from app.services.academic_integrity.scholar_scraper import (
 from app.services.academic_integrity.citation_graph_builder import build_citation_graph
 from app.services.academic_integrity.ring_detector import detect_rings
 from app.services.academic_integrity.topic_analyzer import analyze_topic_relevance
-from app.services.academic_integrity.rating_adjuster import calculate_adjusted_metrics
+from app.services.academic_integrity.rating_adjuster import calculate_adjusted_metrics, unavailable_adjustment
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +43,77 @@ logger = logging.getLogger(__name__)
 SELF_CITED_HEAVILY_THRESHOLD = 0.25
 
 
+def revision_snapshot(profile: ResearcherProfile) -> dict | None:
+    if profile.last_analyzed_at is None and profile.integrity_breakdown is None and profile.integrity_score is None:
+        return None
+    snapshot = {key: getattr(profile, key) for key in (
+        "official_h_index", "official_citation_count", "adjusted_h_index",
+        "adjusted_citation_count", "integrity_score", "self_citation_rate",
+        "topic_relevance_score", "total_publications", "citation_ring_flags",
+        "integrity_breakdown", "model_metadata",
+    )}
+    snapshot["captured_at"] = profile.last_analyzed_at
+    return snapshot
+
+
 class AcademicIntegrityOrchestrator:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._warnings: list[dict] = []
         self._apis_used: list[str] = []
         self._fallback_used = False
+        self._previous_snapshot = None
+        self._snapshot_prepared = False
+        self._revision_captured = False
 
     def _track_api(self, name: str) -> None:
         if name not in self._apis_used:
             self._apis_used.append(name)
+
+    def _capture_revision(self, profile: ResearcherProfile) -> None:
+        self._revision_captured = True
+        self._previous_snapshot = revision_snapshot(profile)
+
+    def restore_previous_revision(self, payload: dict) -> None:
+        """Use the revision captured at submission, including after a retry."""
+        self._previous_snapshot = dict(payload["values"]) if payload["has_revision"] else None
+        if self._previous_snapshot and isinstance(self._previous_snapshot.get("captured_at"), str):
+            self._previous_snapshot["captured_at"] = datetime.fromisoformat(self._previous_snapshot["captured_at"])
+        self._revision_captured = True
+        self._snapshot_prepared = True
+
+    async def capture_previous_revision(self, profile_id: str) -> None:
+        """Call before the separate collector changes any profile metrics."""
+        result = await self.db.execute(select(ResearcherProfile).where(ResearcherProfile.id == profile_id))
+        profile = result.scalar_one_or_none()
+        if profile is not None:
+            self._capture_revision(profile)
+            self._snapshot_prepared = True
+
+    async def record_failed_attempt(self, profile_id: str, stage: Literal["data_collection_failed", "analysis_failed"] = "data_collection_failed") -> None:
+        """A collector failure cannot leave the previous assessment current."""
+        from app.services.academic_integrity import PROMPT_HASHES, PROMPT_VERSION, compute_live_prompt_hashes
+        from app.governance import check_prompt_drift
+
+        result = await self.db.execute(select(ResearcherProfile).where(ResearcherProfile.id == profile_id))
+        profile = result.scalar_one_or_none()
+        if profile is None:
+            return
+        if not self._revision_captured:
+            self._capture_revision(profile)
+        self._prompt_version = PROMPT_VERSION
+        self._prompt_hashes_live = compute_live_prompt_hashes()
+        self._prompt_drift_detected = check_prompt_drift(
+            engine="academic_integrity", expected=PROMPT_HASHES, live=self._prompt_hashes_live,
+        )
+        self._warnings.append({"type": stage})
+        profile.official_h_index = None
+        profile.official_citation_count = None
+        await self._save_results(profile, [], {}, {}, unavailable_adjustment(
+            "Researcher analysis failed; no current citation assessment is available.",
+            [stage],
+        ), terminal_status="failed")
+        self._snapshot_prepared = False
 
     async def run_pipeline_streaming(self, profile_id: str) -> AsyncGenerator[dict, None]:
         """Run the full pipeline, yielding progress events for SSE."""
@@ -85,6 +146,12 @@ class AcademicIntegrityOrchestrator:
         if not profile:
             yield {"step": "error", "status": "failed", "detail": "Profile not found", "progress": 0}
             return
+
+        # Capture the prior revision before resolution overwrites official
+        # metrics. Unavailable revisions also need history and row replacement.
+        if not self._snapshot_prepared:
+            self._capture_revision(profile)
+        self._snapshot_prepared = False
 
         # Telemetry plumbing: stash user_id + profile_id on ContextVars so
         # the centralized Gemini client can attribute its usage row to
@@ -121,9 +188,13 @@ class AcademicIntegrityOrchestrator:
             yield {"step": "resolving", "status": "error", "detail": str(e), "progress": 0.15}
 
         if not researcher_data or not researcher_data.get("s2_id"):
-            profile.analysis_status = "failed"
-            profile.last_analyzed_at = datetime.now(timezone.utc)
-            await self.db.commit()
+            profile.official_h_index = None
+            profile.official_citation_count = None
+            self._warnings.append({"type": "resolve_failed"})
+            await self._save_results(profile, [], {}, {}, unavailable_adjustment(
+                "Researcher identity could not be resolved; no citation assessment was performed.",
+                [w["type"] for w in self._warnings],
+            ), terminal_status="failed")
             yield {
                 "step": "error", "status": "failed",
                 "detail": "Could not find researcher in academic databases. Try providing an ORCID or full name.",
@@ -134,8 +205,10 @@ class AcademicIntegrityOrchestrator:
         s2_id = researcher_data["s2_id"]
         profile.researcher_name = researcher_data.get("name") or profile.researcher_name
         profile.institution = researcher_data.get("institution") or profile.institution
-        profile.official_h_index = researcher_data.get("h_index") or profile.official_h_index
-        profile.official_citation_count = researcher_data.get("citation_count") or profile.official_citation_count
+        # Preserve genuine zeroes and do not reuse stale metrics when a fresh
+        # provider response has no value. Previous metrics live in the snapshot.
+        profile.official_h_index = researcher_data.get("h_index")
+        profile.official_citation_count = researcher_data.get("citation_count")
         if researcher_data.get("orcid"):
             profile.orcid = researcher_data["orcid"]
         await self.db.commit()
@@ -153,9 +226,11 @@ class AcademicIntegrityOrchestrator:
             yield {"step": "publications", "status": "error", "detail": str(e), "progress": 0.35}
 
         if not publications:
-            profile.analysis_status = "failed"
-            profile.last_analyzed_at = datetime.now(timezone.utc)
-            await self.db.commit()
+            self._warnings.append({"type": "publications_unavailable"})
+            await self._save_results(profile, [], {}, {}, unavailable_adjustment(
+                "No publication inventory was available; no citation assessment was performed.",
+                [w["type"] for w in self._warnings],
+            ), terminal_status="failed")
             yield {"step": "error", "status": "failed", "detail": "No publications found", "progress": 1.0}
             return
 
@@ -174,6 +249,7 @@ class AcademicIntegrityOrchestrator:
                 "nodes": [], "edges": [], "citing_authors": {},
                 "self_citations": 0, "total_citations_checked": 0,
                 "per_paper_citations": {},
+                "citation_evidence_status": "unavailable",
             }
             self._warnings.append({"type": "citation_graph_failed", "error": type(e).__name__})
             yield {"step": "citation_graph", "status": "error", "detail": str(e), "progress": 0.55}
@@ -192,9 +268,10 @@ class AcademicIntegrityOrchestrator:
         except Exception as e:
             logger.exception("Ring detection failed")
             ring_data = {
-                "suspicious_pairs": [], "potential_rings": [], "self_citation_rate": 0,
-                "self_citation_status": "normal", "citation_velocity_anomalies": [], "flags": [],
+                "suspicious_pairs": [], "potential_rings": [], "self_citation_rate": None,
+                "self_citation_status": "unavailable", "citation_velocity_anomalies": [], "flags": [],
                 "total_citations_checked": graph_data.get("total_citations_checked", 0),
+                "citation_evidence_status": "unavailable",
             }
             self._warnings.append({"type": "ring_detection_failed", "error": type(e).__name__})
             yield {"step": "ring_detection", "status": "error", "detail": str(e), "progress": 0.7}
@@ -203,8 +280,14 @@ class AcademicIntegrityOrchestrator:
         yield {"step": "topic_analysis", "status": "processing", "detail": "Checking topic relevance...", "progress": 0.75}
         try:
             publications = await analyze_topic_relevance(publications)
-            self._track_api("gemini")
-            yield {"step": "topic_analysis", "status": "done", "detail": "Topic analysis complete", "progress": 0.8}
+            if any(p.get("topic_match_score") is not None for p in publications):
+                self._track_api("gemini")
+            missing_topics = [p for p in publications if p.get("journal") and p.get("topic_match_score") is None]
+            if missing_topics:
+                self._warnings.append({"type": "topic_analysis_unavailable", "papers_unassessed": len(missing_topics)})
+                yield {"step": "topic_analysis", "status": "warning", "detail": "Topic analysis unavailable for some eligible papers", "progress": 0.8}
+            else:
+                yield {"step": "topic_analysis", "status": "done", "detail": "Topic analysis complete" if any(p.get("journal") for p in publications) else "No journal metadata for topic assessment", "progress": 0.8}
         except Exception as e:
             logger.exception("Topic analysis failed")
             self._warnings.append({"type": "topic_analysis_failed", "error": type(e).__name__})
@@ -216,20 +299,14 @@ class AcademicIntegrityOrchestrator:
             adjusted = calculate_adjusted_metrics(
                 publications, ring_data,
                 profile.official_h_index, profile.official_citation_count,
+                processing_warnings=self._warnings,
             )
             yield {"step": "adjusting", "status": "done", "detail": adjusted.get("explanation", "")[:100], "progress": 0.9}
         except Exception as e:
             logger.exception("Rating adjustment failed")
             self._warnings.append({"type": "rating_adjustment_failed", "error": type(e).__name__})
-            adjusted = {
-                "adjusted_h_index": profile.official_h_index,
-                "adjusted_citation_count": profile.official_citation_count,
-                "integrity_score": 50.0,
-                "self_citation_rate": 0.0,
-                "topic_relevance_score": None,
-                "explanation": "Rating adjustment failed",
-                "breakdown": None,
-            }
+            adjusted = unavailable_adjustment("Rating adjustment failed; assessment unavailable.",
+                                              [w["type"] for w in self._warnings])
             yield {"step": "adjusting", "status": "error", "detail": str(e), "progress": 0.9}
 
         # Step 7: Save everything
@@ -271,57 +348,40 @@ class AcademicIntegrityOrchestrator:
         ring_data: dict,
         graph_data: dict,
         adjusted: dict,
+        terminal_status: str = "completed",
     ) -> None:
         """Persist all analysis results to the database.
 
-        Re-analysis behavior: if the profile already has an integrity_score
-        (i.e. this is a re-run, not a first analysis), capture a frozen
-        snapshot of the previous values into ResearcherSnapshot before
-        overwriting. First-run analyses skip this — there's nothing yet
-        to preserve.
+        Capture the prior revision collected before provider resolution,
+        including unavailable assessments. Replace per-publication rows on
+        every attempt so unavailable reruns cannot accumulate stale findings.
 
         Also clears prior PublicationAnalysis rows on re-run to avoid
         duplicate-row pile-up; the snapshot preserves the historical
         scalar metrics, which is what users actually compare over time.
         """
         # ── Snapshot the prior state, if any ───────────────────────────────
-        is_rerun = profile.integrity_score is not None
-        if is_rerun:
+        if self._previous_snapshot is not None:
             from app.models.researcher_snapshot import ResearcherSnapshot
 
             self.db.add(
                 ResearcherSnapshot(
                     id=str(uuid.uuid4()),
                     researcher_profile_id=profile.id,
-                    official_h_index=profile.official_h_index,
-                    official_citation_count=profile.official_citation_count,
-                    adjusted_h_index=profile.adjusted_h_index,
-                    adjusted_citation_count=profile.adjusted_citation_count,
-                    integrity_score=profile.integrity_score,
-                    self_citation_rate=profile.self_citation_rate,
-                    topic_relevance_score=profile.topic_relevance_score,
-                    total_publications=profile.total_publications,
-                    citation_ring_flags=profile.citation_ring_flags,
-                    integrity_breakdown=profile.integrity_breakdown,
-                    model_metadata=profile.model_metadata,
-                    captured_at=profile.last_analyzed_at,
+                    **self._previous_snapshot,
                 )
             )
 
-            # Drop the previous PublicationAnalysis rows — the snapshot
-            # preserves what users care about (scalar metrics + breakdown);
-            # re-running otherwise produces duplicate per-publication rows
-            # that would distort the detail view.
-            from sqlalchemy import delete as sa_delete
+        # A previous unavailable assessment may also have publication rows.
+        from sqlalchemy import delete as sa_delete
 
-            await self.db.execute(
-                sa_delete(PublicationAnalysis).where(
-                    PublicationAnalysis.researcher_profile_id == profile.id
-                )
+        await self.db.execute(
+            sa_delete(PublicationAnalysis).where(
+                PublicationAnalysis.researcher_profile_id == profile.id
             )
+        )
 
         per_paper = graph_data.get("per_paper_citations", {})
-        suspicious_author_ids = {p["author_id"] for p in ring_data.get("suspicious_pairs", [])}
 
         for pub in publications:
             paper_id = pub.get("paper_id")
@@ -333,16 +393,6 @@ class AcademicIntegrityOrchestrator:
             is_self_cited = (
                 paper_total > 0
                 and (paper_self / paper_total) > SELF_CITED_HEAVILY_THRESHOLD
-            )
-
-            # Suspicious citations = sum of citation counts from authors
-            # flagged as suspicious by ring_detector. Pulled from the graph
-            # builder's per-paper citing_authors map so we don't rely on
-            # brittle title matching.
-            paper_citers = paper_stats.get("citing_authors", {})
-            suspicious_count = sum(
-                count for aid, count in paper_citers.items()
-                if aid in suspicious_author_ids
             )
 
             flags = []
@@ -361,7 +411,7 @@ class AcademicIntegrityOrchestrator:
                 year=pub.get("year"),
                 doi=pub.get("doi"),
                 citation_count=pub.get("citation_count", 0),
-                suspicious_citations=suspicious_count,
+                suspicious_citations=0,  # Incoming concentration is not evidence of suspicious citations.
                 topic_match_score=topic_score,
                 is_self_cited_heavily=is_self_cited,
                 flags=flags if flags else None,
@@ -375,8 +425,13 @@ class AcademicIntegrityOrchestrator:
         profile.self_citation_rate = adjusted["self_citation_rate"]
         profile.topic_relevance_score = adjusted.get("topic_relevance_score")
         profile.citation_ring_flags = {
-            "rings": ring_data.get("potential_rings", []),
-            "suspicious_pairs": ring_data.get("suspicious_pairs", []),
+            "rings": [],
+            "suspicious_pairs": [],
+            "frequent_citers": ring_data.get("frequent_citers", []),
+            "citation_concentration": ring_data.get("citation_concentration", []),
+            "citation_evidence_status": ring_data.get("citation_evidence_status", "unavailable"),
+            "coverage": graph_data.get("coverage", {}),
+            "limitation": ring_data.get("limitation", "Incoming citation samples do not establish citation rings or misconduct."),
             "flags": ring_data.get("flags", []),
             "graph": {
                 "nodes": graph_data.get("nodes", [])[:50],
@@ -384,6 +439,9 @@ class AcademicIntegrityOrchestrator:
             },
         }
         profile.integrity_breakdown = adjusted.get("breakdown")
+        profile.total_publications = len(publications) if publications else None
+        if adjusted["integrity_score"] is None:
+            self._warnings.append({"type": "insufficient_citation_evidence"})
         from app.schemas.governance import build_model_metadata
 
         profile.model_metadata = build_model_metadata(
@@ -401,9 +459,11 @@ class AcademicIntegrityOrchestrator:
                 "citations_checked": graph_data.get("total_citations_checked", 0),
                 "field_used": ring_data.get("field_used"),
                 "thresholds_used": ring_data.get("thresholds_used"),
+                "citation_coverage": graph_data.get("coverage", {}),
+                "assessment_status": "unavailable" if adjusted["integrity_score"] is None else "available",
             },
         )
-        profile.analysis_status = "completed"
+        profile.analysis_status = terminal_status
         profile.last_analyzed_at = datetime.now(timezone.utc)
 
         await self.db.commit()

@@ -848,7 +848,7 @@ async def test_run_due_schedules_with_non_empty_input(monkeypatch):
 
     # Stub PDF generation — we want to verify the orchestration, not the bytes.
     monkeypatch.setattr(
-        scheduled_reports, "html_to_pdf", lambda html: b"%PDF-stub"
+        scheduled_reports, "html_to_pdf", lambda html: (b"%PDF-stub", "weasyprint")
     )
     monkeypatch.setattr(
         scheduled_reports, "save_pdf", lambda b: "/tmp/stub.pdf"
@@ -873,6 +873,7 @@ async def test_run_due_schedules_with_non_empty_input(monkeypatch):
     check = SimpleNamespace(
         id="sc-1",
         user_id="user-a",
+        status="completed",
         overall_credibility_score=80.0,
         ai_content_percentage=10.0,
         misinfo_claims_found=1,

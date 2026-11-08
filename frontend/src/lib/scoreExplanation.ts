@@ -25,23 +25,28 @@ export interface IntegrityInputs {
 }
 
 function bucketCredibility(score: number): { label: string; tone: ScoreTone } {
-  if (score >= 85) return { label: "Highly Credible", tone: "excellent" };
-  if (score >= 70) return { label: "Credible", tone: "good" };
-  if (score >= 50) return { label: "Mixed", tone: "fair" };
-  if (score >= 30) return { label: "Low Credibility", tone: "poor" };
-  return { label: "Not Credible", tone: "critical" };
+  if (score >= 85) return { label: "Few recorded deductions", tone: "excellent" };
+  if (score >= 70) return { label: "Some recorded deductions", tone: "good" };
+  if (score >= 50) return { label: "Several recorded deductions", tone: "fair" };
+  if (score >= 30) return { label: "Many recorded deductions", tone: "poor" };
+  return { label: "Large recorded deductions", tone: "critical" };
 }
 
 function bucketIntegrity(score: number): { label: string; tone: ScoreTone } {
-  if (score >= 85) return { label: "Exemplary", tone: "excellent" };
-  if (score >= 70) return { label: "Sound", tone: "good" };
-  if (score >= 50) return { label: "Mixed", tone: "fair" };
-  if (score >= 30) return { label: "Weak", tone: "poor" };
-  return { label: "Serious Concerns", tone: "critical" };
+  if (score >= 85) return { label: "Few heuristic deductions", tone: "excellent" };
+  if (score >= 70) return { label: "Some heuristic deductions", tone: "good" };
+  if (score >= 50) return { label: "Several heuristic deductions", tone: "fair" };
+  if (score >= 30) return { label: "Many heuristic deductions", tone: "poor" };
+  return { label: "Large heuristic deductions", tone: "critical" };
 }
 
 export function explainCredibility(input: CredibilityInputs): ScoreExplanation {
-  const score = input.score ?? 0;
+  if (input.score == null) {
+    return {label: "Assessment unavailable", tone: "fair",
+      summary: "Required verification evidence is missing. Available findings do not establish accuracy or inaccuracy.",
+      reasons: ["Review the status, coverage and available findings."]};
+  }
+  const score = input.score;
   const { label, tone } = bucketCredibility(score);
   const reasons: string[] = [];
 
@@ -56,10 +61,8 @@ export function explainCredibility(input: CredibilityInputs): ScoreExplanation {
       `${misinfo} misinformation claim${misinfo === 1 ? "" : "s"} detected`
     );
   }
-  if (ai >= 30) {
-    reasons.push(`${ai.toFixed(0)}% of text appears AI-generated`);
-  } else if (ai >= 10) {
-    reasons.push(`Some AI-generated content (${ai.toFixed(0)}%)`);
+  if (ai >= 10) {
+    reasons.push(`AI style estimate: ${ai.toFixed(0)}% in sampled paragraphs; this is separate from factual accuracy`);
   }
   if (retracted > 0) {
     reasons.push(
@@ -72,33 +75,29 @@ export function explainCredibility(input: CredibilityInputs): ScoreExplanation {
     );
   }
   if (citations === 0 && score < 70) {
-    reasons.push("No citations found");
+    reasons.push("No citation findings available; references may not have been checked");
   }
 
   if (reasons.length === 0) {
     reasons.push(
-      score >= 70
-        ? "Claims verified, citations intact, low AI signal"
-        : "No single issue dominates — score reflects overall signal strength"
+      "No listed scored findings in this sample; unassessed content may contain issues"
     );
   }
 
-  const summary =
-    tone === "excellent"
-      ? "This source passes every integrity check with room to spare — treat it as reliable."
-      : tone === "good"
-      ? "Generally trustworthy. Minor concerns exist but nothing disqualifying."
-      : tone === "fair"
-      ? "Mixed signals. Verify the key claims and citations independently before relying on this source."
-      : tone === "poor"
-      ? "Substantial issues detected. Treat claims here with caution and cross-reference primary sources."
-      : "Severe credibility problems. Do not rely on this source without independent confirmation.";
+  const summary = "This score summarizes recorded findings within the analyzed sample. Inspect claims, citation signals and coverage; it does not certify accuracy or authorship.";
 
   return { label, tone, summary, reasons };
 }
 
 export function explainIntegrity(input: IntegrityInputs): ScoreExplanation {
-  const score = input.score ?? 0;
+  if (input.score == null) {
+    return {
+      label: "Assessment unavailable", tone: "fair",
+      summary: "Required evidence is missing or a step failed. Available publications do not establish integrity or misconduct.",
+      reasons: ["Review citation coverage and the available evidence before drawing a conclusion."],
+    };
+  }
+  const score = input.score;
   const { label, tone } = bucketIntegrity(score);
   const reasons: string[] = [];
 
@@ -108,17 +107,17 @@ export function explainIntegrity(input: IntegrityInputs): ScoreExplanation {
   const pubs = input.publicationsCount ?? 0;
 
   if (self >= 0.4) {
-    reasons.push(`Very high self-citation (${(self * 100).toFixed(0)}%)`);
+    reasons.push(`Very high sampled self-citation (${(self * 100).toFixed(0)}%)`);
   } else if (self >= 0.25) {
-    reasons.push(`Elevated self-citation (${(self * 100).toFixed(0)}%)`);
+    reasons.push(`Elevated sampled self-citation (${(self * 100).toFixed(0)}%)`);
   }
-  if (topic > 0 && topic < 0.5) {
+  if (input.topicRelevanceScore != null && topic < 0.5) {
     reasons.push(
-      `Only ${(topic * 100).toFixed(0)}% of work stays within core research topic`
+      `Average estimated paper-to-venue topic match: ${(topic * 100).toFixed(0)}%`
     );
   }
   if (flags > 0) {
-    reasons.push(`${flags} integrity flag${flags === 1 ? "" : "s"} raised`);
+    reasons.push(`${flags} sample observation${flags === 1 ? "" : "s"} available for review`);
   }
   if (pubs > 0 && pubs < 3) {
     reasons.push("Limited publication history for confident assessment");
@@ -126,22 +125,11 @@ export function explainIntegrity(input: IntegrityInputs): ScoreExplanation {
 
   if (reasons.length === 0) {
     reasons.push(
-      score >= 70
-        ? "Healthy citation patterns, strong topic focus, no flags"
-        : "No single red flag dominates — score reflects overall signal strength"
+      "No listed sample observations; this does not establish absence of misconduct."
     );
   }
 
-  const summary =
-    tone === "excellent"
-      ? "Strong publication record with clean citation patterns and no integrity red flags."
-      : tone === "good"
-      ? "Solid researcher profile. A few minor signals but nothing that undermines the record."
-      : tone === "fair"
-      ? "Worth a closer look — citation or topic patterns suggest the record needs scrutiny."
-      : tone === "poor"
-      ? "Multiple integrity concerns. Review the flagged publications before citing this work."
-      : "Severe integrity issues. Independent verification is strongly advised before relying on this record.";
+  const summary = "This heuristic reflects a sampled citation record, not a validated assessment of a person's integrity. Incoming citation concentration does not establish a ring or misconduct; inspect the evidence and coverage.";
 
   return { label, tone, summary, reasons };
 }

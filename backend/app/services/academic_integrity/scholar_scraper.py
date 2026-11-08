@@ -156,8 +156,8 @@ async def fetch_publications(author_id: str, limit: int = 100) -> list[dict]:
         return []
 
 
-async def fetch_paper_citations(paper_id: str, limit: int = 100) -> list[dict]:
-    """Fetch papers that cite a given paper, with their author info."""
+async def fetch_paper_citations(paper_id: str, limit: int = 100) -> list[dict] | None:
+    """Fetch citing papers. None means unavailable, distinct from an empty page."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
@@ -168,9 +168,12 @@ async def fetch_paper_citations(paper_id: str, limit: int = 100) -> list[dict]:
                 },
             )
             if resp.status_code != 200:
-                return []
+                return None
 
-            citations = resp.json().get("data", [])
+            payload = resp.json()
+            citations = payload.get("data")
+            if not isinstance(citations, list):
+                return None
             results = []
             for c in citations:
                 citing = c.get("citingPaper", {})
@@ -187,10 +190,10 @@ async def fetch_paper_citations(paper_id: str, limit: int = 100) -> list[dict]:
             return results
     except HTTP_RETRY_EXCEPTIONS as e:
         logger.warning("S2 citations fetch transient failure for %s: %s", paper_id, e)
-        return []
+        return None
     except Exception:
         logger.exception("S2 citations fetch failed for paper %s", paper_id)
-        return []
+        return None
 
 
 async def _resolve_via_scopus(scopus_id: str) -> Optional[dict]:

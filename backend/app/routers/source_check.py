@@ -1,20 +1,21 @@
+import asyncio
 import csv
 import io
 import json
 import logging
-import os
 import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select, func
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import settings
+from app.services.artifact_storage import put_pdf, read_pdf
 from app.constants import MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB, MIN_FILE_SIZE_BYTES
 from app.database import get_db
 from app.models.source_check import SourceCheck, ClaimAnalysis, AIDetectionResult, CitationCheck
@@ -46,7 +47,6 @@ from app.utils.rate_limit import limiter, tier_aware_limit_for_key
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/source-check", tags=["Source Verification"])
 
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "pdfs")
 
 
 def _check_to_response(check: SourceCheck, claims=None, ai_detections=None, citations=None) -> SourceCheckResponse:
@@ -115,15 +115,14 @@ async def create_source_check(
         organization_id=current_user.organization_id,
     )
 
-    # Best-effort enqueue — SSE stream is still the primary trigger; this
-    # ensures even abandoned tabs eventually run the pipeline.
+    # Prompt delivery is optional; the durable dispatcher retries the run.
     try:
         from app.tasks import celery_app
 
         if celery_app is not None:
             celery_app.send_task("source_check.run_pipeline", args=[check_id])
     except Exception:
-        logger.exception("Failed to enqueue source-check pipeline (will run on SSE connect)")
+        logger.exception("Prompt delivery failed; durable dispatcher will retry")
 
     result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
     return _check_to_response(result.scalar_one())
@@ -155,13 +154,7 @@ async def upload_pdf_source_check(
     if not contents.startswith(b"%PDF-"):
         raise HTTPException(status_code=400, detail="File is not a valid PDF")
 
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_id = uuid.uuid4().hex[:12]
-    safe_name = f"{file_id}_{file.filename.replace(' ', '_')}"
-    pdf_path = os.path.join(UPLOAD_DIR, safe_name)
-
-    with open(pdf_path, "wb") as f:
-        f.write(contents)
+    pdf_path = await asyncio.to_thread(put_pdf, contents, "original")
 
     orchestrator = SourceVerificationOrchestrator(db)
     check_id = await orchestrator.create_check(
@@ -178,7 +171,7 @@ async def upload_pdf_source_check(
         if celery_app is not None:
             celery_app.send_task("source_check.run_pipeline", args=[check_id])
     except Exception:
-        logger.exception("Failed to enqueue source-check pipeline (will run on SSE connect)")
+        logger.exception("Prompt delivery failed; durable dispatcher will retry")
 
     result = await db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
     return _check_to_response(result.scalar_one())
@@ -365,7 +358,7 @@ async def stream_source_check(
     ticket: str = Query(..., description="Stream ticket from /stream-ticket"),
     db: AsyncSession = Depends(get_db),
 ):
-    """SSE endpoint — runs the pipeline and streams progress events.
+    """SSE endpoint — replays committed progress without executing analysis.
 
     Authenticated via a short-lived ticket (``?ticket=...``) issued by
     ``POST /{check_id}/stream-ticket``. The browser ``EventSource`` API
@@ -387,22 +380,14 @@ async def stream_source_check(
     # must issue their own ticket.
     if check.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to stream this check")
-    if check.status == "completed":
-        raise HTTPException(status_code=400, detail="Check already completed")
+    from app.services.analysis_runs import observe_run, stream_cursor
 
-    orchestrator = SourceVerificationOrchestrator(db)
-
-    async def event_generator():
-        try:
-            async for event in orchestrator.run_pipeline_streaming(check_id):
-                if await request.is_disconnected():
-                    break
-                yield {"event": event.get("step", "progress"), "data": json.dumps(event)}
-        except Exception as e:
-            logger.exception("SSE stream error")
-            yield {"event": "error", "data": json.dumps({"step": "error", "status": "failed", "detail": str(e), "progress": 1.0})}
-
-    return EventSourceResponse(event_generator())
+    run_id = check.current_run_id
+    if not run_id:
+        raise HTTPException(409, "This legacy analysis has no resumable run; submit a rerun")
+    after = stream_cursor(request)
+    await db.rollback()  # Return the request connection before the long-lived stream.
+    return EventSourceResponse(observe_run(run_id, request, after=after))
 
 
 @router.get("/{check_id}/pdf/original")
@@ -422,9 +407,11 @@ async def get_original_pdf(
         raise HTTPException(status_code=404, detail="Original PDF not found")
     if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to view this check")
-    if not os.path.exists(check.original_pdf_path):
-        raise HTTPException(status_code=404, detail="PDF file missing from disk")
-    return FileResponse(check.original_pdf_path, media_type="application/pdf")
+    try:
+        content = await asyncio.to_thread(read_pdf, check.original_pdf_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="PDF artifact not found")
+    return Response(content=content, media_type="application/pdf", headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/{check_id}/pdf/annotated")
@@ -444,9 +431,11 @@ async def get_annotated_pdf(
         raise HTTPException(status_code=404, detail="Annotated PDF not found")
     if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to view this check")
-    if not os.path.exists(check.annotated_pdf_path):
-        raise HTTPException(status_code=404, detail="Annotated PDF file missing from disk")
-    return FileResponse(check.annotated_pdf_path, media_type="application/pdf")
+    try:
+        content = await asyncio.to_thread(read_pdf, check.annotated_pdf_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="PDF artifact not found")
+    return Response(content=content, media_type="application/pdf", headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/{check_id}/position-map")

@@ -73,9 +73,10 @@ export interface ScoreBreakdownData {
     detail?: Record<string, unknown>;
   }>;
   warnings?: string[];
-  final: number;
+  final: number | null;
   confidence?: number;
   formula_version?: string;
+  assessment_status?: "available" | "partial" | "unavailable";
 }
 
 export interface ModelMetadataData {
@@ -184,11 +185,11 @@ export function FullWidthView({
   backHref = "/check",
   banner,
 }: FullWidthViewProps) {
-  const score = data.overall_credibility_score ?? 0;
-  const aiPct = data.ai_content_percentage ?? 0;
-  const explanation = explainCredibility({
+  const score = data.overall_credibility_score;
+  const aiPct = data.ai_content_percentage;
+  const explanation = score == null ? null : explainCredibility({
     score,
-    aiPercent: aiPct,
+    aiPercent: aiPct ?? 0,
     misinfoCount: data.misinfo_claims_found,
     citationsTotal: data.citations.length,
     retractedCitations: data.citations.filter((c) => c.is_retracted).length,
@@ -220,7 +221,11 @@ export function FullWidthView({
       {data.status !== "completed" && (
         <Card className="border-blue-500/30 bg-blue-500/5">
           <CardContent className="flex items-center gap-3 py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-blue-700 dark:text-blue-400" />
+            {data.status === "failed" ? (
+              <AlertTriangle className="h-5 w-5 text-amber-700 dark:text-amber-400" />
+            ) : (
+              <Loader2 className="h-5 w-5 animate-spin text-blue-700 dark:text-blue-400" />
+            )}
             <span className="text-sm text-zinc-700 dark:text-zinc-300">Status: {data.status}</span>
           </CardContent>
         </Card>
@@ -230,7 +235,11 @@ export function FullWidthView({
       <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
         <CardContent className="py-8">
           <div className="flex flex-col items-center gap-6 md:flex-row">
-            <div
+            {score == null ? (
+              <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-full border-4 border-zinc-300 px-2 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+                Score unavailable
+              </div>
+            ) : <div
               role="meter"
               aria-label="Credibility score"
               aria-valuenow={Math.round(score)}
@@ -241,7 +250,7 @@ export function FullWidthView({
             >
               <span className="text-3xl font-bold">{Math.round(score)}</span>
               <span className="text-xs opacity-70">/ 100</span>
-            </div>
+            </div>}
             <div className="flex-1 text-center md:text-left">
               <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">
                 {data.input_title || "Credibility Score"}
@@ -257,10 +266,10 @@ export function FullWidthView({
                   text-{color}-300 which already passes. */}
               <div className="mt-3 flex flex-wrap gap-2">
                 <Badge className="bg-blue-500/20 text-blue-800 dark:text-blue-300">
-                  <Brain className="mr-1 h-3 w-3" /> AI: {aiPct.toFixed(0)}%
+                  <Brain className="mr-1 h-3 w-3" /> AI: {aiPct == null ? "not assessed" : `${aiPct.toFixed(0)}%`}
                 </Badge>
                 <Badge className="bg-amber-500/20 text-amber-800 dark:text-amber-300">
-                  <Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found ?? 0} misinfo
+                  <Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found == null ? "Claims not assessed" : `${data.misinfo_claims_found} misinfo`}
                 </Badge>
                 <Badge className="bg-zinc-200 text-zinc-700 dark:bg-zinc-700/40 dark:text-zinc-200">
                   <BookOpen className="mr-1 h-3 w-3" /> {data.citations.length} citations
@@ -268,7 +277,14 @@ export function FullWidthView({
               </div>
             </div>
           </div>
-          <ScoreExplanationCard explanation={explanation} className="mt-6" />
+          {data.score_breakdown?.assessment_status === "partial" && <p className="mt-4 text-sm text-amber-800 dark:text-amber-300">Partial assessment: some claims or references were not checked. The score summarizes recorded findings, not overall accuracy.</p>}
+          {explanation ? (
+            <ScoreExplanationCard explanation={explanation} className="mt-6" />
+          ) : (
+            <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-300">
+              A credibility score is unavailable. Missing analysis is not evidence that the source is accurate or inaccurate. Review the status and coverage details below.
+            </p>
+          )}
           {data.score_breakdown && (
             <ScoreBreakdownPanel breakdown={data.score_breakdown} className="mt-6" />
           )}
@@ -469,11 +485,11 @@ function ScoreBreakdownPanel({
         ))}
         <div className="flex justify-between border-t border-zinc-200 pt-1.5 text-xs font-medium dark:border-zinc-800">
           <span className="text-zinc-900 dark:text-white">Final</span>
-          <span className="text-zinc-900 dark:text-white">{breakdown.final.toFixed(1)}</span>
+          <span className="text-zinc-900 dark:text-white">{breakdown.final == null ? "Unavailable" : breakdown.final.toFixed(1)}</span>
         </div>
         {typeof breakdown.confidence === "number" && (
           <div className="flex justify-between pt-1 text-xs">
-            <span className="text-zinc-500">Confidence</span>
+            <span className="text-zinc-500">Evidence indicator (not calibrated accuracy)</span>
             <span className="text-zinc-700 dark:text-zinc-300">
               {Math.round(breakdown.confidence * 100)}%
             </span>

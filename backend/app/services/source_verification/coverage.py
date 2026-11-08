@@ -133,12 +133,40 @@ def build_coverage(model_metadata: Any) -> CoverageSummary | None:
                     ),
                 )
             )
+        elif kind == "citation_extraction_unsupported":
+            notes.append(CoverageNote(
+                kind=kind, severity="warning", headline="Bibliography not checked",
+                detail="PDF and pasted-text references are not yet extracted into the citation checker. Missing citation findings do not establish a clean bibliography.",
+            ))
+        elif kind == "insufficient_verification_evidence":
+            notes.append(CoverageNote(
+                kind=kind, severity="warning", headline="Credibility score unavailable",
+                detail="Required verification evidence is missing or a required step failed. Available findings do not establish overall accuracy.",
+            ))
+        elif kind == "insufficient_source_text":
+            notes.append(
+                CoverageNote(
+                    kind=kind,
+                    severity="warning",
+                    headline="Source content unavailable",
+                    detail=(
+                        "The source did not yield enough readable text. No claim "
+                        "verification or AI assessment was performed; retry with "
+                        "readable content."
+                    ),
+                )
+            )
         elif kind in (
             "pdf_extraction_failed",
             "scraping_failed",
             "claim_extraction_failed",
             "citation_analysis_failed",
             "parallel_analysis_failed",
+            "fact_check_failed",
+            "ai_detection_failed",
+            "claim_verification_unavailable",
+            "analysis_failed",
+            "attempts_exhausted",
             "pdf_annotation_failed",
         ):
             notes.append(

@@ -1,228 +1,139 @@
-"""
-Rating adjuster — calculates adjusted academic metrics after removing suspicious citations.
+﻿"""Heuristic citation metrics for a checked sample, with explicit abstention.
 
-Produces:
-- Adjusted h-index (excluding self-citations and ring citations)
-- Adjusted citation count
-- Overall integrity score (0-100) plus a breakdown explaining each adjustment
+Incoming citation concentration cannot establish a ring or justify removing
+citations. Adjusted metrics extrapolate the sampled self-citation rate and
+are estimates; they are not a paper-by-paper recomputation or misconduct finding.
 """
 
-import logging
+import math
 
 from app.constants import CREDIBILITY_SCORE_MAX, CREDIBILITY_SCORE_MIN
-from app.schemas.breakdown import FORMULA_VERSION
+from app.schemas.breakdown import RESEARCHER_FORMULA_VERSION as FORMULA_VERSION
 
-logger = logging.getLogger(__name__)
-
-
-# Adjustment weights — bumping these requires bumping FORMULA_VERSION
 WEIGHT_SELF_CITE_FLAGGED = 25.0
 WEIGHT_SELF_CITE_ELEVATED = 10.0
-WEIGHT_RING_PER_CONFIDENCE = 20.0
-WEIGHT_SUSPICIOUS_PAIR_EACH = 5.0
-WEIGHT_SUSPICIOUS_PAIR_MAX = 15.0
 WEIGHT_VELOCITY_PER_ANOMALY = 3.0
 WEIGHT_VELOCITY_MAX = 10.0
-WEIGHT_TOPIC_RELEVANCE_GAP = 20.0  # multiplied by (0.5 - score)
+WEIGHT_TOPIC_RELEVANCE_GAP = 20.0
+
+
+def unavailable_adjustment(reason: str, warnings: list[str] | None = None) -> dict:
+    """Keep missing evidence distinct from zero, official metrics or clearance."""
+    return {
+        "adjusted_h_index": None, "adjusted_citation_count": None,
+        "integrity_score": None, "self_citation_rate": None,
+        "topic_relevance_score": None, "explanation": reason,
+        "breakdown": {
+            "base": 100.0, "adjustments": [], "final": None,
+            "confidence": 0.0, "formula_version": FORMULA_VERSION,
+            "assessment_status": "unavailable",
+            "explanation": reason,
+            "warnings": list(dict.fromkeys([*(warnings or []), "insufficient_citation_evidence"])),
+        },
+    }
 
 
 def calculate_adjusted_metrics(
-    publications: list[dict],
-    ring_data: dict,
-    official_h_index: int | None,
-    official_citation_count: int | None,
+    publications: list[dict], ring_data: dict,
+    official_h_index: int | None, official_citation_count: int | None,
+    *, processing_warnings: list[dict] | None = None,
 ) -> dict:
-    """
-    Calculate adjusted metrics after accounting for citation manipulation.
+    """Score only a successfully checked citation sample; preserve unknowns."""
+    warning_types = [w.get("type", "") for w in (processing_warnings or [])]
+    required_failures = {
+        "resolve_failed", "publications_fetch_failed", "citation_graph_failed",
+        "ring_detection_failed", "topic_analysis_failed", "topic_analysis_unavailable", "rating_adjustment_failed",
+    }
+    self_citation_rate = ring_data.get("self_citation_rate")
+    if (
+        not publications
+        or ring_data.get("citation_evidence_status") != "succeeded"
+        or ring_data.get("total_citations_checked", 0) <= 0
+        or not isinstance(self_citation_rate, (int, float))
+        or not math.isfinite(self_citation_rate)
+        or not 0 <= self_citation_rate <= 1
+        or required_failures.intersection(warning_types)
+    ):
+        return unavailable_adjustment(
+            "Citation assessment unavailable: the checked sample is missing or incomplete, "
+            "or a required analysis step failed. Available publications do not establish integrity.",
+            warning_types,
+        )
 
-    Returns:
-        {
-            "adjusted_h_index": int,
-            "adjusted_citation_count": int,
-            "integrity_score": float (0-100),
-            "self_citation_rate": float,
-            "topic_relevance_score": float | None,
-            "explanation": str,
-            "breakdown": {...}  # IntegrityBreakdown shape
-        }
-    """
-    self_citation_rate = ring_data.get("self_citation_rate", 0.0)
-    suspicious_pairs = ring_data.get("suspicious_pairs", [])
-    potential_rings = ring_data.get("potential_rings", [])
-    flags = ring_data.get("flags", [])
+    if official_citation_count is not None and official_citation_count < ring_data["total_citations_checked"]:
+        return unavailable_adjustment(
+            "The official citation count conflicts with the observed citation sample; adjusted metrics are unavailable.",
+            [*warning_types, "official_metrics_conflict"],
+        )
 
-    # Estimate citation inflation from rings
-    ring_citation_estimate = 0
-    for pair in suspicious_pairs:
-        ring_citation_estimate += pair.get("citation_count", 0)
-
-    total_official = official_citation_count or sum(p.get("citation_count", 0) for p in publications)
+    total_official = (official_citation_count if official_citation_count is not None
+                      else sum(p.get("citation_count", 0) for p in publications))
+    h_index = official_h_index if official_h_index is not None else _calculate_h_index(publications)
     self_cite_deduction = int(total_official * self_citation_rate)
+    adjusted_citations = max(0, total_official - self_cite_deduction)
+    adjusted_h = max(0, int(h_index * adjusted_citations / total_official)) if total_official > 0 else h_index
 
-    adjusted_citations = max(0, total_official - self_cite_deduction - ring_citation_estimate)
-
-    h_index = official_h_index or _calculate_h_index(publications)
-    if total_official > 0:
-        ratio = adjusted_citations / total_official
-        adjusted_h = max(0, int(h_index * ratio))
-    else:
-        adjusted_h = h_index
-
-    topic_scores = [
-        p.get("topic_match_score")
-        for p in publications
-        if p.get("topic_match_score") is not None
-    ]
-    avg_topic_relevance = sum(topic_scores) / len(topic_scores) if topic_scores else None
-
+    topic_scores = [p["topic_match_score"] for p in publications if p.get("topic_match_score") is not None]
+    avg_topic = sum(topic_scores) / len(topic_scores) if topic_scores else None
     integrity = 100.0
-    adjustments: list[dict] = []
-
-    # Self-citation
+    adjustments = []
     if self_citation_rate > 0.25:
-        impact = -WEIGHT_SELF_CITE_FLAGGED
-        integrity += impact
-        adjustments.append({
-            "reason": "high_self_citation_rate",
-            "impact": impact,
-            "detail": {
-                "rate": round(self_citation_rate, 4),
-                "threshold": 0.25,
-            },
-        })
+        weight, reason, threshold = WEIGHT_SELF_CITE_FLAGGED, "high_self_citation_rate", 0.25
     elif self_citation_rate > 0.15:
-        impact = -WEIGHT_SELF_CITE_ELEVATED
-        integrity += impact
-        adjustments.append({
-            "reason": "elevated_self_citation_rate",
-            "impact": impact,
-            "detail": {
-                "rate": round(self_citation_rate, 4),
-                "threshold": 0.15,
-            },
-        })
+        weight, reason, threshold = WEIGHT_SELF_CITE_ELEVATED, "elevated_self_citation_rate", 0.15
+    else:
+        weight = 0
+    if weight:
+        integrity -= weight
+        adjustments.append({"reason": reason, "impact": -weight,
+                            "detail": {"rate": round(self_citation_rate, 4), "threshold": threshold}})
 
-    # Citation rings
-    for ring in potential_rings:
-        confidence = ring.get("confidence", 0.5)
-        impact = -round(WEIGHT_RING_PER_CONFIDENCE * confidence, 2)
-        integrity += impact
-        adjustments.append({
-            "reason": "citation_ring_member",
-            "impact": impact,
-            "detail": {
-                "ring_size": len(ring.get("members", [])),
-                "total_mutual_citations": ring.get("total_mutual_citations", 0),
-                "confidence": round(confidence, 2),
-            },
-        })
+    # Neither frequent citers nor legacy ring candidates affect ratings or
+    # adjusted citation counts. No directed evidence establishes those rings.
+    if ring_data.get("potential_rings") or ring_data.get("suspicious_pairs"):
+        warning_types.append("unsupported_ring_assessment_ignored")
 
-    # Suspicious pairs (capped)
-    if suspicious_pairs:
-        impact = -min(WEIGHT_SUSPICIOUS_PAIR_MAX, len(suspicious_pairs) * WEIGHT_SUSPICIOUS_PAIR_EACH)
+    if avg_topic is not None and avg_topic < 0.5:
+        impact = -round((0.5 - avg_topic) * WEIGHT_TOPIC_RELEVANCE_GAP, 2)
         integrity += impact
-        adjustments.append({
-            "reason": "suspicious_citation_pairs",
-            "impact": impact,
-            "detail": {
-                "count": len(suspicious_pairs),
-                "weight_each": WEIGHT_SUSPICIOUS_PAIR_EACH,
-                "cap": WEIGHT_SUSPICIOUS_PAIR_MAX,
-            },
-        })
-
-    # Topic relevance
-    if avg_topic_relevance is not None and avg_topic_relevance < 0.5:
-        impact = -round((0.5 - avg_topic_relevance) * WEIGHT_TOPIC_RELEVANCE_GAP, 2)
-        integrity += impact
-        adjustments.append({
-            "reason": "low_topic_relevance",
-            "impact": impact,
-            "detail": {
-                "average": round(avg_topic_relevance, 3),
-                "threshold": 0.5,
-            },
-        })
-
-    # Velocity anomalies (capped)
+        adjustments.append({"reason": "low_topic_relevance", "impact": impact,
+                            "detail": {"average": round(avg_topic, 3), "threshold": 0.5}})
     anomalies = ring_data.get("citation_velocity_anomalies", [])
     if anomalies:
         impact = -min(WEIGHT_VELOCITY_MAX, len(anomalies) * WEIGHT_VELOCITY_PER_ANOMALY)
         integrity += impact
-        adjustments.append({
-            "reason": "citation_velocity_anomalies",
-            "impact": impact,
-            "detail": {
-                "count": len(anomalies),
-                "weight_each": WEIGHT_VELOCITY_PER_ANOMALY,
-                "cap": WEIGHT_VELOCITY_MAX,
-            },
-        })
-
-    integrity = max(CREDIBILITY_SCORE_MIN, min(CREDIBILITY_SCORE_MAX, integrity))
-
-    explanation_parts = []
-    if adjusted_h != h_index:
-        explanation_parts.append(
-            f"h-index adjusted from {h_index} to {adjusted_h} after removing "
-            f"{self_cite_deduction} self-citations and ~{ring_citation_estimate} suspicious citations"
-        )
-    if flags:
-        explanation_parts.extend(flags)
-    if not explanation_parts:
-        explanation_parts.append("No significant integrity issues detected")
-
-    breakdown = {
-        "base": 100.0,
-        "adjustments": adjustments,
-        "warnings": flags,
-        "final": round(integrity, 1),
-        "confidence": _confidence(publications, ring_data),
-        "formula_version": FORMULA_VERSION,
-    }
-
+        adjustments.append({"reason": "citation_velocity_anomalies", "impact": impact,
+                            "detail": {"count": len(anomalies), "weight_each": WEIGHT_VELOCITY_PER_ANOMALY,
+                                       "cap": WEIGHT_VELOCITY_MAX}})
+    integrity = round(max(CREDIBILITY_SCORE_MIN, min(CREDIBILITY_SCORE_MAX, integrity)), 1)
+    explanation = (
+        f"Adjusted metrics estimate the effect of the sampled self-citation rate ({self_citation_rate:.1%}). "
+        "Citation concentration does not establish reciprocal citation rings. "
+        "This heuristic describes the checked sample and is not a finding about misconduct."
+    )
     return {
-        "adjusted_h_index": adjusted_h,
-        "adjusted_citation_count": adjusted_citations,
-        "integrity_score": round(integrity, 1),
-        "self_citation_rate": round(self_citation_rate, 4),
-        "topic_relevance_score": round(avg_topic_relevance, 3) if avg_topic_relevance is not None else None,
-        "explanation": ". ".join(explanation_parts),
-        "breakdown": breakdown,
+        "adjusted_h_index": adjusted_h, "adjusted_citation_count": adjusted_citations,
+        "integrity_score": integrity, "self_citation_rate": round(self_citation_rate, 4),
+        "topic_relevance_score": round(avg_topic, 3) if avg_topic is not None else None,
+        "explanation": explanation,
+        "breakdown": {
+            "base": 100.0, "adjustments": adjustments, "warnings": warning_types,
+            "final": integrity, "confidence": _confidence(publications, ring_data),
+            "formula_version": FORMULA_VERSION, "assessment_status": "available",
+            "limitations": ["Sample-based heuristic; not a misconduct assessment.",
+                            "Adjusted metrics extrapolate a sampled self-citation rate."],
+        },
     }
 
 
 def _confidence(publications: list[dict], ring_data: dict) -> float:
-    """Confidence in the integrity score.
-
-    Lower when we have very few publications (small sample) or when the
-    citation graph was incomplete.
-    """
-    factors: list[float] = []
-
-    pub_count = len(publications)
-    factors.append(min(1.0, pub_count / 20))  # 20 papers ~= full confidence
-
-    total_checked = ring_data.get("total_citations_checked", 0)
-    if pub_count:
-        # ~5 citations checked per paper would be a reasonable target
-        factors.append(min(1.0, total_checked / max(pub_count * 5, 1)))
-
-    if not factors:
-        return 0.5
-    return round(sum(factors) / len(factors), 2)
+    """Sample-size indicator, not a calibrated probability of research integrity."""
+    checked = ring_data.get("total_citations_checked", 0)
+    if not publications or checked <= 0 or ring_data.get("citation_evidence_status") != "succeeded":
+        return 0.0
+    return round(min(1.0, len(publications) / 20) * min(1.0, checked / (len(publications) * 5)), 2)
 
 
 def _calculate_h_index(publications: list[dict]) -> int:
-    """Calculate h-index from a list of publications."""
-    citations = sorted(
-        [p.get("citation_count", 0) for p in publications],
-        reverse=True,
-    )
-    h = 0
-    for i, c in enumerate(citations):
-        if c >= i + 1:
-            h = i + 1
-        else:
-            break
-    return h
+    citations = sorted([p.get("citation_count", 0) for p in publications], reverse=True)
+    return sum(1 for rank, count in enumerate(citations, 1) if count >= rank)

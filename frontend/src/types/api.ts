@@ -19,9 +19,10 @@ export interface ScoreBreakdown {
   base: number;
   deductions: Deduction[];
   warnings: string[];
-  final: number;
+  final: number | null;
   confidence?: number;
   formula_version: string;
+  assessment_status?: "available" | "partial" | "unavailable";
 }
 
 export interface IntegrityAdjustment {
@@ -34,9 +35,12 @@ export interface IntegrityBreakdown {
   base: number;
   adjustments: IntegrityAdjustment[];
   warnings: string[];
-  final: number;
+  final: number | null;
   confidence?: number;
   formula_version: string;
+  assessment_status?: "available" | "unavailable";
+  limitations?: string[];
+  explanation?: string | null;
 }
 
 export interface ProcessingWarning {
@@ -204,7 +208,37 @@ export interface CitationGraphEdge {
   papers: string[];
 }
 
+export interface CitationRelationship {
+  citing_paper_id: string;
+  cited_paper_id: string;
+  author_ids: string[];
+}
+
+export interface CitationCoverage {
+  papers_attempted?: number;
+  papers_succeeded?: number;
+  publications_available?: number;
+  unavailable_paper_ids?: string[];
+  missing_paper_ids?: number;
+  incomplete_author_records?: number;
+  unidentified_citations?: number;
+  paper_limit?: number;
+  citations_per_paper_limit?: number;
+  scope?: string;
+}
+
 export interface CitationRingFlags {
+  citation_evidence_status?: "succeeded" | "partial" | "unavailable";
+  coverage?: CitationCoverage;
+  limitation?: string;
+  frequent_citers?: Array<{
+    author_id: string; author_name: string; citation_count: number;
+    papers_cited: string[]; relationships: CitationRelationship[];
+  }>;
+  citation_concentration?: Array<{
+    id: string; name: string; citations_to_target: number;
+    relationships: CitationRelationship[];
+  }>;
   rings: Array<{
     members: Array<{ id: string; name: string; citations_to_target: number }>;
     total_mutual_citations: number;
@@ -278,6 +312,7 @@ export interface ResearcherSnapshotItem {
   self_citation_rate: number | null;
   topic_relevance_score: number | null;
   total_publications: number | null;
+  formula_version?: string | null;
 }
 
 /** Hydrated watchlist row — current metrics + delta vs latest snapshot. */

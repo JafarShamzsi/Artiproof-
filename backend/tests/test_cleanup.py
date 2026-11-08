@@ -10,10 +10,24 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("naive", [False, True])
+async def test_migration_cleanup_hold_preserves_all_orphans(monkeypatch, naive):
+    from app.config import settings
+    from app.tasks import cleanup
+
+    hold = datetime.now(timezone.utc) + timedelta(hours=1)
+    monkeypatch.setattr(settings, "ARTIFACT_CLEANUP_HOLD_UNTIL", hold.replace(tzinfo=None) if naive else hold)
+    db = AsyncMock()
+    assert await cleanup.remove_orphan_files(db) == 0
+    db.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio

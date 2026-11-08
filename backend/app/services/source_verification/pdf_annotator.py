@@ -10,16 +10,12 @@ Colors:
 """
 
 import logging
-import os
-import uuid
 from typing import Optional
 
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "uploads")
-ANNOTATED_DIR = os.path.join(UPLOAD_DIR, "annotated")
 
 # RGB colors (0-1 range for PyMuPDF)
 COLORS = {
@@ -54,7 +50,12 @@ def create_annotated_pdf(
         Path to the annotated PDF, or None on failure.
     """
     try:
-        doc = fitz.open(original_pdf_path)
+        if original_pdf_path.startswith("artifact://"):
+            from app.services.artifact_storage import read_pdf
+
+            doc = fitz.open(stream=read_pdf(original_pdf_path), filetype="pdf")
+        else:
+            doc = fitz.open(original_pdf_path)
     except Exception:
         logger.exception("Failed to open PDF for annotation: %s", original_pdf_path)
         return None
@@ -111,10 +112,9 @@ def create_annotated_pdf(
                 _add_highlight(doc, hl["page"], hl["bbox"], color, opacity)
 
         # Save annotated copy
-        os.makedirs(ANNOTATED_DIR, exist_ok=True)
-        filename = f"annotated_{uuid.uuid4().hex[:12]}.pdf"
-        output_path = os.path.join(ANNOTATED_DIR, filename)
-        doc.save(output_path)
+        from app.services.artifact_storage import put_pdf
+
+        output_path = put_pdf(doc.tobytes(), "annotated")
         doc.close()
 
         return output_path

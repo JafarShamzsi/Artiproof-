@@ -25,14 +25,16 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useColorMode } from "@/contexts/ColorModeContext";
 
 import { apiFetch } from "@/lib/api";
+import { analysisIsActive, useAnalysisRefresh } from "@/hooks/use-analysis-refresh";
 import { toast } from "@/lib/toast";
 import { useReportActions } from "@/lib/useReportActions";
 import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreExplanationCard } from "@/components/ui/score-explanation";
-import { scoreColor, scoreSolidBorderColor, scoreStroke } from "@/lib/colors";
+import { scoreColor, scoreStroke } from "@/lib/colors";
+import { ResearcherScore, ResearcherCoverage } from "@/components/researcher/assessment";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { PinButton } from "@/components/ui/pin-button";
-import type { ResearcherSnapshotItem, WatchlistEntry } from "@/types/api";
+import type { CitationRingFlags, IntegrityBreakdown, ResearcherSnapshotItem, WatchlistEntry } from "@/types/api";
 
 interface Publication {
   id: string;
@@ -73,22 +75,9 @@ interface ProfileData {
   adjusted_h_index: number | null;
   adjusted_citation_count: number | null;
   integrity_score: number | null;
+  integrity_breakdown?: IntegrityBreakdown | null;
   self_citation_rate: number | null;
-  citation_ring_flags: {
-    rings?: Array<{
-      members: Array<{ id: string; name: string; citations_to_target: number }>;
-      total_mutual_citations: number;
-      confidence: number;
-    }>;
-    suspicious_pairs?: Array<{
-      author_id: string;
-      author_name: string;
-      citation_count: number;
-      papers_cited: string[];
-    }>;
-    flags?: string[];
-    graph?: { nodes: GraphNode[]; edges: GraphEdge[] };
-  } | null;
+  citation_ring_flags: CitationRingFlags | null;
   topic_relevance_score: number | null;
   analysis_status: string;
   last_analyzed_at: string | null;
@@ -115,6 +104,33 @@ export default function ResearcherResultPage({
   const [error, setError] = useState<string | null>(null);
   const [reAnalyzing, setReAnalyzing] = useState(false);
   const [watchlistBusy, setWatchlistBusy] = useState(false);
+
+  const refreshResult = useCallback(async (profile: ProfileData, signal: AbortSignal) => {
+    if (!analysisIsActive(profile.analysis_status)) {
+      // History and graph change during execution too. Failure of either
+      // optional view must not hide the newly completed/failed result.
+      await Promise.allSettled([
+        (async () => {
+          const response = await apiFetch(`/api/researcher/${id}/citation-graph`, { signal });
+          if (response.ok) {
+            const graph = await response.json();
+            if (!signal.aborted) setGraphData(graph);
+          }
+        })(),
+        (async () => {
+          const response = await apiFetch(`/api/researcher/${id}/snapshots`, { signal });
+          if (response.ok) {
+            const history = await response.json();
+            if (!signal.aborted) setSnapshots(history);
+          }
+        })(),
+      ]);
+    }
+    if (!signal.aborted) setData(profile);
+  }, [id]);
+  const refreshError = useAnalysisRefresh(
+    `/api/researcher/${id}`, data?.id === id && analysisIsActive(data.analysis_status), refreshResult,
+  );
 
   // Single-shot fetch for the profile + graph + snapshots + watchlist on mount.
   // Each fetch is independent, so a failure on one (e.g. snapshots is fine
@@ -306,11 +322,12 @@ export default function ResearcherResultPage({
     );
   }
 
-  const integrity = data.integrity_score ?? 0;
-  const ringFlags = data.citation_ring_flags || {};
-  const flags = ringFlags.flags || [];
+  const integrity = data.integrity_score;
+  const flags = data.citation_ring_flags?.flags ?? [];
 
   return (
+    <>
+    {refreshError && <p role="alert" className="mb-4 text-sm text-amber-700 dark:text-amber-300">{refreshError}</p>}
     <ResearcherProfileView
       data={data}
       integrity={integrity}
@@ -323,6 +340,7 @@ export default function ResearcherResultPage({
       onReanalyze={handleReanalyze}
       onToggleWatchlist={handleToggleWatchlist}
     />
+    </>
   );
 }
 
@@ -341,7 +359,7 @@ function ResearcherProfileView({
   onToggleWatchlist,
 }: {
   data: ProfileData;
-  integrity: number;
+  integrity: number | null;
   flags: string[];
   graphData: { nodes: GraphNode[]; edges: GraphEdge[] } | null;
   snapshots: ResearcherSnapshotItem[];
@@ -355,7 +373,7 @@ function ResearcherProfileView({
     researcherProfileId: data.id,
   });
   const [pubPage, setPubPage] = useState(0);
-  const explanation = explainIntegrity({
+  const explanation = integrity == null ? null : explainIntegrity({
     score: integrity,
     selfCitationRate: data.self_citation_rate,
     topicRelevanceScore: data.topic_relevance_score,
@@ -489,7 +507,7 @@ function ResearcherProfileView({
               {data.orcid && <Badge className="bg-zinc-500/20 text-zinc-700 dark:text-zinc-400">ORCID: {data.orcid}</Badge>}
               {data.publications.length > 0 && (
                 <Badge className="bg-accent-amber/15 text-accent-amber">
-                  {data.publications.length} publications
+                  {data.publications.length} publication{data.publications.length === 1 ? "" : "s"}
                 </Badge>
               )}
             </div>
@@ -522,7 +540,7 @@ function ResearcherProfileView({
         <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
-              <TrendingUp className="h-4 w-4" /> Adjusted Metrics
+              <TrendingUp className="h-4 w-4" /> Estimated Adjusted Metrics
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -550,21 +568,11 @@ function ResearcherProfileView({
             <CardTitle className="text-sm text-zinc-600 dark:text-zinc-400">Integrity Score</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col items-center">
-            <div
-              role="meter"
-              aria-label="Integrity score"
-              aria-valuenow={Math.round(integrity)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuetext={`${Math.round(integrity)} out of 100`}
-              className={`flex h-20 w-20 items-center justify-center rounded-full border-4 ${scoreColor(integrity)} ${scoreSolidBorderColor(integrity)}`}
-            >
-              <span className="text-2xl font-bold">{Math.round(integrity)}</span>
-            </div>
+            <ResearcherScore score={integrity} />
             <div className="mt-3 space-y-1 text-center">
               {data.self_citation_rate != null && (
                 <p className="text-xs text-zinc-500">
-                  Self-citation: {(data.self_citation_rate * 100).toFixed(1)}%
+                  Sample self-citation: {(data.self_citation_rate * 100).toFixed(1)}%
                 </p>
               )}
               {data.topic_relevance_score != null && (
@@ -578,7 +586,10 @@ function ResearcherProfileView({
       </div>
 
       {/* Score explanation */}
-      <ScoreExplanationCard explanation={explanation} />
+      {explanation ? <ScoreExplanationCard explanation={explanation} /> : (
+        <p className="text-sm text-zinc-600 dark:text-zinc-300">The researcher assessment is unavailable because required evidence is missing or a step failed. Available publications do not establish integrity or misconduct.</p>
+      )}
+      <ResearcherCoverage findings={data.citation_ring_flags} assessment={data.integrity_breakdown} />
 
       {/* Mutual Citation Patterns (formerly "Integrity Flags") with the
           "patterns, not proof" framing. The disclaimer copy comes from the
@@ -589,7 +600,7 @@ function ResearcherProfileView({
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
               <AlertTriangle className="h-4 w-4" />
-              Mutual Citation Patterns ({flags.length})
+              Observed Citation Patterns ({flags.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -743,6 +754,7 @@ function HistorySection({ snapshots }: { snapshots: ResearcherSnapshotItem[] }) 
                 <thead>
                   <tr className="border-b border-zinc-200 text-left text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
                     <th className="pb-2 pr-4 font-medium">Date</th>
+                    <th className="pb-2 pr-4 font-medium">Method</th>
                     <th className="pb-2 pr-4 text-right font-medium">Integrity</th>
                     <th className="pb-2 pr-4 text-right font-medium">Adj. h-index</th>
                     <th className="pb-2 text-right font-medium">Self-cite</th>
@@ -755,8 +767,9 @@ function HistorySection({ snapshots }: { snapshots: ResearcherSnapshotItem[] }) 
                       className="border-b border-zinc-200/70 dark:border-zinc-800/50"
                     >
                       <td className="py-2 pr-4 text-zinc-700 dark:text-zinc-300">
-                        {new Date(s.created_at).toLocaleString()}
+                        {new Date(s.captured_at ?? s.created_at).toLocaleString()}
                       </td>
+                      <td className="py-2 pr-4 text-zinc-600 dark:text-zinc-400">{s.formula_version ?? "Unknown"}</td>
                       <td
                         className={`py-2 pr-4 text-right font-bold tabular-nums ${scoreColor(s.integrity_score)}`}
                       >
@@ -796,10 +809,15 @@ function SnapshotTrendChart({
 }: {
   snapshots: ResearcherSnapshotItem[];
 }) {
+  const scored = snapshots.filter((s) => s.integrity_score != null);
+  const versions = new Set(scored.map((s) => s.formula_version));
+  if (scored.some((s) => !s.formula_version) || versions.size > 1) {
+    return <p className="text-xs text-zinc-500">These revisions use different or unknown methods. Scores are not plotted as a comparable trend; review each revision and its method below.</p>;
+  }
   const points = [...snapshots]
     .reverse()
     .filter((s) => s.integrity_score != null)
-    .map((s) => ({ score: s.integrity_score as number, date: s.created_at }));
+    .map((s) => ({ score: s.integrity_score as number, date: s.captured_at ?? s.created_at }));
 
   if (points.length === 0) {
     return (

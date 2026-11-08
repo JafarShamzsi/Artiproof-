@@ -29,6 +29,7 @@ class ResearcherProfile(Base, TimestampMixin, SoftDeleteMixin):
         sa.String, sa.ForeignKey("organizations.id"), nullable=True, index=True
     )
     researcher_name = sa.Column(sa.String, nullable=False)
+    current_run_id = sa.Column(sa.String, sa.ForeignKey("analysis_runs.id", ondelete="SET NULL"), nullable=True)
     scopus_id = sa.Column(sa.String, nullable=True)
     google_scholar_id = sa.Column(sa.String, nullable=True)
     google_scholar_url = sa.Column(sa.String, nullable=True)

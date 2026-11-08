@@ -101,14 +101,14 @@ function CheckSourcePageInner() {
         { method: "POST" },
       );
       if (!ticketRes.ok) {
-        setError(`Stream auth failed (HTTP ${ticketRes.status})`);
         setLoading(false);
+        router.push(`/check/${checkId}`);
         return;
       }
       ticket = ((await ticketRes.json()) as { ticket: string }).ticket;
     } catch {
-      setError("Stream auth failed");
       setLoading(false);
+      router.push(`/check/${checkId}`);
       return;
     }
     const es = new EventSource(
@@ -126,9 +126,7 @@ function CheckSourcePageInner() {
           es.close();
           eventSourceRef.current = null;
           setLoading(false);
-          if (event.status === "completed") {
-            router.push(`/check/${checkId}`);
-          }
+          router.push(`/check/${checkId}`);
         }
       } catch {
         // Malformed event — ignore

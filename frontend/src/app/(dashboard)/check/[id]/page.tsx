@@ -38,6 +38,7 @@ import type { PdfViewerHandle } from "@/components/pdf-viewer";
 const PdfViewer = lazy(() => import("@/components/pdf-viewer"));
 
 import { apiFetch } from "@/lib/api";
+import { analysisIsActive, useAnalysisRefresh } from "@/hooks/use-analysis-refresh";
 import { useReportActions } from "@/lib/useReportActions";
 import { explainCredibility } from "@/lib/scoreExplanation";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -101,6 +102,21 @@ export default function SourceCheckResultPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pdfViewerRef = useRef<PdfViewerHandle>(null);
+
+  const refreshResult = useCallback(async (result: SourceCheckData, signal: AbortSignal) => {
+    // Annotations can become available after the initial pending response.
+    if (!analysisIsActive(result.status) && result.has_pdf) {
+      try {
+        const response = await apiFetch(`/api/source-check/${id}/position-map`, { signal });
+        const positions = response.ok ? await response.json() : null;
+        if (!signal.aborted) setPositionMap(positions);
+      } catch { /* The result remains useful without PDF navigation. */ }
+    }
+    if (!signal.aborted) setData(result);
+  }, [id]);
+  const refreshError = useAnalysisRefresh(
+    `/api/source-check/${id}`, data?.id === id && analysisIsActive(data.status), refreshResult,
+  );
 
   useEffect(() => {
     // Reset on every id change so navigating between two checks doesn't
@@ -231,6 +247,8 @@ export default function SourceCheckResultPage({
   // Split-view for PDFs, full-width for URL/text
   if (isPdf && pdfUrl) {
     return (
+      <>
+      {refreshError && <p role="alert" className="mb-4 text-sm text-amber-700 dark:text-amber-300">{refreshError}</p>}
       <SplitView
         data={data}
         pdfUrl={pdfUrl}
@@ -239,10 +257,13 @@ export default function SourceCheckResultPage({
         onFindingClick={handleFindingClick}
         onShareTokenChange={(token) => setData({ ...data, share_token: token })}
       />
+      </>
     );
   }
 
   return (
+    <>
+    {refreshError && <p role="alert" className="mb-4 text-sm text-amber-700 dark:text-amber-300">{refreshError}</p>}
     <FullWidthView
       data={data}
       actionsSlot={
@@ -252,6 +273,7 @@ export default function SourceCheckResultPage({
         />
       }
     />
+    </>
   );
 }
 
@@ -562,8 +584,8 @@ function SplitView({
   onFindingClick: (type: "claims" | "ai_detections" | "citations", id: string) => void;
   onShareTokenChange: (token: string | null) => void;
 }) {
-  const score = data.overall_credibility_score ?? 0;
-  const explanation = explainCredibility({
+  const score = data.overall_credibility_score;
+  const explanation = score == null ? null : explainCredibility({
     score,
     aiPercent: data.ai_content_percentage,
     misinfoCount: data.misinfo_claims_found,
@@ -604,7 +626,11 @@ function SplitView({
         <Card className="mb-4 border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardContent className="flex flex-col gap-3 py-4">
             <div className="flex items-center gap-4">
-              <div
+              {score == null ? (
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-3 border-zinc-300 text-center text-[10px] text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+                  Score unavailable
+                </div>
+              ) : <div
                 role="meter"
                 aria-label="Credibility score"
                 aria-valuenow={Math.round(score)}
@@ -614,20 +640,22 @@ function SplitView({
                 className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full border-3 ${scoreColor(score)} ${scoreSolidBorderColor(score)}`}
               >
                 <span className="text-xl font-bold">{Math.round(score)}</span>
-              </div>
+              </div>}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-zinc-900 dark:text-white">{data.input_title || "PDF Document"}</p>
                 <div className="mt-1 flex gap-2">
                   <Badge className="bg-blue-500/20 text-blue-700 text-[10px] dark:text-blue-400">
-                    AI: {(data.ai_content_percentage ?? 0).toFixed(0)}%
+                    AI: {data.ai_content_percentage == null ? "not assessed" : `${data.ai_content_percentage.toFixed(0)}%`}
                   </Badge>
                   <Badge className="bg-amber-500/20 text-amber-700 text-[10px] dark:text-amber-400">
-                    {data.misinfo_claims_found ?? 0} misinfo
+                    {data.misinfo_claims_found == null ? "Claims not assessed" : `${data.misinfo_claims_found} misinfo`}
                   </Badge>
                 </div>
               </div>
             </div>
-            <ScoreExplanationCompact explanation={explanation} />
+            {explanation ? <ScoreExplanationCompact explanation={explanation} /> : (
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">Required verification evidence is missing. Review the available findings.</p>
+            )}
           </CardContent>
         </Card>
 

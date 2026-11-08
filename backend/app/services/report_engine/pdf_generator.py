@@ -22,15 +22,12 @@ Public API:
 from __future__ import annotations
 
 import logging
-import os
 import re
-import uuid
 from html import unescape
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
-PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "reports")
 
 
 # ─── WeasyPrint availability probe ─────────────────────────────────────────
@@ -66,7 +63,9 @@ def html_to_pdf(html: str) -> Tuple[bytes, str]:
     """
     if WEASYPRINT_AVAILABLE and _WEASYPRINT_HTML is not None:
         try:
-            return _WEASYPRINT_HTML(string=html).write_pdf(), "weasyprint"
+            from app.services.report_engine.assets import embedded_resource_fetcher
+
+            return _WEASYPRINT_HTML(string=html, url_fetcher=embedded_resource_fetcher).write_pdf(), "weasyprint"
         except Exception:
             logger.exception(
                 "WeasyPrint PDF generation failed at runtime — falling "
@@ -186,10 +185,7 @@ def _html_to_plain_text(html: str) -> str:
 
 
 def save_pdf(pdf_bytes: bytes) -> str:
-    """Save PDF bytes to disk and return the file path."""
-    os.makedirs(PDF_DIR, exist_ok=True)
-    filename = f"report_{uuid.uuid4().hex[:12]}.pdf"
-    filepath = os.path.join(PDF_DIR, filename)
-    with open(filepath, "wb") as f:
-        f.write(pdf_bytes)
-    return filepath
+    """Save a private PDF artifact and return its stable reference."""
+    from app.services.artifact_storage import put_pdf
+
+    return put_pdf(pdf_bytes, "report")

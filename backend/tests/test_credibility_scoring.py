@@ -15,9 +15,7 @@ import pytest
 from app.services.source_verification import orchestrator as svo
 from app.services.source_verification.orchestrator import (
     SourceVerificationOrchestrator,
-    WEIGHT_AI_PER_PERCENT_OVER_50,
     WEIGHT_FALSE_CLAIM,
-    WEIGHT_INACCESSIBLE_CITATION,
     WEIGHT_MISLEADING,
     WEIGHT_RETRACTED_CITATION,
 )
@@ -71,38 +69,53 @@ class TestCredibilityScoring:
     def test_retracted_citation_reduces_score(self):
         orch = _orch()
         score, breakdown = orch._calculate_credibility(
-            fact_check_results=[],
+            fact_check_results=[{"verdict": "true", "confidence": 1.0}],
             ai_percentage=0,
             citation_results=[{"is_accessible": True, "is_retracted": True}],
         )
         assert score == pytest.approx(100 - WEIGHT_RETRACTED_CITATION)
         assert any(d["reason"] == "retracted_citations" for d in breakdown["deductions"])
 
-    def test_inaccessible_citation_reduces_score(self):
+    def test_inaccessible_citation_is_not_a_factual_deduction(self):
         orch = _orch()
         score, breakdown = orch._calculate_credibility(
-            fact_check_results=[],
+            fact_check_results=[{"verdict": "true", "confidence": 1.0}],
             ai_percentage=0,
             citation_results=[
                 {"is_accessible": False, "is_retracted": False},
                 {"is_accessible": False, "is_retracted": False},
             ],
         )
-        assert score == pytest.approx(100 - 2 * WEIGHT_INACCESSIBLE_CITATION)
-        assert any(d["reason"] == "inaccessible_citations" for d in breakdown["deductions"])
+        assert score == 100
+        assert breakdown["deductions"] == []
 
-    def test_high_ai_content_reduces_score(self):
-        """AI < 50% should not deduct; > 50% deducts proportionally."""
+    def test_ai_style_is_separate_from_factual_score(self):
         orch = _orch()
-        below, _ = orch._calculate_credibility([], ai_percentage=49.9, citation_results=[])
+        evidence = [{"verdict": "true", "confidence": 1.0}]
+        below, _ = orch._calculate_credibility(evidence, ai_percentage=49.9, citation_results=[])
         assert below == 100.0
 
         at_70, breakdown = orch._calculate_credibility(
-            [], ai_percentage=70.0, citation_results=[]
+            evidence, ai_percentage=70.0, citation_results=[]
         )
-        expected = 100 - (70 - 50) * WEIGHT_AI_PER_PERCENT_OVER_50
-        assert at_70 == pytest.approx(expected, rel=1e-3)
-        assert any(d["reason"] == "ai_content_detected" for d in breakdown["deductions"])
+        assert at_70 == below
+        assert breakdown["deductions"] == []
+
+    def test_unverified_claims_are_unknown_not_false(self):
+        score, breakdown = _orch()._calculate_credibility([
+            {"verdict": "true", "confidence": 0.9},
+            {"verdict": "unverified", "confidence": 0.9},
+        ], 100, [{"is_accessible": False}])
+        assert score == 100
+        assert breakdown["assessment_status"] == "partial"
+        assert breakdown["deductions"] == []
+
+    def test_truncation_cannot_raise_a_low_evidence_indicator(self):
+        orch = _orch()
+        claims = [{"verdict": "true"}] + [{"verdict": "unverified"}] * 3
+        baseline = orch._calculate_confidence(claims, [])
+        orch._text_was_truncated = True
+        assert orch._calculate_confidence(claims, []) < baseline
 
     def test_score_clamped_to_zero(self):
         """Catastrophic input shouldn't produce a negative score."""
@@ -123,7 +136,7 @@ class TestCredibilityScoring:
     def test_score_clamped_to_100(self):
         """Cleanest possible input still produces 100, never above."""
         orch = _orch()
-        score, _ = orch._calculate_credibility([], 0.0, [])
+        score, _ = orch._calculate_credibility([{"verdict": "true", "confidence": 1.0}], 0.0, [])
         assert score == 100.0
 
     def test_breakdown_deductions_sum_to_final(self):
@@ -150,8 +163,31 @@ class TestCredibilityScoring:
             0,
             [],
         )
-        assert score == 100.0
-        assert breakdown["deductions"] == []
+        assert score is None
+        assert breakdown["final"] is None
+        assert breakdown["confidence"] == 0
+
+    @pytest.mark.parametrize("claims", [[], [{"verdict": "unverified", "confidence": 0.3}]])
+    def test_missing_claim_evidence_withholds_headline(self, claims):
+        score, breakdown = _orch()._calculate_credibility(
+            claims, 0.0, [{"is_accessible": True, "is_retracted": False}],
+        )
+        assert score is None
+        assert breakdown["assessment_status"] == "unavailable"
+        assert breakdown["confidence"] == 0
+
+    @pytest.mark.parametrize("warning", [
+        "claim_extraction_failed", "parallel_analysis_failed", "citation_analysis_failed",
+        "missing_gemini_key", "scraping_failed", "pdf_extraction_failed",
+    ])
+    def test_required_failure_withholds_score_despite_other_findings(self, warning):
+        orch = _orch()
+        orch._warnings = [{"type": warning}]
+        score, breakdown = orch._calculate_credibility(
+            [{"verdict": "true", "confidence": 0.9}], 0, [],
+        )
+        assert score is None
+        assert warning in breakdown["warnings"]
 
 
 class TestConfidenceCalculation:
@@ -198,8 +234,7 @@ class TestConfidenceCalculation:
         )
         assert truncated < baseline
 
-    def test_fallback_lowers_confidence(self):
-        """Heuristic fallback usage reduces confidence."""
+    def test_ai_fallback_does_not_change_factual_evidence_indicator(self):
         orch = _orch()
         baseline = orch._calculate_confidence(
             [{"verdict": "true"}], [{"is_accessible": True}]
@@ -208,12 +243,13 @@ class TestConfidenceCalculation:
         fallback = orch._calculate_confidence(
             [{"verdict": "true"}], [{"is_accessible": True}]
         )
-        assert fallback < baseline
+        assert fallback == baseline
 
-    def test_no_data_returns_neutral(self):
-        """No claims and no citations → 0.5 (neutral)."""
+    def test_no_data_has_zero_confidence(self):
+        """No evidence cannot support confidence, even with fallback flags."""
         orch = _orch()
-        assert orch._calculate_confidence([], []) == 0.5
+        orch._fallback_used = True
+        assert orch._calculate_confidence([], []) == 0.0
 
 
 def test_formula_version_constant_stable():
@@ -222,4 +258,4 @@ def test_formula_version_constant_stable():
     If you intentionally retune the formula, update both the constant in
     app/schemas/breakdown.py and this test in the same commit.
     """
-    assert svo.FORMULA_VERSION == "1.0"
+    assert svo.FORMULA_VERSION == "1.2"

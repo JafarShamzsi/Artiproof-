@@ -8,6 +8,8 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from app.utils.public_http import UnsafeURL, fetch_public
+
 
 async def scrape_url(url: str) -> dict:
     """
@@ -16,16 +18,10 @@ async def scrape_url(url: str) -> dict:
     Returns dict with keys: title, body, author, date, citations, error
     """
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=20.0,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; ArtiProof/1.0; +https://example.invalid)",
-                "Accept": "text/html,application/xhtml+xml",
-            },
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
+        resp = await fetch_public(url)
+        url = str(resp.url)  # Resolve references against the final redirect URL.
+    except UnsafeURL as exc:
+        return {"error": str(exc), "body": "", "title": None}
     except httpx.HTTPStatusError as e:
         return {"error": f"HTTP {e.response.status_code}", "body": "", "title": None}
     except httpx.RequestError as e:

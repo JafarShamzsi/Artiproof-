@@ -27,6 +27,7 @@ def _graph(
         "total_citations_checked": total_checked,
         "edges": edges or [],
         "citing_authors": citing_authors or {},
+        "citation_evidence_status": "succeeded",
     }
 
 
@@ -78,8 +79,8 @@ class TestSelfCitationDetection:
 
     def test_zero_total_does_not_divide_by_zero(self):
         out = detect_rings(_graph(self_citations=0, total_checked=0), [])
-        assert out["self_citation_rate"] == 0.0
-        assert out["self_citation_status"] == "normal"
+        assert out["self_citation_rate"] is None
+        assert out["self_citation_status"] == "unavailable"
 
 
 class TestSuspiciousPairs:
@@ -99,9 +100,10 @@ class TestSuspiciousPairs:
             ),
             [],
         )
-        assert below["suspicious_pairs"] == []
-        assert len(at["suspicious_pairs"]) == 1
-        assert at["suspicious_pairs"][0]["author_id"] == "a"
+        assert below["frequent_citers"] == []
+        assert len(at["frequent_citers"]) == 1
+        assert at["frequent_citers"][0]["author_id"] == "a"
+        assert at["suspicious_pairs"] == []
 
     def test_suspicious_pair_includes_papers_cited(self):
         out = detect_rings(
@@ -111,12 +113,12 @@ class TestSuspiciousPairs:
             ),
             [],
         )
-        assert out["suspicious_pairs"][0]["papers_cited"] == ["P1", "P2"]
+        assert out["frequent_citers"][0]["papers_cited"] == ["P1", "P2"]
 
 
 class TestPotentialRings:
-    def test_three_frequent_citers_form_ring(self):
-        """≥3 authors each citing target ≥3 times, total ≥10 → potential ring."""
+    def test_three_frequent_citers_are_concentration_not_ring(self):
+        """Incoming-only clusters establish no reciprocal relationship."""
         out = detect_rings(
             _graph(
                 edges=[],
@@ -128,11 +130,11 @@ class TestPotentialRings:
             ),
             [],
         )
-        assert len(out["potential_rings"]) == 1
-        ring = out["potential_rings"][0]
-        assert len(ring["members"]) == 3
-        assert ring["total_mutual_citations"] == 11
-        assert 0 < ring["confidence"] <= 0.9
+        assert out["potential_rings"] == []
+        assert out["suspicious_pairs"] == []
+        assert len(out["citation_concentration"]) == 3
+        assert sum(a["citations_to_target"] for a in out["citation_concentration"]) == 11
+        assert all("confidence" not in a for a in out["citation_concentration"])
 
     def test_below_ring_size_no_ring(self):
         """Only 2 frequent citers → no ring even if counts are high."""

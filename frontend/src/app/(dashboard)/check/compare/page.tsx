@@ -169,11 +169,11 @@ function ComparePanel({
     );
   }
 
-  const score = data.overall_credibility_score ?? 0;
-  const aiPct = data.ai_content_percentage ?? 0;
-  const explanation = explainCredibility({
+  const score = data.overall_credibility_score;
+  const aiPct = data.ai_content_percentage;
+  const explanation = score == null ? null : explainCredibility({
     score,
-    aiPercent: aiPct,
+    aiPercent: aiPct ?? 0,
     misinfoCount: data.misinfo_claims_found,
     citationsTotal: data.citations.length,
     retractedCitations: data.citations.filter((c) => c.is_retracted).length,
@@ -212,7 +212,11 @@ function ComparePanel({
       <CardContent className="space-y-5">
         {/* Score gauge */}
         <div className="flex items-center gap-4">
-          <div
+          {score == null ? (
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-zinc-300 text-center text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">
+              Score unavailable
+            </div>
+          ) : <div
             role="meter"
             aria-label={`Credibility score for check ${label}`}
             aria-valuenow={Math.round(score)}
@@ -223,9 +227,11 @@ function ComparePanel({
           >
             <span className="text-2xl font-bold">{Math.round(score)}</span>
             <span className="text-[10px] opacity-70">/ 100</span>
-          </div>
+          </div>}
           <div className="flex-1">
-            <ScoreExplanationCompact explanation={explanation} />
+            {explanation ? <ScoreExplanationCompact explanation={explanation} /> : (
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">Required verification evidence is missing. Review the available findings.</p>
+            )}
           </div>
         </div>
 
@@ -236,10 +242,10 @@ function ComparePanel({
               <Brain className="h-3.5 w-3.5" /> AI content
             </span>
             <span className="font-medium tabular-nums text-zinc-900 dark:text-white">
-              {aiPct.toFixed(0)}%
+              {aiPct == null ? "Not assessed" : `${aiPct.toFixed(0)}%`}
             </span>
           </div>
-          <div
+          {aiPct != null && <div
             role="progressbar"
             aria-label="AI content percentage"
             aria-valuenow={Math.round(aiPct)}
@@ -254,7 +260,7 @@ function ComparePanel({
               }
               style={{ width: `${Math.min(100, aiPct)}%` }}
             />
-          </div>
+          </div>}
         </div>
 
         {/* Score breakdown */}
@@ -282,7 +288,7 @@ function ComparePanel({
               <div className="flex justify-between border-t border-zinc-200 pt-1 font-medium dark:border-zinc-800">
                 <span className="text-zinc-900 dark:text-white">Final</span>
                 <span className="text-zinc-900 dark:text-white">
-                  {data.score_breakdown.final.toFixed(1)}
+                  {data.score_breakdown.final == null ? "Unavailable" : data.score_breakdown.final.toFixed(1)}
                 </span>
               </div>
             </div>

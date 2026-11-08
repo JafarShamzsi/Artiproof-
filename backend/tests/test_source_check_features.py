@@ -14,7 +14,7 @@ import io
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -91,10 +91,14 @@ def _check(**overrides):
 
 
 @pytest.fixture
-def env():
+def env(monkeypatch):
     """get_db + get_current_user wired to a fake AsyncSession + stub user.
     Tests mutate `env.checks` to seed state and override `env.db.execute`/
     `env.db.get` per scenario."""
+    from app.tasks import celery_app
+
+    if celery_app is not None:
+        monkeypatch.setattr(celery_app, "send_task", Mock())
     user = _user()
     db = AsyncMock()
 

@@ -4,7 +4,7 @@ const productLinks = [
   { label: "Source verification", href: "/#features" },
   { label: "Claim analysis", href: "/#features" },
   { label: "AI detection", href: "/#features" },
-  { label: "Citation rings", href: "/#features" },
+  { label: "Citation patterns", href: "/#features" },
   { label: "Researcher integrity", href: "/#features" },
 ];
 

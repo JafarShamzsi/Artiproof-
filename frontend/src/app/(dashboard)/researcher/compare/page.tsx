@@ -15,7 +15,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreExplanationCompact } from "@/components/ui/score-explanation";
-import { scoreColor, scoreSolidBorderColor } from "@/lib/colors";
+import { ResearcherScore, ResearcherCoverage } from "@/components/researcher/assessment";
 import type { ResearcherProfile } from "@/types/api";
 
 export default function CompareResearchersPage() {
@@ -159,10 +159,10 @@ function ComparePanel({
     );
   }
 
-  const score = data.integrity_score ?? 0;
+  const score = data.integrity_score;
   const ringFlags = data.citation_ring_flags || null;
   const flags = ringFlags?.flags ?? [];
-  const explanation = explainIntegrity({
+  const explanation = score == null ? null : explainIntegrity({
     score,
     selfCitationRate: data.self_citation_rate,
     topicRelevanceScore: data.topic_relevance_score,
@@ -201,22 +201,13 @@ function ComparePanel({
       <CardContent className="space-y-5">
         {/* Integrity score gauge */}
         <div className="flex items-center gap-4">
-          <div
-            role="meter"
-            aria-label={`Integrity score for researcher ${label}`}
-            aria-valuenow={Math.round(score)}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuetext={`${Math.round(score)} out of 100`}
-            className={`flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-full border-4 ${scoreColor(score)} ${scoreSolidBorderColor(score)}`}
-          >
-            <span className="text-2xl font-bold">{Math.round(score)}</span>
-            <span className="text-[10px] opacity-70">/ 100</span>
-          </div>
+          <ResearcherScore score={score} label={`Integrity score for researcher ${label}`} />
           <div className="flex-1">
-            <ScoreExplanationCompact explanation={explanation} />
+            {explanation ? <ScoreExplanationCompact explanation={explanation} /> : <p className="text-xs text-zinc-600 dark:text-zinc-300">Assessment unavailable; required evidence is missing or a step failed.</p>}
           </div>
         </div>
+
+        <ResearcherCoverage findings={ringFlags} assessment={data.integrity_breakdown} />
 
         {/* h-index + citations: official vs adjusted, four numbers per side */}
         <div className="grid grid-cols-2 gap-2">
@@ -241,7 +232,7 @@ function ComparePanel({
           </div>
           <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
             <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-              Adjusted
+              Estimated adjusted
             </h4>
             <div className="space-y-1 text-xs">
               <div className="flex items-center justify-between">
@@ -296,10 +287,10 @@ function ComparePanel({
         {/* Flags list */}
         <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
           <h4 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-            <Users className="h-3 w-3" /> Integrity flags ({flags.length})
+            <Users className="h-3 w-3" /> Sample observations {score == null ? "(not assessed)" : `(${flags.length})`}
           </h4>
           {flags.length === 0 ? (
-            <p className="text-xs text-zinc-500">No flags raised.</p>
+            <p className="text-xs text-zinc-500">{score == null ? "Pattern assessment unavailable." : "No listed sample observations; this does not establish absence of misconduct."}</p>
           ) : (
             <ul className="space-y-1.5">
               {flags.map((flag, i) => (

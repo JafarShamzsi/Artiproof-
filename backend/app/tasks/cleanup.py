@@ -95,6 +95,8 @@ async def _collect_referenced_paths(db) -> set[str]:
 
 def _normalize_path(p: str) -> str:
     """Resolve to an absolute string so we can do set-membership against rglob output."""
+    if p.startswith("artifact://"):
+        return p
     try:
         return str(Path(p).resolve())
     except OSError:
@@ -109,11 +111,30 @@ async def remove_orphan_files(db) -> int:
     `Report`. Files referenced by *soft-deleted* rows are also retained — the
     file is removed only after `hard_delete_expired_soft_deletes` removes the row.
     """
+    from app.config import settings
+
+    hold = settings.ARTIFACT_CLEANUP_HOLD_UNTIL
+    if hold is not None:
+        if hold.tzinfo is None:
+            hold = hold.replace(tzinfo=timezone.utc)
+        if hold > datetime.now(timezone.utc):
+            logger.info("Artifact orphan cleanup held until %s", hold.isoformat())
+            return 0
     referenced = await _collect_referenced_paths(db)
+
+    from app.services.artifact_storage import old_artifacts, delete_pdf
+    import asyncio
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=ORPHAN_FILE_GRACE_HOURS)
+    artifact_removed = 0
+    for reference in await asyncio.to_thread(old_artifacts, cutoff, referenced=referenced):
+        if reference not in referenced:
+            await asyncio.to_thread(delete_pdf, reference)
+            artifact_removed += 1
 
     now = time.time()
     cutoff_seconds = ORPHAN_FILE_GRACE_HOURS * 3600
-    removed = 0
+    removed = artifact_removed
 
     for base in UPLOAD_DIRS:
         if not base.exists():

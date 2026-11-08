@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -90,7 +90,13 @@ def _profile(**overrides):
 
 
 @pytest.fixture
-def env():
+def env(monkeypatch):
+    from app.tasks import celery_app
+
+    monkeypatch.setattr("app.routers.researcher.queue_run", AsyncMock())
+    send_task = Mock()
+    if celery_app is not None:
+        monkeypatch.setattr(celery_app, "send_task", send_task)
     user = _user()
     db = AsyncMock()
 
@@ -119,7 +125,7 @@ def env():
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_current_user_allow_deactivated] = lambda: user
 
-    yield SimpleNamespace(user=user, db=db)
+    yield SimpleNamespace(user=user, db=db, send_task=send_task)
     app.dependency_overrides.clear()
 
 
@@ -221,6 +227,7 @@ async def test_rerun_resets_status_for_owned_profile(env):
     assert r.status_code == 200
     assert own.analysis_status == "pending"
     assert own.scrape_status == "pending"
+    env.send_task.assert_called_once_with("researcher.run_pipeline", args=[own.id])
 
 
 # ─── Snapshots ────────────────────────────────────────────────────────────
@@ -393,9 +400,10 @@ async def test_remove_from_watchlist_404_when_absent(env):
 
 
 @pytest.mark.asyncio
-async def test_watchlist_list_computes_delta_vs_latest_snapshot(env):
+@pytest.mark.parametrize("prior_version, expected_delta", [("1.1", 12), ("1.0", None), (None, None)])
+async def test_watchlist_list_computes_delta_vs_latest_snapshot(env, prior_version, expected_delta):
     """Hydrated watchlist row carries integrity_score_delta = current - prior."""
-    own = _profile(integrity_score=82.0)
+    own = _profile(integrity_score=82.0, integrity_breakdown={"formula_version": "1.1"})
     env.user.watchlist = [
         {"researcher_id": "rp-1", "added_at": "2026-01-01T00:00:00+00:00"}
     ]
@@ -404,6 +412,7 @@ async def test_watchlist_list_computes_delta_vs_latest_snapshot(env):
         id="s1",
         researcher_profile_id="rp-1",
         integrity_score=70.0,
+        integrity_breakdown={"formula_version": prior_version},
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
@@ -426,4 +435,4 @@ async def test_watchlist_list_computes_delta_vs_latest_snapshot(env):
     assert len(body) == 1
     assert body[0]["researcher_id"] == "rp-1"
     assert body[0]["integrity_score"] == 82.0
-    assert body[0]["integrity_score_delta"] == 12.0
+    assert body[0]["integrity_score_delta"] == expected_delta

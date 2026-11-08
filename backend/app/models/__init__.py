@@ -1,4 +1,5 @@
 from app.models.auth_token import AuthToken
+from app.models.analysis_run import AnalysisRun, AnalysisRunEvent
 from app.models.base import Base
 from app.models.billing_event import BillingEvent
 from app.models.celery_dlq import CeleryDLQ
@@ -31,6 +32,7 @@ from app.models.tier_change_audit import TierChangeAudit
 from app.models.user import User
 
 __all__ = [
+    "AnalysisRun", "AnalysisRunEvent",
     "AuthToken",
     "Base",
     "User",

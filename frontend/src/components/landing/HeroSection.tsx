@@ -139,12 +139,11 @@ export function HeroSection() {
               {...fade(0.46)}
               className="drop-cap measure mt-9 text-base leading-[1.7] text-fg-primary sm:text-[17px]"
             >
-              Five integrity engines on one submission — plagiarism, AI
-              detection, citation rings, fact-checking, researcher
-              scoring. Every score breaks down to a list of specific
-              deductions. No black box. No mystery weighting. The number
-              you see is the sum of recorded findings, each with a
-              source attached.
+              Review source claims, citation links and paragraph-level AI
+              style estimates. Look up a researcher in a separate analysis
+              to explore publication metrics and citation patterns. Inspect
+              the findings and coverage before drawing a conclusion;
+              automated results need human review.
             </motion.div>
 
             {/* CTA pair */}

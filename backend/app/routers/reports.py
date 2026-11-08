@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import secrets
 from datetime import datetime, timezone
 from typing import Any
@@ -11,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.services.artifact_storage import read_pdf, delete_pdf
 from app.models.organization import Organization
 from app.models.report import Report, _default_share_expires_at
 from app.models.researcher import PublicationAnalysis, ResearcherProfile
@@ -51,6 +51,9 @@ router = APIRouter(prefix="/api/reports", tags=["Reports"])
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 
+from app.services.report_engine.assets import embed_report_logo
+
+
 async def _branding_for_user(user: User, db: AsyncSession) -> dict | None:
     """Resolve white-label branding for a user. Free/pro tier returns None
     (renderer falls back to ArtiProof default). Team tier with no org also
@@ -65,7 +68,7 @@ async def _branding_for_user(user: User, db: AsyncSession) -> dict | None:
         return None
     return {
         "name": org.name,
-        "logo_url": org.logo_url,
+        "logo_url": await embed_report_logo(org.logo_url),
         "primary_color": org.primary_color,
         "tagline": "Research Integrity Platform",
     }
@@ -88,9 +91,10 @@ async def _load_check_data(check: SourceCheck, db: AsyncSession) -> dict:
     return {
         "input_title": check.input_title,
         "input_type": check.input_type,
-        "overall_credibility_score": check.overall_credibility_score or 0,
-        "ai_content_percentage": check.ai_content_percentage or 0,
-        "misinfo_claims_found": check.misinfo_claims_found or 0,
+        "overall_credibility_score": check.overall_credibility_score,
+        "score_breakdown": getattr(check, "score_breakdown", None),
+        "ai_content_percentage": check.ai_content_percentage,
+        "misinfo_claims_found": check.misinfo_claims_found,
         "claims": [
             {
                 "claim_text": c.claim_text,
@@ -135,9 +139,10 @@ async def _load_check_summaries_batched(
         {
             "input_title": check.input_title,
             "input_type": check.input_type,
-            "overall_credibility_score": check.overall_credibility_score or 0,
-            "ai_content_percentage": check.ai_content_percentage or 0,
-            "misinfo_claims_found": check.misinfo_claims_found or 0,
+            "overall_credibility_score": check.overall_credibility_score,
+            "score_breakdown": getattr(check, "score_breakdown", None),
+            "ai_content_percentage": check.ai_content_percentage,
+            "misinfo_claims_found": check.misinfo_claims_found,
             "claims": [],
             "citations": [
                 {
@@ -167,6 +172,7 @@ async def _load_researcher_data(
         "official_citation_count": profile.official_citation_count,
         "adjusted_citation_count": profile.adjusted_citation_count,
         "integrity_score": profile.integrity_score,
+        "integrity_breakdown": getattr(profile, "integrity_breakdown", None),
         "self_citation_rate": profile.self_citation_rate,
         "citation_ring_flags": profile.citation_ring_flags,
         "publications": [
@@ -194,6 +200,7 @@ def _researcher_summaries(profiles: list[ResearcherProfile]) -> list[dict]:
             "official_h_index": p.official_h_index,
             "adjusted_h_index": p.adjusted_h_index,
             "integrity_score": p.integrity_score,
+            "integrity_breakdown": getattr(p, "integrity_breakdown", None),
             "self_citation_rate": p.self_citation_rate,
             "citation_ring_flags": p.citation_ring_flags,
         }
@@ -605,9 +612,8 @@ async def update_report_annotations(
 
     if cached_path:
         try:
-            if await asyncio.to_thread(os.path.exists, cached_path):
-                await asyncio.to_thread(os.remove, cached_path)
-        except OSError:
+            await asyncio.to_thread(delete_pdf, cached_path)
+        except Exception:
             logger.debug("Could not remove cached PDF for report %s", report.id)
 
     return _report_response(report)
@@ -750,14 +756,14 @@ async def _serve_report_pdf(report: Report, db: AsyncSession) -> Response:
     user understands why the PDF looks bare.
     """
 
-    def _read_cached(path: str) -> bytes:
-        with open(path, "rb") as f:
-            return f.read()
-
     renderer = "cached"
-    if report.pdf_path and await asyncio.to_thread(os.path.exists, report.pdf_path):
-        pdf_bytes = await asyncio.to_thread(_read_cached, report.pdf_path)
-    else:
+    pdf_bytes = None
+    if report.pdf_path:
+        try:
+            pdf_bytes = await asyncio.to_thread(read_pdf, report.pdf_path)
+        except FileNotFoundError:
+            pass
+    if pdf_bytes is None:
         try:
             pdf_bytes, renderer = await _regenerate_report_pdf(report, db)
         except HTTPException:

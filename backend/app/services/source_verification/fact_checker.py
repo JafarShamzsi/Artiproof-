@@ -4,6 +4,7 @@ Fact checker — verifies individual claims using Google Fact Check API and Gemi
 
 import json
 import logging
+import math
 from typing import Optional
 
 import httpx
@@ -13,6 +14,23 @@ from app.services.gemini import call_gemini
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, HTTP_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_factcheck_rating(rating: str) -> str:
+    """Interpret known rating labels only; unfamiliar publisher scales abstain."""
+    if not isinstance(rating, str):
+        return "unverified"
+    normalized = " ".join(rating.casefold().split())
+    labels = {
+        "true": "true", "correct": "true", "accurate": "true",
+        "false": "false", "incorrect": "false", "wrong": "false",
+        "not true": "false", "inaccurate": "false", "pants on fire": "false",
+        "mostly true": "partially_true", "partially true": "partially_true",
+        "half true": "partially_true", "half-true": "partially_true",
+        "mostly false": "misleading", "misleading": "misleading",
+        "mixture": "misleading",
+    }
+    return labels.get(normalized, "unverified")
 
 VERIFICATION_PROMPT = """You are an expert fact-checker. Verify the following claim and provide your analysis.
 
@@ -108,18 +126,21 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
     if not settings.GEMINI_API_KEY:
         # If no API key, use fact-check results only
         if factcheck_results:
-            rating = factcheck_results[0].get("rating", "").lower()
-            verdict = "unverified"
-            if any(w in rating for w in ["true", "correct", "accurate"]):
-                verdict = "true"
-            elif any(w in rating for w in ["false", "wrong", "incorrect", "pants on fire"]):
-                verdict = "false"
-            elif any(w in rating for w in ["mislead", "mostly", "half", "mixture"]):
-                verdict = "misleading"
+            verdicts = {
+                normalize_factcheck_rating(r.get("rating", ""))
+                for r in factcheck_results
+            }
+            # Search results concern similar claims and can disagree. Never
+            # select a reassuring verdict just because that review was first.
+            verdict = verdicts.pop() if len(verdicts) == 1 else "unverified"
             return {
                 "verdict": verdict,
-                "confidence": 0.6,
-                "explanation": f"Based on fact-check by {factcheck_results[0]['publisher']}: {factcheck_results[0].get('rating', 'N/A')}",
+                "confidence": 0.0 if verdict == "unverified" else 0.6,
+                "explanation": (
+                    "Existing reviews of similar claims have conflicting or unsupported ratings; manual review is required."
+                    if verdict == "unverified" else
+                    "Existing reviews of similar claims agree on this rating. Confirm that the reviewed claim matches the submitted claim."
+                ),
                 "true_version": None,
                 "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results],
             }
@@ -161,7 +182,12 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
 
     try:
         result = json.loads(raw)
-    except json.JSONDecodeError:
+        if not isinstance(result, dict):
+            raise ValueError("Expected a JSON object")
+        confidence = float(result.get("confidence", 0.5))
+        if not math.isfinite(confidence):
+            raise ValueError("Expected finite confidence")
+    except (json.JSONDecodeError, TypeError, ValueError, OverflowError):
         logger.error("Failed to parse Gemini fact-check response")
         return {
             "verdict": "unverified",
@@ -187,12 +213,13 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
 
     valid_verdicts = {"true", "false", "misleading", "unverified", "partially_true"}
     verdict = result.get("verdict", "unverified")
-    if verdict not in valid_verdicts:
+    if not isinstance(verdict, str) or verdict not in valid_verdicts:
         verdict = "unverified"
+        confidence = 0.0
 
     return {
         "verdict": verdict,
-        "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.5)))),
+        "confidence": max(0.0, min(1.0, confidence)),
         "explanation": str(result.get("explanation", "Analysis completed.")),
         "true_version": result.get("true_version"),
         "sources": sources[:10],

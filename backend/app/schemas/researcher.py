@@ -48,13 +48,15 @@ DEFAULT_INTEGRITY_DISCLAIMER = IntegrityDisclaimer(
     severity="warning",
     headline="Patterns, not proof",
     body=(
-        "Mutual-citation, self-citation, and topic-relevance findings are "
+        "Incoming-citation concentration, sampled self-citation, and topic-relevance findings are "
         "statistical patterns identified from publicly available bibliographic "
         "data. They flag relationships worth human review — they are not "
         "evidence of misconduct, do not establish intent, and should not be "
         "cited as conclusions. Field-specific norms, multi-disciplinary work, "
         "and gaps in source databases (notably Eastern European and non-English "
         "venues) can all produce signals that look like manipulation but aren't. "
+        "Incoming citations do not establish reciprocal citation rings. "
+        "Adjusted metrics extrapolate a sample rather than recomputing each paper. "
         "Decisions should rest on independent expert review."
     ),
 )
@@ -147,6 +149,7 @@ class ResearcherSnapshotItem(BaseModel):
     self_citation_rate: Optional[float] = None
     topic_relevance_score: Optional[float] = None
     total_publications: Optional[int] = None
+    formula_version: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

@@ -33,6 +33,7 @@ class SourceCheck(Base, TimestampMixin, SoftDeleteMixin):
     input_type = sa.Column(sa.String, nullable=False)  # url, text, document
     input_content = sa.Column(sa.Text, nullable=False)
     input_title = sa.Column(sa.String, nullable=True)
+    current_run_id = sa.Column(sa.String, sa.ForeignKey("analysis_runs.id", ondelete="SET NULL"), nullable=True)
     status = sa.Column(check_status_enum, nullable=False, server_default=CheckStatus.pending.value, index=True)
     overall_credibility_score = sa.Column(sa.Float, nullable=True)
     ai_content_percentage = sa.Column(sa.Float, nullable=True)

@@ -44,11 +44,11 @@ export const PRICING_PLANS: PricingPlan[] = [
     yearlyPrice: "$0",
     features: [
       { text: "10 source readings per month", included: true },
-      { text: "Plagiarism + AI detection", included: true },
+      { text: "Paragraph-level AI style estimates", included: true },
       { text: "Credibility scoring", included: true },
-      { text: "Citation ring detection", included: false },
-      { text: "Researcher integrity scoring", included: false },
-      { text: "PDF report export", included: false },
+      { text: "5 researcher analyses per month", included: true },
+      { text: "5 PDF reports per month", included: true },
+      { text: "Citation and self-citation analysis", included: true },
       { text: "API access", included: false },
     ],
     cta: "Get started",
@@ -64,17 +64,17 @@ export const PRICING_PLANS: PricingPlan[] = [
     yearlyPrice: "$13",
     popular: true,
     features: [
-      { text: "200 readings per month", included: true },
-      { text: "All five integrity engines", included: true },
-      { text: "Citation ring detection", included: true },
-      { text: "Researcher integrity scoring", included: true },
-      { text: "Fact-checking with evidence", included: true },
-      { text: "PDF report generation", included: true },
-      { text: "API access", included: true },
+      { text: "100 source readings per month", included: true },
+      { text: "50 researcher analyses per month", included: true },
+      { text: "Citation and self-citation analysis", included: true },
+      { text: "Paragraph-level AI style estimates", included: true },
+      { text: "Claim review with source links when available", included: true },
+      { text: "50 PDF reports per month", included: true },
+      { text: "Public API subscriptions", included: false },
     ],
-    cta: "Start Pro",
+    cta: "Register interest in Pro",
     ctaHref: "/register?plan=pro",
-    riskReducer: "Cancel anytime · 14-day refund",
+    riskReducer: "Registration starts on Free; paid activation is separate",
   },
   {
     name: "Team",
@@ -105,17 +105,17 @@ export const PRICING_PLANS: PricingPlan[] = [
     monthlyPrice: "Custom",
     yearlyPrice: "Custom",
     features: [
-      { text: "Everything in Team for unlimited seats", included: true },
-      { text: "Unlimited readings + extended retention", included: true },
-      { text: "Department dashboards", included: true },
-      { text: "LMS integration (Moodle, Canvas)", included: true },
-      { text: "SSO + custom branding", included: true },
-      { text: "On-premise deployment", included: true },
-      { text: "Dedicated customer engineer", included: true },
+      { text: "Discuss a scoped institutional pilot", included: true },
+      { text: "Agree seats, usage and retention before rollout", included: true },
+      { text: "Department dashboards (planned)", included: false },
+      { text: "Native LMS plugins (planned)", included: false },
+      { text: "Institutional SSO (planned)", included: false },
+      { text: "On-premise deployment (planned)", included: false },
+      { text: "Dedicated support terms by agreement", included: true },
     ],
     cta: "Contact the editors",
     ctaHref: "/contact-sales?plan=institution",
-    riskReducer: "Custom pricing · 30-day pilot",
+    riskReducer: "Scope and commercial terms by agreement",
   },
 ];
 
@@ -125,15 +125,15 @@ const plans = PRICING_PLANS;
 const faqs: { q: string; a: string }[] = [
   {
     q: "Is my data secure?",
-    a: "Documents are encrypted in transit and at rest. We never store content after analysis completes — only the score breakdown and a hash for deduplication.",
+    a: "Submitted text, uploaded PDFs and analysis findings are stored to support your history and reports. Deletion follows the service's retention process; content is not automatically discarded when analysis finishes.",
   },
   {
     q: "How accurate is AI detection?",
-    a: "Our multi-model approach achieves over 95% accuracy on benchmark sets. Detection is probabilistic — every result ships with a confidence level so you can interpret edge cases.",
+    a: "AI style estimates can be wrong and are not proof of authorship or misconduct. The analysis samples up to 20 paragraphs and may use a heuristic fallback. We have not published a validated accuracy benchmark.",
   },
   {
     q: "Can I integrate with my LMS?",
-    a: "API access is included on Pro and Institution plans. Native Moodle and Canvas plugins are available for Institution; LMS plugins for self-serve are on the Q3 2026 roadmap.",
+    a: "Native Moodle and Canvas plugins are planned and are not available in the current product. Contact us to discuss integration requirements before including them in a rollout.",
   },
   {
     q: "What happens when free readings run out?",
@@ -156,7 +156,7 @@ export function PricingSection() {
               <span className="italic text-brand-fg">$20 if you keep going.</span>
             </>
           }
-          subtitle="Four tiers, set out plainly. No drip-pricing, no enterprise theater. The numbers below are exactly what you'll see at checkout."
+          subtitle="Start on Free. Pro prices are proposed; registration does not activate a paid subscription. Institutional capabilities and terms require a scoped agreement."
         />
 
         {/* Billing toggle */}

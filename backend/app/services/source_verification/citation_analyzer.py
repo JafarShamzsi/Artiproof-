@@ -12,6 +12,7 @@ from google.genai import types
 
 from app.config import settings
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, HTTP_RETRY_EXCEPTIONS, with_retry
+from app.utils.public_http import fetch_public
 
 logger = logging.getLogger(__name__)
 
@@ -89,20 +90,14 @@ LOW_CREDIBILITY_DOMAINS = {
 
 @with_retry(max_retries=2, exceptions=HTTP_RETRY_EXCEPTIONS)
 async def _head_request(url: str) -> int:
-    async with httpx.AsyncClient(
-        follow_redirects=True,
-        timeout=10.0,
-        headers={"User-Agent": "ArtiProof/1.0"},
-    ) as client:
-        resp = await client.head(url)
-        return resp.status_code
+    return (await fetch_public(url, method="HEAD")).status_code
 
 
 async def check_url_accessible(url: str) -> bool:
     """Check if a URL is accessible via HEAD request."""
     try:
         return (await _head_request(url)) < 400
-    except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError):
+    except httpx.RequestError:
         return False
     except httpx.HTTPStatusError:
         return False
@@ -286,7 +281,7 @@ async def analyze_citation(citation: dict) -> dict:
     if url:
         is_accessible = await check_url_accessible(url)
         if not is_accessible:
-            issues.append("Source URL is not accessible (broken link or removed)")
+            issues.append("Source URL could not be reached by this check; it may still be accessible elsewhere")
 
     # Check retraction status across both CrossRef and OpenAlex.
     # Surfacing *which* database flagged it lets an editor or integrity

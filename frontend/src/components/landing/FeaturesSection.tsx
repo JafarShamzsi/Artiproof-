@@ -297,8 +297,8 @@ function IntegrityDelta() {
       </div>
 
       <p className="editorial-italic font-sans text-xs leading-relaxed text-fg-tertiary">
-        After removing 312 self-citations and 84 ring citations across 18
-        papers — the number you would defend on a tenure committee.
+        Illustrative reported and adjusted metrics. Estimates depend on
+        the sampled citation data and require review.
       </p>
     </div>
   );
@@ -322,52 +322,52 @@ const engines: Engine[] = [
   {
     icon: Shield,
     eyebrow: "Source verification",
-    title: "Every claim gets a verdict and a source.",
+    title: "Inspect the claims selected for review.",
     description:
-      "Each factual claim is extracted, fact-checked, and scored against external databases. The credibility number is a sum of recorded deductions, not a black box.",
+      "Selected claims are compared with existing fact-checks and analyzed by a language model. Inspect the verdict, explanation and available links; a result may remain unverified.",
     metric: "Verifies claims against the Google Fact Check API",
     visual: <CredibilityGauge />,
-    caption: "Credibility shown as a gauge, scaled 0 to 100. Higher is more defensible.",
+    caption: "Illustrative score display. A numeric result does not certify accuracy.",
   },
   {
     icon: BookOpen,
     eyebrow: "Claim analysis",
     title: "Read the verdicts, not a percentage.",
     description:
-      "True, false, misleading, partially true, or unverified. Each verdict ships with the source that backs it. No bulk score, just specific calls you can defend in writing.",
+      "True, false, misleading, partially true, or unverified. Available source links help you investigate a verdict; model-generated explanations are not independently verified evidence.",
     metric: "Up to 15 claims per submission",
     visual: <ClaimVerdicts />,
-    caption: "Three claim verdicts with the supporting evidence quoted in italic beneath.",
+    caption: "Illustrative claim verdicts and explanations, not a completed analysis.",
   },
   {
     icon: Brain,
     eyebrow: "AI content detection",
-    title: "Per-paragraph probability, not a single number.",
+    title: "Inspect paragraph-level style signals.",
     description:
-      "A document is rarely all-AI or all-human. We score each paragraph separately so you can see exactly where the boundary lives, with a confidence level on each call.",
+      "The model estimates AI likelihood from a sample of paragraphs, with a heuristic fallback when unavailable. These style signals can be wrong and do not establish authorship.",
     metric: "Analyzes up to 20 paragraphs per document",
     visual: <AIDetectionBars />,
     caption: "Paragraph-by-paragraph AI signal, in mono — bars over 70% are flagged red.",
   },
   {
     icon: GitBranch,
-    eyebrow: "Citation rings",
-    title: "Detect mutual-citation networks.",
+    eyebrow: "Citation patterns",
+    title: "Explore frequent citing authors.",
     description:
-      "Groups of researchers who inflate each other's citation counts through circular references. We surface the network and which authors anchor it.",
-    metric: "Detects rings of 5+ papers with mutual citations",
+      "Researcher analysis samples incoming citation relationships. A concentration of citing authors can guide further review; it does not establish reciprocal citation rings or manipulation.",
+    metric: "Incoming citation samples, not proof of a ring",
     visual: <CitationNetwork />,
-    caption: "A five-paper network. Red edges trace mutual citations forming a closed ring.",
+    caption: "Illustrative network diagram, not evidence of an observed citation ring.",
   },
   {
     icon: Users,
     eyebrow: "Researcher integrity",
-    title: "An h-index that excludes self-citations.",
+    title: "Compare reported and estimated metrics.",
     description:
-      "h-index and total citation counts recomputed after removing self-citations and ring citations. The number you'd defend on a tenure committee.",
-    metric: "Adjusts h-index for self-citation inflation",
+      "A separate researcher lookup collects publication metrics and estimates adjustments from sampled citation data. Adjusted h-index values are estimates, not a paper-by-paper recomputation.",
+    metric: "Reported metrics alongside estimates",
     visual: <IntegrityDelta />,
-    caption: "Reported vs adjusted h-index — the delta is the integrity correction.",
+    caption: "Illustrative reported and adjusted h-index. The difference is not proof of misconduct.",
   },
 ];
 
@@ -386,7 +386,7 @@ export function FeaturesSection() {
               <span className="italic text-brand-fg">evidence,</span> not a verdict.
             </>
           }
-          subtitle="Five readings of the same submission, returned as five separately-defensible findings. Read each chapter the way you'd read a peer review."
+          subtitle="Source checks and researcher lookups answer different questions. These examples illustrate the tools; inspect the actual findings and coverage in each analysis."
         />
 
         <div className="mt-24 space-y-28 md:space-y-36">

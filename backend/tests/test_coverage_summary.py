@@ -15,6 +15,17 @@ def test_none_metadata_returns_none():
     assert build_coverage({}) is not None  # empty dict → empty summary, not None
 
 
+def test_missing_source_content_is_not_presented_as_valid_analysis():
+    cov = build_coverage({
+        "processing_warnings": [{"type": "insufficient_source_text"}],
+        "context": {"text_length": 0, "claims_extracted": 0, "paragraphs_analyzed": 0},
+    })
+    assert cov is not None
+    assert cov.notes[0].headline == "Source content unavailable"
+    assert "No claim verification or AI assessment was performed" in cov.notes[0].detail
+    assert cov.claims_analyzed == 0
+
+
 def test_clean_analysis_produces_no_notes():
     metadata = {
         "context": {
