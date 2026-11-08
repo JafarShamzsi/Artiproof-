@@ -267,12 +267,17 @@ async def test_webhook_400_on_missing_required_keys(
 
 
 @pytest.mark.asyncio
-async def test_webhook_lands_event_even_when_user_unknown(
+async def test_webhook_defers_tier_event_when_user_unknown(
     stub_processor, monkeypatch
 ):
-    """A webhook with no matching user still 200s and writes a row to
-    billing_events. That's the orphan path — a backfill sweep can
-    attach later."""
+    """Recognized tier-change event + no matching user → 202 deferred.
+
+    Older behavior committed the billing_event row even with no user
+    match, which triggered the unique (processor, processor_event_id)
+    constraint on every retry — silently swallowing the upgrade
+    forever. The handler now rolls back the row so the processor's
+    next retry can land it as soon as the user record exists.
+    """
     proc, secret = stub_processor
     db = _WebhookDb(user=None)
     _wire_db(monkeypatch, db)
@@ -291,14 +296,15 @@ async def test_webhook_lands_event_even_when_user_unknown(
             content=body,
             headers={"X-ArtiProof-Signature": sig},
         )
-    assert r.status_code == 200
-    assert r.json()["status"] == "logged"
-    assert db.committed is True
-    # The billing_event row was added even though no user matched.
-    assert any(
-        getattr(o, "__class__", type(None)).__name__ == "BillingEvent"
-        for o in db.added
-    )
+    assert r.status_code == 202
+    body_json = r.json()
+    assert body_json["status"] == "deferred"
+    assert body_json["reason"] == "user_not_found"
+    # Roll back, NOT commit — otherwise the unique constraint on
+    # (processor, processor_event_id) deduplicates every retry to a
+    # no-op and the user never gets upgraded.
+    assert db.rolled_back is True
+    assert db.committed is False
 
 
 @pytest.mark.asyncio

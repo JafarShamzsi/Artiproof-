@@ -136,15 +136,17 @@ export interface FullWidthSourceCheckData {
   coverage?: CoverageSummaryData | null;
 }
 
+// Verdict text shades use the deeper -800/-300 pair so the badge text
+// clears WCAG AA contrast over the /20 tint backgrounds in both modes.
 const VERDICT_CONFIG: Record<
   string,
   { icon: typeof CheckCircle; color: string; bg: string; label: string }
 > = {
-  true: { icon: CheckCircle, color: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-500/20", label: "True" },
-  false: { icon: XCircle, color: "text-red-700 dark:text-red-400", bg: "bg-red-500/20", label: "False" },
-  misleading: { icon: AlertTriangle, color: "text-amber-700 dark:text-amber-400", bg: "bg-amber-500/20", label: "Misleading" },
-  partially_true: { icon: AlertTriangle, color: "text-yellow-700 dark:text-yellow-400", bg: "bg-yellow-500/20", label: "Partially True" },
-  unverified: { icon: HelpCircle, color: "text-zinc-600 dark:text-zinc-400", bg: "bg-zinc-500/20", label: "Unverified" },
+  true: { icon: CheckCircle, color: "text-emerald-800 dark:text-emerald-300", bg: "bg-emerald-500/20", label: "True" },
+  false: { icon: XCircle, color: "text-red-800 dark:text-red-300", bg: "bg-red-500/20", label: "False" },
+  misleading: { icon: AlertTriangle, color: "text-amber-800 dark:text-amber-300", bg: "bg-amber-500/20", label: "Misleading" },
+  partially_true: { icon: AlertTriangle, color: "text-yellow-800 dark:text-yellow-300", bg: "bg-yellow-500/20", label: "Partially True" },
+  unverified: { icon: HelpCircle, color: "text-zinc-700 dark:text-zinc-300", bg: "bg-zinc-500/20", label: "Unverified" },
 };
 
 interface FullWidthViewProps {
@@ -249,14 +251,18 @@ export function FullWidthView({
                   <Globe className="h-3 w-3" /> {data.input_content}
                 </p>
               )}
+              {/* Score summary badges — text shades deepened in light mode
+                  (text-{color}-800) to clear WCAG AA 4.5:1 over the
+                  /20 tinted backgrounds. Dark mode keeps its existing
+                  text-{color}-300 which already passes. */}
               <div className="mt-3 flex flex-wrap gap-2">
-                <Badge className="bg-blue-500/20 text-blue-700 dark:text-blue-400">
+                <Badge className="bg-blue-500/20 text-blue-800 dark:text-blue-300">
                   <Brain className="mr-1 h-3 w-3" /> AI: {aiPct.toFixed(0)}%
                 </Badge>
-                <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-400">
+                <Badge className="bg-amber-500/20 text-amber-800 dark:text-amber-300">
                   <Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found ?? 0} misinfo
                 </Badge>
-                <Badge className="bg-fg-tertiary/15 text-fg-secondary">
+                <Badge className="bg-zinc-200 text-zinc-700 dark:bg-zinc-700/40 dark:text-zinc-200">
                   <BookOpen className="mr-1 h-3 w-3" /> {data.citations.length} citations
                 </Badge>
               </div>
@@ -399,7 +405,10 @@ export function FullWidthView({
                       rel="noopener noreferrer"
                       className="mt-0.5 flex items-center gap-1 text-xs text-blue-700 hover:underline dark:text-blue-400"
                     >
-                      {cit.citation_url.substring(0, 60)}... <ExternalLink className="h-3 w-3" />
+                      {cit.citation_url.length > 60
+                        ? `${cit.citation_url.substring(0, 60)}…`
+                        : cit.citation_url}{" "}
+                      <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
                   <div className="mt-1 flex flex-wrap gap-1">

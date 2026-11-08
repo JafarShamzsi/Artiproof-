@@ -118,40 +118,58 @@ export default function ResearcherResultPage({
 
   // Single-shot fetch for the profile + graph + snapshots + watchlist on mount.
   // Each fetch is independent, so a failure on one (e.g. snapshots is fine
-  // when there's no history) doesn't block the others.
+  // when there's no history) doesn't block the others. The previous
+  // version could leave the page stuck on the spinner if Promise.all
+  // rejected — try/catch/finally now guarantees setLoading(false) and
+  // surfaces an actionable error state instead of hanging.
   useEffect(() => {
     let cancelled = false;
+    // Reset on every id change so navigating between researchers doesn't
+    // briefly show the previous one's data while the new fetch resolves.
+    setData(null);
+    setGraphData(null);
+    setSnapshots([]);
+    setError(null);
+    setLoading(true);
+
     (async () => {
-      const [profileRes, graphRes, snapsRes, watchRes] = await Promise.all([
-        apiFetch(`/api/researcher/${id}`),
-        apiFetch(`/api/researcher/${id}/citation-graph`),
-        apiFetch(`/api/researcher/${id}/snapshots`),
-        apiFetch(`/api/me/watchlist`),
-      ]);
+      try {
+        const [profileRes, graphRes, snapsRes, watchRes] = await Promise.all([
+          apiFetch(`/api/researcher/${id}`),
+          apiFetch(`/api/researcher/${id}/citation-graph`),
+          apiFetch(`/api/researcher/${id}/snapshots`),
+          apiFetch(`/api/me/watchlist`),
+        ]);
 
-      if (cancelled) return;
+        if (cancelled) return;
 
-      if (!profileRes.ok) {
-        setError("Not found");
-        setLoading(false);
-        return;
+        if (!profileRes.ok) {
+          setError(profileRes.status === 404 ? "Not found" : "Load failed");
+          return;
+        }
+        const profile = (await profileRes.json()) as ProfileData;
+        const graph = graphRes.ok
+          ? await graphRes.json()
+          : { nodes: [], edges: [] };
+        const snaps: ResearcherSnapshotItem[] = snapsRes.ok
+          ? await snapsRes.json()
+          : [];
+        const watch: WatchlistEntry[] = watchRes.ok ? await watchRes.json() : [];
+
+        if (cancelled) return;
+
+        setData(profile);
+        setGraphData(graph);
+        setSnapshots(snaps);
+        setInWatchlist(watch.some((e) => e.researcher_id === id));
+      } catch (e) {
+        if (cancelled) return;
+        // Network error or JSON parse failure on profileRes — surface as
+        // a recoverable error so the user gets a retry button.
+        setError(e instanceof Error ? e.message : "Load failed");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      const profile = (await profileRes.json()) as ProfileData;
-      const graph = graphRes.ok
-        ? await graphRes.json()
-        : { nodes: [], edges: [] };
-      const snaps: ResearcherSnapshotItem[] = snapsRes.ok
-        ? await snapsRes.json()
-        : [];
-      const watch: WatchlistEntry[] = watchRes.ok ? await watchRes.json() : [];
-
-      if (cancelled) return;
-
-      setData(profile);
-      setGraphData(graph);
-      setSnapshots(snaps);
-      setInWatchlist(watch.some((e) => e.researcher_id === id));
-      setLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -362,8 +380,9 @@ function ResearcherProfileView({
           { label: "Result" },
         ]}
       />
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header — stacks on mobile so the 5-button action cluster
+          doesn't overflow at 375px. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Link
             href="/researcher"

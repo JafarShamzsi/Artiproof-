@@ -103,23 +103,44 @@ export default function SourceCheckResultPage({
   const pdfViewerRef = useRef<PdfViewerHandle>(null);
 
   useEffect(() => {
+    // Reset on every id change so navigating between two checks doesn't
+    // flash the previous result's claims/citations while the new fetch
+    // resolves. The lint rule fires for the first setData(null) only —
+    // the others are recognized as part of the same reset cluster.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setData(null);
+    setPositionMap(null);
+    setError(null);
+    setLoading(true);
+
+    let cancelled = false;
     apiFetch(`/api/source-check/${id}`)
       .then((r) => {
         if (!r.ok) throw new Error("Not found");
         return r.json();
       })
       .then((d) => {
+        if (cancelled) return;
         setData(d);
         // Load position map if PDF
         if (d.has_pdf) {
           apiFetch(`/api/source-check/${id}/position-map`)
-            .then((r) => r.ok ? r.json() : null)
-            .then(setPositionMap)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((pm) => {
+              if (!cancelled) setPositionMap(pm);
+            })
             .catch(() => {});
         }
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const handleFindingClick = (type: "claims" | "ai_detections" | "citations", findingId: string) => {

@@ -275,11 +275,26 @@ async def generate_report(
     if template == "comparison":
         if len(data.source_check_ids) > 10:
             raise HTTPException(status_code=400, detail="Up to 10 sources per comparison")
+        # De-duplicate first so a payload like [a, a, a] doesn't satisfy
+        # the "all ids exist" check while collapsing to a single source.
+        # Preserve order via dict.fromkeys for downstream stability.
+        sc_ids = list(dict.fromkeys(data.source_check_ids))
+        if len(sc_ids) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Comparison requires at least 2 distinct source check ids",
+            )
+        # Exclude soft-deleted rows — a fresh share-link generation must
+        # never resurrect content the user removed (mirrors the policy
+        # used by _regenerate_report_pdf).
         result = await db.execute(
-            select(SourceCheck).where(SourceCheck.id.in_(data.source_check_ids))
+            select(SourceCheck).where(
+                SourceCheck.id.in_(sc_ids),
+                SourceCheck.deleted_at.is_(None),
+            )
         )
         checks = list(result.scalars().all())
-        if len(checks) != len(set(data.source_check_ids)):
+        if len(checks) != len(sc_ids):
             raise HTTPException(status_code=404, detail="One or more source checks not found")
         for c in checks:
             if not is_owner_or_org_admin(current_user, c):
@@ -298,13 +313,21 @@ async def generate_report(
     elif template == "institutional_audit":
         if len(data.researcher_profile_ids) > 25:
             raise HTTPException(status_code=400, detail="Up to 25 researchers per audit")
+        # Same de-dup + soft-delete filter as the comparison branch above.
+        rp_ids = list(dict.fromkeys(data.researcher_profile_ids))
+        if len(rp_ids) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Audit requires at least 2 distinct researcher profile ids",
+            )
         result = await db.execute(
             select(ResearcherProfile).where(
-                ResearcherProfile.id.in_(data.researcher_profile_ids)
+                ResearcherProfile.id.in_(rp_ids),
+                ResearcherProfile.deleted_at.is_(None),
             )
         )
         profiles = list(result.scalars().all())
-        if len(profiles) != len(set(data.researcher_profile_ids)):
+        if len(profiles) != len(rp_ids):
             raise HTTPException(status_code=404, detail="One or more researcher profiles not found")
         for p in profiles:
             if not is_owner_or_org_admin(current_user, p):
@@ -324,8 +347,13 @@ async def generate_report(
 
     # ─── Single source check (full | executive_summary) ───────────────
     elif data.source_check_id:
+        # Soft-deleted check is treated as missing — a fresh report
+        # generation must never resurrect data the user removed.
         result = await db.execute(
-            select(SourceCheck).where(SourceCheck.id == data.source_check_id)
+            select(SourceCheck).where(
+                SourceCheck.id == data.source_check_id,
+                SourceCheck.deleted_at.is_(None),
+            )
         )
         check = result.scalar_one_or_none()
         if not check:
@@ -348,9 +376,11 @@ async def generate_report(
 
     # ─── Single researcher (full | executive_summary) ─────────────────
     else:
+        # Same soft-delete filter as the source-check branch.
         result = await db.execute(
             select(ResearcherProfile).where(
-                ResearcherProfile.id == data.researcher_profile_id
+                ResearcherProfile.id == data.researcher_profile_id,
+                ResearcherProfile.deleted_at.is_(None),
             )
         )
         profile = result.scalar_one_or_none()

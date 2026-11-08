@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Check, X, Plus, Minus } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
@@ -269,9 +270,9 @@ function PlanRow({
         ))}
       </ul>
 
-      {/* CTA */}
+      {/* CTA — Link so /register and /contact-sales navigate via the SPA. */}
       <div className="flex flex-col items-start gap-2 lg:items-end lg:text-right">
-        <a
+        <Link
           href={plan.ctaHref}
           className={cn(
             "inline-flex w-full items-center justify-center rounded-sm px-5 py-3 text-sm font-medium transition-all active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 lg:w-auto",
@@ -281,7 +282,7 @@ function PlanRow({
           )}
         >
           {plan.cta}
-        </a>
+        </Link>
         <p className="editorial-italic w-full text-left text-xs text-fg-tertiary lg:text-right">
           {plan.riskReducer}
         </p>

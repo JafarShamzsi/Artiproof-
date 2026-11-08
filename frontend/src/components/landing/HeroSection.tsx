@@ -164,7 +164,7 @@ export function HeroSection() {
               </Link>
               <Link
                 href="/demo"
-                className="group inline-flex h-13 items-center justify-center gap-2 px-2 py-3.5 text-base font-medium text-fg-primary transition-colors focus-visible:outline-none"
+                className="group inline-flex h-13 items-center justify-center gap-2 rounded-sm px-2 py-3.5 text-base font-medium text-fg-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
               >
                 <span className="ink-underline">See a sample reading</span>
                 <ArrowRight

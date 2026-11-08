@@ -136,9 +136,22 @@ function CheckSourcePageInner() {
     };
 
     es.onerror = () => {
+      // EventSource may fire onerror for two reasons:
+      //   - normal stream end (readyState === CLOSED) — the server
+      //     finished pushing events and closed the connection. Navigate
+      //     to the result page silently.
+      //   - actual connection drop (CONNECTING/OPEN with no data) —
+      //     the user needs to know the live progress was interrupted,
+      //     otherwise they'll wait on a stale spinner.
+      const wasCleanClose = es.readyState === EventSource.CLOSED;
       es.close();
       eventSourceRef.current = null;
       setLoading(false);
+      if (!wasCleanClose) {
+        toast.error(
+          "Live progress disconnected. Opening the result page — your analysis is still running."
+        );
+      }
       router.push(`/check/${checkId}`);
     };
   }, [router]);
@@ -275,32 +288,38 @@ function CheckSourcePageInner() {
               setError(null);
             }}
           >
-            <TabsList className="mb-4 bg-zinc-100 dark:bg-zinc-800">
-              <TabsTrigger
-                value="url"
-                className="data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
-              >
-                <Link2 className="mr-2 h-4 w-4" /> Paste URL
-              </TabsTrigger>
-              <TabsTrigger
-                value="text"
-                className="data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
-              >
-                <FileText className="mr-2 h-4 w-4" /> Paste Text
-              </TabsTrigger>
-              <TabsTrigger
-                value="document"
-                className="data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
-              >
-                <Upload className="mr-2 h-4 w-4" /> Upload PDF
-              </TabsTrigger>
-              <TabsTrigger
-                value="bulk"
-                className="data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
-              >
-                <Layers className="mr-2 h-4 w-4" /> Bulk
-              </TabsTrigger>
-            </TabsList>
+            {/* Tabs scroll horizontally on narrow viewports so they
+                never overflow the page. The wrapper handles touch
+                scrolling on mobile while keeping the desktop layout
+                identical. */}
+            <div className="-mx-1 mb-4 overflow-x-auto pb-1">
+              <TabsList className="bg-zinc-100 dark:bg-zinc-800">
+                <TabsTrigger
+                  value="url"
+                  className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
+                >
+                  <Link2 className="mr-2 h-4 w-4" /> Paste URL
+                </TabsTrigger>
+                <TabsTrigger
+                  value="text"
+                  className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
+                >
+                  <FileText className="mr-2 h-4 w-4" /> Paste Text
+                </TabsTrigger>
+                <TabsTrigger
+                  value="document"
+                  className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
+                >
+                  <Upload className="mr-2 h-4 w-4" /> Upload PDF
+                </TabsTrigger>
+                <TabsTrigger
+                  value="bulk"
+                  className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
+                >
+                  <Layers className="mr-2 h-4 w-4" /> Bulk
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="url">
               <Input

@@ -171,10 +171,29 @@ async def receive_webhook(
                 target_tier,
             )
     elif target_tier is not None and user is None:
+        # Recognized tier event but no user match — most likely the
+        # signup webhook beat the user-creation transaction (rare race
+        # but happens). If we COMMIT the event_row now, the unique
+        # (processor, processor_event_id) constraint makes the
+        # processor's retries idempotent-no-ops and the upgrade is
+        # permanently lost. Roll back the event so the processor's
+        # next retry can actually apply the change when the user shows up.
+        await db.rollback()
         logger.warning(
-            "billing webhook id=%s event_type=%s couldn't match a user",
+            "billing webhook id=%s event_type=%s couldn't match a user — "
+            "rejecting so the processor will retry",
             processor_event_id,
             event_type,
+        )
+        # 202 Accepted — semantically: "received, but not actionable yet".
+        # Most processors will retry on 4xx/5xx; we use 202 so it doesn't
+        # show up as a delivery failure in the processor dashboard. The
+        # body explains why so a human investigating can see the cause.
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=202,
+            content={"status": "deferred", "reason": "user_not_found"},
         )
 
     await db.commit()

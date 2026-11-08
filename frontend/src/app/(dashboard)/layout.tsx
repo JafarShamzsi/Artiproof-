@@ -214,17 +214,24 @@ export default function DashboardLayout({
                 align="end"
                 className="w-48 border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
               >
-                <DropdownMenuItem className="text-zinc-700 dark:text-zinc-300">
-                  <Link href="/settings" className="flex w-full items-center gap-2">
-                    <User className="h-4 w-4" />
-                    Profile
-                  </Link>
+                {/* `render` projects a single element that carries both the
+                    menuitem semantics and the navigation behavior, avoiding
+                    nested interactive elements (the Link-inside-MenuItem
+                    pattern was an a11y bug — duplicate roles, broken
+                    keyboard activation). */}
+                <DropdownMenuItem
+                  render={<Link href="/settings" />}
+                  className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+                >
+                  <User className="h-4 w-4" />
+                  Profile
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-zinc-700 dark:text-zinc-300">
-                  <Link href="/settings" className="flex w-full items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Link>
+                <DropdownMenuItem
+                  render={<Link href="/settings" />}
+                  className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+                >
+                  <Settings className="h-4 w-4" />
+                  Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-zinc-200 dark:bg-zinc-800" />
                 <DropdownMenuItem

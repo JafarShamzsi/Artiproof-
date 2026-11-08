@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const productLinks = [
   { label: "Source verification", href: "/#features" },
   { label: "Claim analysis", href: "/#features" },
@@ -5,6 +7,36 @@ const productLinks = [
   { label: "Citation rings", href: "/#features" },
   { label: "Researcher integrity", href: "/#features" },
 ];
+
+// Internal routes (not hash-only and not mailto:) get next/link so the
+// SPA stays SPA — full reloads on a marketing footer click look broken
+// after a fast SSR landing.
+function isHashOnly(href: string) {
+  return href.startsWith("#") || href.startsWith("/#");
+}
+
+function FooterLink({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className: string;
+}) {
+  if (href.startsWith("mailto:") || isHashOnly(href)) {
+    return (
+      <a href={href} className={className}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link href={href} className={className}>
+      {children}
+    </Link>
+  );
+}
 
 const navigationLinks = [
   { label: "How it works", href: "/#how-it-works" },
@@ -76,12 +108,12 @@ export function Footer() {
             <ul className="mt-4 space-y-2.5">
               {productLinks.map((link) => (
                 <li key={link.label}>
-                  <a
+                  <FooterLink
                     href={link.href}
                     className="text-sm text-fg-secondary transition-colors hover:text-brand-fg"
                   >
                     {link.label}
-                  </a>
+                  </FooterLink>
                 </li>
               ))}
             </ul>
@@ -94,12 +126,12 @@ export function Footer() {
             <ul className="mt-4 space-y-2.5">
               {navigationLinks.map((link) => (
                 <li key={link.label}>
-                  <a
+                  <FooterLink
                     href={link.href}
                     className="text-sm text-fg-secondary transition-colors hover:text-brand-fg"
                   >
                     {link.label}
-                  </a>
+                  </FooterLink>
                 </li>
               ))}
             </ul>
@@ -112,12 +144,12 @@ export function Footer() {
             <ul className="mt-4 space-y-2.5">
               {legalLinks.map((link) => (
                 <li key={link.label}>
-                  <a
+                  <FooterLink
                     href={link.href}
                     className="text-sm text-fg-secondary transition-colors hover:text-brand-fg"
                   >
                     {link.label}
-                  </a>
+                  </FooterLink>
                 </li>
               ))}
             </ul>

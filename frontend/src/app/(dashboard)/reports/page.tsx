@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   Check,
@@ -218,18 +219,18 @@ export default function ReportsPage() {
                 Report action from its results page.
               </p>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                <a
+                <Link
                   href="/check"
                   className="inline-flex h-9 items-center rounded-lg bg-brand px-4 text-sm font-medium text-white transition-colors hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
                 >
                   Run a source check
-                </a>
-                <a
+                </Link>
+                <Link
                   href="/researcher"
                   className="inline-flex h-9 items-center rounded-lg border border-zinc-300 px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   Analyze a researcher
-                </a>
+                </Link>
               </div>
             </div>
           ) : (

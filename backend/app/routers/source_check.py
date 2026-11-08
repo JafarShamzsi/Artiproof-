@@ -517,6 +517,17 @@ async def create_bulk_source_checks(
     if len(data.items) > 50:
         raise HTTPException(status_code=400, detail="At most 50 checks per batch")
 
+    # Pre-validate every item BEFORE we start creating rows. Without
+    # this, a bad item N raises mid-loop and leaks N-1 partial SourceCheck
+    # rows that the user neither sees nor can clean up. Mirrors the
+    # researcher bulk pattern.
+    for item in data.items:
+        if item.input_type not in ("url", "text"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported input_type {item.input_type!r}; use url or text",
+            )
+
     # Bulk consumes N units in one call. Check up front so a user on the
     # free tier with 8 used can't slip a 5-item batch through.
     await assert_quota(db, current_user, "source_checks", units=len(data.items))
@@ -526,11 +537,6 @@ async def create_bulk_source_checks(
     created: list[SourceCheck] = []
 
     for item in data.items:
-        if item.input_type not in ("url", "text"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported input_type {item.input_type!r}; use url or text",
-            )
         check_id = await orchestrator.create_check(
             user_id=current_user.id,
             input_type=item.input_type,

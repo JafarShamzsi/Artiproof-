@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 /**
@@ -113,6 +113,11 @@ export function CookieBanner() {
   const [visible, setVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [draft, setDraft] = useState<ConsentState>(DEFAULT_DENY);
+  // Refs are used to move keyboard focus into the banner when it opens
+  // (and into the Customise panel when it expands). Without this, the
+  // dialog never receives focus and a keyboard-only user can't act on it.
+  const primaryActionRef = useRef<HTMLButtonElement>(null);
+  const settingsHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     // localStorage and navigator are browser-only — initialising the
@@ -132,6 +137,27 @@ export function CookieBanner() {
       setVisible(true);
     }
   }, []);
+
+  // Move focus into the banner on first appearance so a keyboard user
+  // can immediately act on it. Without this the primary action sits
+  // off-tab-order until they reach it.
+  useEffect(() => {
+    if (visible && !showSettings) {
+      // requestAnimationFrame so the focus call lands after the element
+      // is mounted but before paint — prevents the focus-flicker some
+      // browsers show when focusing mid-render.
+      requestAnimationFrame(() => primaryActionRef.current?.focus());
+    }
+  }, [visible, showSettings]);
+
+  // When the Customise sub-panel opens, move focus to its heading so
+  // the next Tab lands on the Essential checkbox rather than back at
+  // the dismiss row.
+  useEffect(() => {
+    if (visible && showSettings) {
+      requestAnimationFrame(() => settingsHeadingRef.current?.focus());
+    }
+  }, [visible, showSettings]);
 
   const accept = useCallback((next: ConsentState) => {
     persist(next);
@@ -170,6 +196,14 @@ export function CookieBanner() {
 
           {showSettings && (
             <div className="mt-4 space-y-3 rounded-md border border-zinc-700 bg-zinc-950 p-3">
+              {/* Focus anchor for keyboard users entering the panel. */}
+              <h3
+                ref={settingsHeadingRef}
+                tabIndex={-1}
+                className="text-xs font-semibold uppercase tracking-wide text-zinc-400 focus:outline-none"
+              >
+                Cookie preferences
+              </h3>
               <ConsentRow
                 label="Essential"
                 description="Required for sign-in and the dashboard to function."
@@ -222,9 +256,10 @@ export function CookieBanner() {
               Reject non-essential
             </button>
             <button
+              ref={primaryActionRef}
               type="button"
               onClick={() => accept(ACCEPT_ALL)}
-              className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-emerald-400"
+              className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 hover:bg-emerald-400"
             >
               Accept all
             </button>

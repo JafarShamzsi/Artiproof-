@@ -23,7 +23,7 @@ import {
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 const navLinks = [
-  { label: "How it works", href: "/#how-it-works", id: "how-it-works" },
+  { label: "How it works", href: "/methodology", id: "methodology" },
   { label: "Engines", href: "/#features", id: "features" },
   { label: "Sample report", href: "/demo", id: "demo" },
   { label: "Pricing", href: "/#pricing", id: "pricing" },
@@ -120,19 +120,28 @@ export function Navbar() {
         <ul className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => {
             const isActive = activeId === link.id;
+            // Hash-only links (/#features, /#pricing) stay as <a> so the
+            // browser's smooth-scroll behavior handles them. Real Next
+            // routes (/methodology, /demo) get next/link so they navigate
+            // via the SPA instead of full reload.
+            const isHash = link.href.includes("#");
+            const className = cn(
+              "inline-flex items-center rounded-sm px-3 py-2 text-sm transition-colors duration-200",
+              isActive
+                ? "text-fg-primary"
+                : "text-fg-secondary hover:text-fg-primary",
+            );
             return (
               <li key={link.href} className="relative">
-                <a
-                  href={link.href}
-                  className={cn(
-                    "inline-flex items-center rounded-sm px-3 py-2 text-sm transition-colors duration-200",
-                    isActive
-                      ? "text-fg-primary"
-                      : "text-fg-secondary hover:text-fg-primary",
-                  )}
-                >
-                  {link.label}
-                </a>
+                {isHash ? (
+                  <a href={link.href} className={className}>
+                    {link.label}
+                  </a>
+                ) : (
+                  <Link href={link.href} className={className}>
+                    {link.label}
+                  </Link>
+                )}
                 <AnimatePresence>
                   {isActive && (
                     <motion.span
