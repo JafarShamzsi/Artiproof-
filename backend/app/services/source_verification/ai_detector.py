@@ -18,14 +18,13 @@ import re
 from typing import Optional
 
 from app.config import settings
+from app.constants import ANALYSIS_LLM_CROSSCHECK_PARAGRAPHS, ANALYSIS_MAX_PARAGRAPHS
 from app.services.gemini import call_gemini
 from app.services.source_verification.language import LanguageResult, language_directive
 from app.services.source_verification.perplexity import perplexity_ai_signal
 from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
-
-MAX_PARAGRAPHS = 20
 
 DETECTION_PROMPT = """You are an AI-generated content detector. Analyze each paragraph below and estimate the probability that it was written by an AI language model (0.0 = definitely human, 1.0 = definitely AI).
 
@@ -206,14 +205,16 @@ async def detect_ai_content(
     if not paragraphs:
         return []
 
-    if len(paragraphs) > MAX_PARAGRAPHS and warnings is not None:
+    # Statistical detection is cheap, so analyze the whole document; this cap
+    # only guards against pathological inputs.
+    if len(paragraphs) > ANALYSIS_MAX_PARAGRAPHS and warnings is not None:
         warnings.append({
             "type": "paragraphs_capped",
             "module": "ai_detector",
             "total": len(paragraphs),
-            "analyzed": MAX_PARAGRAPHS,
+            "analyzed": ANALYSIS_MAX_PARAGRAPHS,
         })
-    capped = paragraphs[:MAX_PARAGRAPHS]
+    capped = paragraphs[:ANALYSIS_MAX_PARAGRAPHS]
 
     # English-only cues only make sense for English; skip for confident
     # non-English text.
@@ -233,7 +234,9 @@ async def detect_ai_content(
 
     # Optional: blend an LLM cross-check (off by default).
     if settings.AI_DETECT_LLM_CROSSCHECK and settings.GEMINI_API_KEY:
-        llm = await _llm_detection(capped, language, warnings)
+        # The (opt-in) LLM cross-check stays bounded even though statistical
+        # detection already covered the whole document.
+        llm = await _llm_detection(capped[:ANALYSIS_LLM_CROSSCHECK_PARAGRAPHS], language, warnings)
         if llm:
             for r in results:
                 ls = llm.get(r["paragraph_index"])

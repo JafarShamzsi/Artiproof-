@@ -89,14 +89,27 @@ class TestDetectAIContent:
         assert all(r["detection_method"] == "statistical" for r in out)
 
     @pytest.mark.asyncio
-    async def test_paragraph_cap(self, monkeypatch):
+    async def test_full_document_covered_no_cap_for_normal_size(self, monkeypatch):
         monkeypatch.setattr(ad.settings, "GEMINI_API_KEY", "")
-        body = "\n\n".join(f"Paragraph {i} long enough to keep " * 5 for i in range(25))
+        n = 25  # under the pathological cap -> every paragraph analyzed
+        body = "\n\n".join(f"Paragraph {i} long enough to keep " * 3 for i in range(n))
         warnings: list[dict] = []
         out = await detect_ai_content(body, warnings=warnings)
-        assert len(out) == 20
+        assert len(out) == n
+        assert not any(w.get("type") == "paragraphs_capped" for w in warnings)
+
+    @pytest.mark.asyncio
+    async def test_paragraph_cap_only_at_pathological_size(self, monkeypatch):
+        from app.constants import ANALYSIS_MAX_PARAGRAPHS
+
+        monkeypatch.setattr(ad.settings, "GEMINI_API_KEY", "")
+        n = ANALYSIS_MAX_PARAGRAPHS + 5
+        body = "\n\n".join(f"Paragraph {i} long enough to keep " * 2 for i in range(n))
+        warnings: list[dict] = []
+        out = await detect_ai_content(body, warnings=warnings)
+        assert len(out) == ANALYSIS_MAX_PARAGRAPHS
         cap = next((w for w in warnings if w.get("type") == "paragraphs_capped"), None)
-        assert cap is not None and cap["analyzed"] == 20 and cap["total"] >= 25
+        assert cap is not None and cap["analyzed"] == ANALYSIS_MAX_PARAGRAPHS and cap["total"] == n
 
     def test_perplexity_off_by_default(self, monkeypatch):
         monkeypatch.setattr(ad.settings, "AI_DETECT_PERPLEXITY", False)
