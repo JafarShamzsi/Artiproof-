@@ -30,7 +30,7 @@ beautifulsoup4>=4.13.3,<5.0
 sse-starlette>=2.2.1,<3.0
 
 # PDF processing & generation
-PyMuPDF>=1.24.0,<2.0
+PyMuPDF>=1.27.2.3,<2.0
 weasyprint>=63.0,<70
 
 # Auth
