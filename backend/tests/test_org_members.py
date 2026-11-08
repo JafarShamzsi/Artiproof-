@@ -4,14 +4,14 @@ The structural contract being pinned:
 
 - ``require_org_admin`` gates the write endpoints (invite, role change,
   remove). Non-admin members get 403 across all of them.
-- Invite to an existing email attaches immediately (``status="added"``);
-  invite to an unknown email returns ``status="invited"`` and the route
-  attempts a send.
+- Invitations never attach accounts. Recipient-consent regressions live in
+  ``test_team_consent_security.py`` and PostgreSQL acceptance in
+  ``test_team_consent_integration.py``.
 - Last-admin guard refuses both role demotion and removal so an org
   can't reach a "no admins" state. Mirror of the admin router's
   guard in ``backend/app/routers/admin.py``.
-- Registering with a valid ``invite_token`` auto-attaches the new
-  user as a member with the encoded role.
+- Registration never joins a team; authenticated verified recipients accept
+  separately, irrespective of when their account was created.
 
 Pure-stub tests where possible — the route surface is the contract,
 not the DB plumbing. The ``_OrgMemoryDb`` knows just enough about the

@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { backendUrl } from "@/lib/api";
@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Chrome, Shield, Loader2 } from "lucide-react";
+import { InvitationConsent } from "@/components/invitation-consent";
 
 // Admin role is intentionally not exposed on the public sign-up form — it's
 // privileged and assigned out-of-band by an existing admin. The backend also
@@ -95,6 +96,9 @@ function RegisterPageInner() {
   const [googleLoading, setGoogleLoading] = useState(false);
 
   const searchParams = useSearchParams();
+  const inviteToken = searchParams?.get("invite");
+  const { status: sessionStatus } = useSession();
+  const callbackUrl = inviteToken ? `/register?invite=${encodeURIComponent(inviteToken)}` : "/dashboard";
 
   // On mount: prefer ?plan=, fall back to a previously-stored cookie,
   // and write the cookie when we land via query so the intent
@@ -139,6 +143,7 @@ function RegisterPageInner() {
           // funnel marker. Tier itself stays free until the (future)
           // payment processor confirms.
           intent_plan: intentPlan || undefined,
+          invite_token: inviteToken || undefined,
         }),
       });
 
@@ -156,13 +161,17 @@ function RegisterPageInner() {
       await signIn("credentials", {
         email,
         password,
-        callbackUrl: "/dashboard",
+        callbackUrl,
       });
     } catch {
       setError("Something went wrong");
       setLoading(false);
     }
   };
+
+  if (inviteToken && sessionStatus === "authenticated") {
+    return <InvitationConsent key={inviteToken} token={inviteToken} />;
+  }
 
   return (
     <Card className="border-zinc-200 bg-white backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/50">
@@ -178,6 +187,7 @@ function RegisterPageInner() {
 
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
+          {inviteToken && <InvitationConsent key={inviteToken} token={inviteToken} />}
           {error && (
             <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
               {error}
@@ -288,7 +298,7 @@ function RegisterPageInner() {
             disabled={googleLoading}
             onClick={() => {
               setGoogleLoading(true);
-              void signIn("google", { callbackUrl: "/dashboard" });
+              void signIn("google", { callbackUrl });
             }}
             className="w-full border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800 dark:hover:text-white"
           >

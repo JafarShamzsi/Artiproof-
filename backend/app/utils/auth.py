@@ -8,6 +8,7 @@ the lookup — those still work but can't be individually revoked.
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import uuid
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -221,15 +222,13 @@ def decode_stream_ticket(ticket: str, resource_kind: str, resource_id: str) -> s
 
 # ─── Org invite tokens ─────────────────────────────────────────────────────
 #
-# An org admin invites someone by email. If the invitee doesn't yet have a
-# User account we email them a link containing a signed token that encodes
-# (org_id, email, role, inviter_user_id). On signup, /api/auth/register
-# accepts the token, validates it, and auto-attaches the new user as an
-# org member with the encoded role.
+# An org admin emails a signed token to either an existing or new user.
+# The JWT must match a live persistent invite. Registration only validates;
+# authenticated, email-verified acceptance lives in services/team_invites.py.
 #
 # 7-day expiry — long enough for "I'll do it tomorrow" without leaving a
-# stale invite that survives forever. Issuing a new invite replaces nothing
-# server-side; both tokens validate until they expire.
+# stale invite that survives forever. Each issuance is unique, so revoking
+# an older token cannot be undone by issuing another invite in the same second.
 
 _INVITE_TOKEN_TTL_DAYS = 7
 
@@ -237,11 +236,11 @@ _INVITE_TOKEN_TTL_DAYS = 7
 def create_invite_token(
     *, org_id: str, email: str, role: str, invited_by: str
 ) -> str:
-    """Issue a signed invite token. Carries everything the signup flow
-    needs to attach the new user without a DB lookup."""
+    """Issue a unique signed token; acceptance also requires its stored row."""
     expire = datetime.now(timezone.utc) + timedelta(days=_INVITE_TOKEN_TTL_DAYS)
     payload = {
         "type": "org_invite",
+        "jti": str(uuid.uuid4()),
         "org_id": org_id,
         # Lowercased so case differences in the address don't make the
         # signup-time match fail when the user types it differently.
