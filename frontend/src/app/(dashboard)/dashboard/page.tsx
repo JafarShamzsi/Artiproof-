@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -214,6 +214,20 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Refetch ONLY the trends tile — used when the date range changes. The other
+  // tiles don't vary by range, so re-running the whole dashboard was wasteful.
+  const loadTrends = useCallback(async (rangeParam: DateRange, signal?: AbortSignal) => {
+    try {
+      const res = await apiFetch(`/api/dashboard/trends?range=${rangeParam}`, { signal });
+      if (!res.ok) return;
+      const t = await res.json();
+      setTrends(t?.data || []);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      // Transient failure — keep the existing trends rather than blanking them.
+    }
+  }, []);
+
   // Refetch only the pins after a mutation (unpin) without a full dashboard reload.
   const refetchPins = useCallback(async () => {
     try {
@@ -226,11 +240,28 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Initial full dashboard load — once on mount (every tile). `range` is read
+  // through a ref so a range change doesn't re-trigger the whole load; the
+  // effect below handles range changes by refetching only the trends tile.
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const didInitialLoad = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
-    load(range, controller.signal);
+    load(rangeRef.current, controller.signal);
     return () => controller.abort();
-  }, [load, range]);
+  }, [load]);
+
+  // Range change → refetch ONLY the trends tile (skip the initial render).
+  useEffect(() => {
+    if (!didInitialLoad.current) {
+      didInitialLoad.current = true;
+      return;
+    }
+    const controller = new AbortController();
+    loadTrends(range, controller.signal);
+    return () => controller.abort();
+  }, [range, loadTrends]);
 
   // Team activity: only fetched once we know the tier from /api/dashboard/usage.
   // 403 (not on team tier) and 404 (team tier without an org) hide the widget
@@ -267,12 +298,9 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, [usage?.tier]);
 
-  // Refetch only the trends when the range changes after initial load,
-  // rather than re-running the whole dashboard every time. The full `load`
-  // above handles the initial fetch + range; this is the cheap subsequent
-  // path. We can't combine them because the initial render needs to know
-  // every other tile too.
-  const refetchTrends = useCallback(async (next: DateRange) => {
+  // Change the date range. The effect above reacts by refetching ONLY the
+  // trends tile (the other tiles are range-invariant), so this stays cheap.
+  const refetchTrends = useCallback((next: DateRange) => {
     setRange(next);
   }, []);
 
