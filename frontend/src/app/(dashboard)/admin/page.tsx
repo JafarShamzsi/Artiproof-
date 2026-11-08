@@ -18,7 +18,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AlertTriangle, ChevronDown, Loader2, RefreshCw, Shield, Users } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ChevronDown,
+  DollarSign,
+  Loader2,
+  PlayCircle,
+  RefreshCw,
+  Shield,
+  Users,
+} from "lucide-react";
 
 interface AdminUser {
   id: string;
@@ -62,6 +72,48 @@ interface AdminStats {
   reports_last_24h: number;
 }
 
+// ── Phase E telemetry ────────────────────────────────────────────────
+
+interface GeminiCostByOp {
+  operation: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+interface GeminiCostByUser {
+  user_id: string;
+  email: string | null;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+interface GeminiCostSummary {
+  window_days: number;
+  total_calls: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number;
+  error_rate: number;
+  by_operation: GeminiCostByOp[];
+  top_users: GeminiCostByUser[];
+}
+
+interface DLQRow {
+  id: string;
+  task_name: string;
+  task_id: string;
+  args: unknown[];
+  kwargs: Record<string, unknown>;
+  exception_class: string;
+  exception_message: string | null;
+  retry_count: number;
+  failed_at: string;
+}
+
 const TIERS = ["free", "pro", "team"] as const;
 
 export default function AdminPage() {
@@ -80,6 +132,9 @@ export default function AdminPage() {
   const debouncedSearch = useDebouncedValue(search, 300);
   const [tierFilter, setTierFilter] = useState<string>("");
   const [failed, setFailed] = useState<FailedPipeline[]>([]);
+  const [costSummary, setCostSummary] = useState<GeminiCostSummary | null>(null);
+  const [dlq, setDlq] = useState<DLQRow[]>([]);
+  const [retryingDlqId, setRetryingDlqId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   // While a PATCH against a specific user's tier is in flight, we hold
@@ -94,10 +149,12 @@ export default function AdminPage() {
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (tierFilter) params.set("tier", tierFilter);
 
-    const [statsRes, usersRes, failedRes] = await Promise.all([
+    const [statsRes, usersRes, failedRes, costRes, dlqRes] = await Promise.all([
       apiFetch("/api/admin/stats"),
       apiFetch(`/api/admin/users?${params.toString()}`),
       apiFetch("/api/admin/pipelines/failed?hours=72&limit=20"),
+      apiFetch("/api/admin/gemini/cost-summary?days=30&top_n_users=5"),
+      apiFetch("/api/admin/celery/dlq?limit=25"),
     ]);
 
     if (statsRes.status === 403 || usersRes.status === 403) {
@@ -113,8 +170,37 @@ export default function AdminPage() {
       setTotal(body.total);
     }
     if (failedRes.ok) setFailed((await failedRes.json()) as FailedPipeline[]);
+    if (costRes.ok) setCostSummary((await costRes.json()) as GeminiCostSummary);
+    if (dlqRes.ok) setDlq((await dlqRes.json()) as DLQRow[]);
     setLoading(false);
   }, [page, debouncedSearch, tierFilter]);
+
+  const handleDlqRetry = async (dlqId: string) => {
+    if (retryingDlqId === dlqId) return;
+    setRetryingDlqId(dlqId);
+    try {
+      const res = await apiFetch(`/api/admin/celery/dlq/${dlqId}/retry`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || "Retry failed");
+        return;
+      }
+      const body = (await res.json()) as {
+        enqueued: boolean;
+        new_task_id: string | null;
+      };
+      toast.success(
+        body.enqueued
+          ? `Re-enqueued as ${body.new_task_id?.slice(0, 8) ?? "task"}`
+          : "Marked resolved (Celery offline — re-enqueue manually)"
+      );
+      await reload();
+    } finally {
+      setRetryingDlqId(null);
+    }
+  };
 
   useEffect(() => {
     if (sessionStatus === "loading") return;
@@ -428,6 +514,155 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Operations: Gemini cost + Celery DLQ */}
+      {costSummary && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <DollarSign className="h-4 w-4" /> Gemini spend
+              <span className="ml-2 text-xs text-zinc-400">
+                last {costSummary.window_days} days
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <StatCard
+                label="Total cost (USD)"
+                value={costSummary.total_cost_usd}
+                sublabel={`${costSummary.total_calls.toLocaleString()} calls`}
+                format="currency"
+              />
+              <StatCard
+                label="Input tokens"
+                value={costSummary.total_input_tokens}
+                sublabel={`${costSummary.total_output_tokens.toLocaleString()} output`}
+              />
+              <StatCard
+                label="Error rate"
+                value={Math.round(costSummary.error_rate * 10000) / 100}
+                sublabel="% calls failing"
+                danger={costSummary.error_rate > 0.05}
+                format="percent"
+              />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  By operation
+                </h4>
+                {costSummary.by_operation.length === 0 ? (
+                  <p className="text-xs text-zinc-500">No calls yet.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {costSummary.by_operation.slice(0, 6).map((op) => (
+                      <li
+                        key={op.operation}
+                        className="flex items-center justify-between text-xs"
+                      >
+                        <span className="font-mono text-zinc-700 dark:text-zinc-300">
+                          {op.operation}
+                        </span>
+                        <span className="tabular-nums text-zinc-500">
+                          {op.calls.toLocaleString()} calls · $
+                          {op.cost_usd.toFixed(4)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Top users by cost
+                </h4>
+                {costSummary.top_users.length === 0 ? (
+                  <p className="text-xs text-zinc-500">No user-attributed cost yet.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {costSummary.top_users.slice(0, 5).map((u) => (
+                      <li
+                        key={u.user_id}
+                        className="flex items-center justify-between text-xs"
+                      >
+                        <span className="truncate text-zinc-700 dark:text-zinc-300">
+                          {u.email || u.user_id.slice(0, 8)}
+                        </span>
+                        <span className="tabular-nums text-zinc-500">
+                          ${u.cost_usd.toFixed(4)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* DLQ */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <Activity className="h-4 w-4" /> Dead-letter queue ({dlq.length})
+            <span className="ml-2 text-xs text-zinc-400">
+              tasks that exhausted their retries
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {dlq.length === 0 ? (
+            <p className="text-sm text-zinc-500">
+              Clean. No tasks in the dead-letter queue.
+            </p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {dlq.map((row) => (
+                <li
+                  key={row.id}
+                  className="flex items-start justify-between gap-3 rounded border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className="font-mono">
+                        {row.task_name}
+                      </Badge>
+                      <Badge className="bg-red-500/20 text-red-700 dark:text-red-400">
+                        {row.exception_class}
+                      </Badge>
+                      <span className="text-xs text-zinc-500">
+                        {row.retry_count} retries · {new Date(row.failed_at).toLocaleString()}
+                      </span>
+                    </div>
+                    {row.exception_message && (
+                      <div className="mt-1 truncate text-xs text-zinc-500">
+                        {row.exception_message}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={retryingDlqId === row.id}
+                    onClick={() => handleDlqRetry(row.id)}
+                    aria-label={`Retry ${row.task_name}`}
+                  >
+                    {retryingDlqId === row.id ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <PlayCircle className="mr-1 h-3 w-3" />
+                    )}
+                    Retry
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -437,12 +672,23 @@ function StatCard({
   value,
   sublabel,
   danger = false,
+  format = "number",
 }: {
   label: string;
   value: number;
   sublabel?: string;
   danger?: boolean;
+  // "currency" → $X.XXXX (4dp because Gemini spend is usually fractions
+  // of a cent in the early days), "percent" → X.XX%, "number" → 1,234
+  format?: "number" | "currency" | "percent";
 }) {
+  const display =
+    format === "currency"
+      ? `$${value.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+      : format === "percent"
+        ? `${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+        : value.toLocaleString();
+
   return (
     <Card>
       <CardContent className="py-4">
@@ -450,7 +696,7 @@ function StatCard({
         <div
           className={`mt-1 text-2xl font-bold tabular-nums ${danger ? "text-amber-700 dark:text-amber-400" : "text-zinc-900 dark:text-white"}`}
         >
-          {value.toLocaleString()}
+          {display}
         </div>
         {sublabel && (
           <div className="mt-1 text-xs text-zinc-500">{sublabel}</div>
