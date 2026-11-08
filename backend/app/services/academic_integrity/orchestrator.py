@@ -203,7 +203,7 @@ class AcademicIntegrityOrchestrator:
         yield {"step": "topic_analysis", "status": "processing", "detail": "Checking topic relevance...", "progress": 0.75}
         try:
             publications = await analyze_topic_relevance(publications)
-            self._track_api("gemini")
+            self._track_api("openalex")
             yield {"step": "topic_analysis", "status": "done", "detail": "Topic analysis complete", "progress": 0.8}
         except Exception as e:
             logger.exception("Topic analysis failed")

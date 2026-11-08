@@ -1,33 +1,28 @@
 """Public exports + prompt-version pinning for the academic-integrity engine.
 
-When you edit ``TOPIC_PROMPT`` (or any future prompt added to this
-package):
+This engine is fully deterministic — it has no LLM prompts, so the registry
+below is intentionally empty. The scaffolding stays so adding a prompt later is
+a small change:
 
-1. Bump ``PROMPT_VERSION``.
-2. Re-run the hash and update ``PROMPT_HASHES``.
+1. Add the prompt to ``_gather_prompts`` and ``PROMPT_HASHES``.
+2. Bump ``PROMPT_VERSION``.
 3. The CI ``test_prompt_governance`` keeps the two in sync.
 
-The version constant + expected hashes are checked at pipeline start
-by the orchestrator; drift fires a Sentry warning and is recorded in
-``researcher_profile.model_metadata.prompt_drift_detected``.
+The version constant + expected hashes are stamped into
+``researcher_profile.model_metadata`` at pipeline start for the audit trail.
 """
 
 from app.governance.prompt_versioning import compute_prompt_hashes
 from app.services.academic_integrity.orchestrator import AcademicIntegrityOrchestrator
 
-PROMPT_VERSION = "2026-05-29.v1"
+PROMPT_VERSION = "2026-06-01.v1"
 
-PROMPT_HASHES: dict[str, str] = {
-    "topic_analyzer": "cdeac46f818c1629d3c340309409daa026b26adf6b16a8e4967b4946869475df",
-}
+# No LLM prompts in this engine — topic relevance is deterministic (OpenAlex).
+PROMPT_HASHES: dict[str, str] = {}
 
 
 def _gather_prompts() -> dict[str, str]:
-    from app.services.academic_integrity.topic_analyzer import TOPIC_PROMPT
-
-    return {
-        "topic_analyzer": TOPIC_PROMPT,
-    }
+    return {}
 
 
 def compute_live_prompt_hashes() -> dict[str, str]:

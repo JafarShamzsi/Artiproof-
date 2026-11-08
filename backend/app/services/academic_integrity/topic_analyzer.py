@@ -1,121 +1,129 @@
-"""
-Topic analyzer — checks whether papers are published in journals relevant to their content.
-Uses Gemini for NLP similarity analysis.
+"""Topic relevance — does a paper's subject match where it was published?
+
+Previously this asked Gemini to score each (title, venue) pair. That's an
+LLM guess over two short strings (and venue names like "Nature" carry no
+topic). This version is deterministic and grounded in **OpenAlex** topic data:
+
+- every OpenAlex *work* carries weighted ``concepts``;
+- every OpenAlex *source* (venue) carries ``x_concepts`` — the topics its
+  papers typically cover.
+
+The score is the fraction of a paper's concept-weight that its venue routinely
+covers. Papers without a DOI or without OpenAlex concept data are left unscored
+(``None``) and excluded from the integrity average — we don't guess. No LLM.
 """
 
 import asyncio
-import json
 import logging
 
+import httpx
+
 from app.config import settings
-from app.services.gemini import call_gemini
-from app.utils.retry import GEMINI_RETRY_EXCEPTIONS, with_retry
+from app.utils.retry import HTTP_RETRY_EXCEPTIONS, with_retry
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 15
-
-TOPIC_PROMPT = """You are an academic topic relevance analyst. For each paper below, assess how well the paper's topic matches the journal/venue it was published in.
-
-Score each from 0.0 (completely irrelevant to the journal) to 1.0 (perfect match).
-
-PAPERS:
-{papers}
-
-Return a JSON array:
-[
-  {{"index": 0, "topic_match_score": 0.85, "reason": "Machine learning paper in ML journal — good match"}},
-  {{"index": 1, "topic_match_score": 0.2, "reason": "Biology paper published in a computer science venue — poor match"}}
-]
-
-Return ONLY the JSON array, no other text."""
+_OPENALEX = "https://api.openalex.org"
+_MAX_CONCURRENCY = 6
+# A venue concept must be at least this prominent to count as "typical" of it.
+_SOURCE_CONCEPT_MIN_SCORE = 0.05
 
 
-@with_retry(max_retries=2, exceptions=GEMINI_RETRY_EXCEPTIONS)
-async def _call_gemini(prompt: str) -> str:
-    return await call_gemini(prompt, operation="topic_analyzer")
+def _normalize_doi(doi: str) -> str:
+    doi = (doi or "").strip()
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if doi.startswith(prefix):
+            return doi[len(prefix):]
+    return doi
 
 
-async def _process_batch(batch: list[tuple[int, dict]]) -> list[dict]:
-    """Score one batch. Returns list of {index, topic_match_score} dicts.
+@with_retry(max_retries=1, exceptions=HTTP_RETRY_EXCEPTIONS)
+async def _openalex_get(path: str) -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{_OPENALEX}{path}",
+            params={"mailto": settings.CONTACT_EMAIL},
+            headers={"User-Agent": f"ArtiProof/1.0 (mailto:{settings.CONTACT_EMAIL})"},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
-    `index` is the position within the batch — caller maps it back to the
-    original publication index.
-    """
-    formatted = "\n".join(
-        f"[{idx}] Title: \"{p['title']}\" — Journal/Venue: \"{p['journal']}\""
-        for idx, (_, p) in enumerate(batch)
-    )
 
+def _concept_overlap(work_concepts: list[dict], source_concepts: list[dict]) -> float | None:
+    """Fraction of the paper's concept-weight covered by the venue's typical
+    concepts. ``None`` when the paper has no usable concepts."""
+    weighted = [
+        (c.get("id"), float(c.get("score") or 0.0))
+        for c in work_concepts
+        if c.get("id")
+    ]
+    weighted = [(cid, s) for cid, s in weighted if s > 0]
+    total = sum(s for _, s in weighted)
+    if not weighted or total <= 0:
+        return None
+
+    venue_ids = {
+        c.get("id")
+        for c in source_concepts
+        if c.get("id") and float(c.get("score") or 0.0) >= _SOURCE_CONCEPT_MIN_SCORE
+    }
+    if not venue_ids:
+        return None
+
+    matched = sum(s for cid, s in weighted if cid in venue_ids)
+    return max(0.0, min(1.0, matched / total))
+
+
+async def _fetch_source_concepts(source_id: str) -> list[dict]:
+    """Fetch a venue's typical concepts (``x_concepts``). ``[]`` on failure."""
     try:
-        raw = await _call_gemini(TOPIC_PROMPT.format(papers=formatted))
-    except Exception as e:
-        logger.error("Topic analysis batch failed: %s", type(e).__name__)
+        sid = str(source_id).rsplit("/", 1)[-1]
+        src = await _openalex_get(f"/sources/{sid}")
+        return src.get("x_concepts") or []
+    except Exception:
+        logger.debug("OpenAlex source lookup failed for %s", source_id, exc_info=True)
         return []
 
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
-    raw = raw.strip()
-    if raw.startswith("json"):
-        raw = raw[4:].strip()
 
+async def _score_paper(doi: str, source_cache: dict) -> float | None:
+    """Score one paper via OpenAlex. ``None`` when it can't be grounded."""
     try:
-        results = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.error("Failed to parse Gemini topic analysis response")
-        return []
+        work = await _openalex_get(f"/works/https://doi.org/{_normalize_doi(doi)}")
+    except Exception:
+        logger.debug("OpenAlex work lookup failed for DOI %s", doi, exc_info=True)
+        return None
 
-    if not isinstance(results, list):
-        return []
-    return results
+    work_concepts = work.get("concepts") or []
+    source = (work.get("primary_location") or {}).get("source") or {}
+    source_id = source.get("id")
+    if not work_concepts or not source_id:
+        return None
+
+    # Single-flight venue cache: a researcher reuses the same handful of venues
+    # across many papers; concurrent papers sharing a venue await one fetch.
+    if source_id not in source_cache:
+        source_cache[source_id] = asyncio.ensure_future(_fetch_source_concepts(source_id))
+    x_concepts = await source_cache[source_id]
+
+    return _concept_overlap(work_concepts, x_concepts)
 
 
 async def analyze_topic_relevance(publications: list[dict]) -> list[dict]:
-    """
-    Analyze whether papers are published in topically relevant journals.
+    """Set ``topic_match_score`` (0..1, or ``None``) on each publication via
+    OpenAlex concept overlap. Deterministic — no LLM."""
+    source_cache: dict = {}
+    sem = asyncio.Semaphore(_MAX_CONCURRENCY)
 
-    Batches are processed concurrently rather than sequentially.
-    """
-    papers_with_venue = [
-        (i, p) for i, p in enumerate(publications)
-        if p.get("journal") and p.get("title")
-    ]
+    async def _run(pub: dict) -> None:
+        doi = pub.get("doi")
+        if not doi:
+            pub["topic_match_score"] = None
+            return
+        async with sem:
+            pub["topic_match_score"] = await _score_paper(doi, source_cache)
 
-    if not papers_with_venue:
-        return publications
-
-    if not settings.GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY not set, skipping topic analysis")
-        for p in publications:
-            p["topic_match_score"] = None
-        return publications
-
-    batches = [
-        papers_with_venue[i:i + BATCH_SIZE]
-        for i in range(0, len(papers_with_venue), BATCH_SIZE)
-    ]
-
-    batch_results = await asyncio.gather(
-        *[_process_batch(b) for b in batches],
-        return_exceptions=True,
-    )
-
-    for batch, results in zip(batches, batch_results):
-        if isinstance(results, Exception):
-            logger.warning("Topic batch raised: %s", type(results).__name__)
-            continue
-        for item in results:
-            idx_in_batch = item.get("index", -1)
-            if 0 <= idx_in_batch < len(batch):
-                orig_idx = batch[idx_in_batch][0]
-                publications[orig_idx]["topic_match_score"] = max(
-                    0.0, min(1.0, float(item.get("topic_match_score", 0.5)))
-                )
+    await asyncio.gather(*[_run(p) for p in publications], return_exceptions=True)
 
     for p in publications:
-        if "topic_match_score" not in p:
-            p["topic_match_score"] = None
-
+        p.setdefault("topic_match_score", None)
     return publications
