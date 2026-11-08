@@ -82,9 +82,10 @@ async def forgot_password(
     """Trigger a password-reset link.
 
     Always returns success regardless of whether the email exists, so an
-    attacker can't enumerate accounts. In dev (no SMTP), the URL is
-    returned inline so the flow remains testable; in production this
-    response stays empty and the URL is sent via email (TODO: wire SMTP).
+    attacker can't enumerate accounts. The reset URL is delivered by email
+    via Resend (see ``services/email/sender.py``). In dev without a Resend
+    key the email is logged and the URL is also returned inline so the
+    local flow stays testable; in production the response body stays empty.
     """
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
