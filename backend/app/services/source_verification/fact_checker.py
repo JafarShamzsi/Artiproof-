@@ -107,6 +107,44 @@ def _earliest_review(factcheck_results: list[dict]) -> dict | None:
     }
 
 
+# Map a fact-checker's free-text rating to a verdict. Order matters: the most
+# severe interpretation wins (a "mostly false" rating is treated as false).
+_RATING_VERDICTS = (
+    (("false", "wrong", "incorrect", "pants on fire", "fake", "fabricated"), "false"),
+    (("mislead", "mostly", "half", "mixture", "partly", "exaggerat"), "misleading"),
+    (("true", "correct", "accurate", "verified"), "true"),
+)
+
+
+def _rating_to_verdict(rating: str) -> str | None:
+    r = (rating or "").lower()
+    for keys, verdict in _RATING_VERDICTS:
+        if any(k in r for k in keys):
+            return verdict
+    return None
+
+
+def _verdict_from_factcheck(factcheck_results: list[dict]) -> "tuple[str, float] | None":
+    """A deterministic verdict from existing reputable fact-checks, or None when
+    the ratings don't clearly decide. The most severe rating wins; agreement
+    across fact-checkers raises confidence."""
+    verdicts = [
+        v for v in (_rating_to_verdict(r.get("rating", "")) for r in factcheck_results) if v
+    ]
+    if not verdicts:
+        return None
+    for severe in ("false", "misleading", "true"):
+        if severe in verdicts:
+            return severe, round(min(0.95, 0.6 + 0.1 * verdicts.count(severe)), 2)
+    return None
+
+
+def _unverified_confidence(evidence_count: int) -> float:
+    """Low confidence for an undecided claim, nudged up slightly when at least
+    some reference material was retrieved."""
+    return round(0.25 + min(0.15, 0.05 * evidence_count), 2)
+
+
 async def verify_claim(
     claim_text: str,
     article_context: str = "",
@@ -158,36 +196,40 @@ async def verify_claim(
         context_lines.append("No existing fact-checks or reference evidence were found for this claim.")
     factcheck_context = "\n".join(context_lines)
 
-    # Step 3: Use Gemini for deeper analysis
+    # Step 3: Deterministic short-circuit — a reputable existing fact-check is
+    # more reliable than an LLM guess, and skips the (highest-frequency) call.
+    decided = _verdict_from_factcheck(factcheck_results)
+    if decided is not None:
+        verdict, confidence = decided
+        top = factcheck_results[0]
+        return {
+            "verdict": verdict,
+            "confidence": confidence,
+            "explanation": (
+                f"Matches an existing fact-check by {top['publisher']} "
+                f"(rated \"{top.get('rating', 'N/A')}\")."
+            ),
+            "true_version": None,
+            "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results]
+            + evidence_sources,
+            "evidence": evidence_dicts,
+            "factcheck_review": factcheck_review,
+        }
+
+    # Step 4: No reputable fact-check decided it. With no LLM we don't guess —
+    # return an honest "unverified" with whatever evidence we gathered.
     if not settings.GEMINI_API_KEY:
-        # If no API key, use fact-check results only
-        if factcheck_results:
-            rating = factcheck_results[0].get("rating", "").lower()
-            verdict = "unverified"
-            if any(w in rating for w in ["true", "correct", "accurate"]):
-                verdict = "true"
-            elif any(w in rating for w in ["false", "wrong", "incorrect", "pants on fire"]):
-                verdict = "false"
-            elif any(w in rating for w in ["mislead", "mostly", "half", "mixture"]):
-                verdict = "misleading"
-            return {
-                "verdict": verdict,
-                "confidence": 0.6,
-                "explanation": f"Based on fact-check by {factcheck_results[0]['publisher']}: {factcheck_results[0].get('rating', 'N/A')}",
-                "true_version": None,
-                "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results] + evidence_sources,
-                "evidence": evidence_dicts,
-                "factcheck_review": factcheck_review,
-            }
         return {
             "verdict": "unverified",
-            "confidence": 0.3,
-            "explanation": "Unable to verify — no API key configured and no existing fact-checks found.",
+            "confidence": _unverified_confidence(len(evidence)),
+            "explanation": "No reputable fact-check decided this claim and AI verification is not configured.",
             "true_version": None,
             "sources": evidence_sources,
             "evidence": evidence_dicts,
+            "factcheck_review": factcheck_review,
         }
 
+    # Step 5: LLM reasoning for the genuinely-undecided residue.
     context_snippet = article_context[:500] if article_context else "No additional context available."
 
     try:
@@ -204,11 +246,12 @@ async def verify_claim(
         logger.error("Gemini verify call failed: %s", type(e).__name__)
         return {
             "verdict": "unverified",
-            "confidence": 0.2,
+            "confidence": _unverified_confidence(len(evidence)),
             "explanation": "Verification service unavailable.",
             "true_version": None,
             "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results] + evidence_sources,
             "evidence": evidence_dicts,
+            "factcheck_review": factcheck_review,
         }
 
     if raw.startswith("```"):
@@ -225,11 +268,12 @@ async def verify_claim(
         logger.error("Failed to parse Gemini fact-check response")
         return {
             "verdict": "unverified",
-            "confidence": 0.3,
+            "confidence": _unverified_confidence(len(evidence)),
             "explanation": "AI analysis returned unparseable results.",
             "true_version": None,
             "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results] + evidence_sources,
             "evidence": evidence_dicts,
+            "factcheck_review": factcheck_review,
         }
 
     sources = result.get("sources", [])
@@ -252,9 +296,17 @@ async def verify_claim(
     if verdict not in valid_verdicts:
         verdict = "unverified"
 
+    # Calibrate the model's self-reported confidence: corroborating independent
+    # sources raise it; an "unverified" verdict is capped (we couldn't decide).
+    confidence = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
+    if verdict == "unverified":
+        confidence = min(confidence, 0.5)
+    else:
+        confidence = min(0.97, confidence + 0.05 * len(factcheck_results) + 0.03 * len(evidence))
+
     return {
         "verdict": verdict,
-        "confidence": max(0.0, min(1.0, float(result.get("confidence", 0.5)))),
+        "confidence": round(confidence, 2),
         "explanation": str(result.get("explanation", "Analysis completed.")),
         "true_version": result.get("true_version"),
         "sources": sources[:10],
