@@ -26,6 +26,7 @@ import { explainIntegrity } from "@/lib/scoreExplanation";
 import { ScoreExplanationCard } from "@/components/ui/score-explanation";
 import { scoreColor, scoreSolidBorderColor } from "@/lib/colors";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { PinButton } from "@/components/ui/pin-button";
 
 interface Publication {
   id: string;
@@ -210,6 +211,7 @@ function ResearcherProfileView({
           <h1 className="font-display text-2xl font-bold text-zinc-900 dark:text-white">Researcher Analysis</h1>
         </div>
         <div className="flex gap-2">
+          <PinButton kind="researcher" id={data.id} />
           <Button
             variant="outline"
             size="sm"

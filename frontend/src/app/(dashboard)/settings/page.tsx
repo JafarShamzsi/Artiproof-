@@ -11,6 +11,7 @@ import {
   Chrome,
   Copy,
   Download,
+  EyeOff,
   Globe,
   Link2,
   Loader2,
@@ -53,6 +54,8 @@ interface ProfileResponse {
   locale: string;
   deactivated_at: string | null;
   created_at: string;
+  // Team-tier privacy toggle. Defaults to true server-side.
+  share_activity_with_team: boolean;
 }
 
 interface NotificationPrefs {
@@ -177,6 +180,13 @@ export default function SettingsPage() {
       />
 
       <NotificationsSection />
+
+      {profile?.tier === "team" && (
+        <PrivacySection
+          initialShare={profile.share_activity_with_team}
+          onProfileUpdate={(p) => setProfile(p)}
+        />
+      )}
 
       <SecuritySection />
 
@@ -496,6 +506,97 @@ function NotificationsSection() {
           </p>
         </>
       )}
+    </SectionCard>
+  );
+}
+
+// ─── Privacy (team tier) ───────────────────────────────────────────────────
+
+function PrivacySection({
+  initialShare,
+  onProfileUpdate,
+}: {
+  initialShare: boolean;
+  onProfileUpdate: (p: ProfileResponse) => void;
+}) {
+  const [share, setShare] = useState<boolean>(initialShare);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Keep local state in sync if the parent reloads /api/auth/me.
+  useEffect(() => {
+    setShare(initialShare);
+  }, [initialShare]);
+
+  async function persist(next: boolean) {
+    const previous = share;
+    setShare(next);
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/auth/me/share-activity-with-team", {
+        method: "PUT",
+        body: JSON.stringify({ share: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(
+          (data as { detail?: string }).detail ||
+            `Failed to save (HTTP ${res.status})`,
+        );
+        setShare(previous);
+        return;
+      }
+      const updated = (await res.json()) as ProfileResponse;
+      onProfileUpdate(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setError("Network error — please try again");
+      setShare(previous);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={<EyeOff className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
+      title="Privacy"
+      action={
+        saved ? (
+          <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved</span>
+        ) : saving ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />
+        ) : null
+      }
+    >
+      {error && <InlineError>{error}</InlineError>}
+      <div className="flex items-start justify-between gap-4 rounded-lg px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+        <div className="min-w-0 flex-1">
+          <Label
+            htmlFor="privacy-share-activity"
+            className="cursor-pointer text-sm font-medium text-zinc-900 dark:text-white"
+          >
+            Share my activity with my organization
+          </Label>
+          <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+            When on, teammates can see your source checks, researcher analyses,
+            and reports in the team activity feed.
+          </p>
+        </div>
+        <ToggleSwitch
+          id="privacy-share-activity"
+          checked={share}
+          onChange={() => persist(!share)}
+          ariaLabel="Share activity with organization"
+        />
+      </div>
+      <p className="mt-3 text-xs italic text-zinc-500 dark:text-zinc-400">
+        Your activity is visible to your organization. Turn off to keep your
+        work private.
+      </p>
     </SectionCard>
   );
 }

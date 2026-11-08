@@ -20,6 +20,12 @@ import {
   CheckCircle2,
   FileText,
   Compass,
+  Brain,
+  XCircle,
+  Unlink,
+  GitBranch,
+  Pin,
+  Activity,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useColorMode } from "@/contexts/ColorModeContext";
@@ -76,11 +82,53 @@ interface UsageData {
   };
 }
 
+interface ScoreDistributionData {
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+}
+
+interface TopIssuesData {
+  ai_content_checks: number;
+  low_credibility_checks: number;
+  retracted_citations: number;
+  broken_citations: number;
+  citation_rings_flagged: number;
+}
+
+interface PinnedItemData {
+  kind: "source_check" | "researcher" | "report";
+  id: string;
+  title: string;
+  score: number | null;
+  pinned_at: string;
+}
+
+interface TeamActivityActor {
+  id: string;
+  full_name: string | null;
+  email: string;
+}
+
+interface TeamActivityItem {
+  id: string;
+  kind: "source_check" | "researcher" | "report";
+  title: string;
+  score: number | null;
+  created_at: string | null;
+  actor: TeamActivityActor | null;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [scoreDist, setScoreDist] = useState<ScoreDistributionData | null>(null);
+  const [topIssues, setTopIssues] = useState<TopIssuesData | null>(null);
+  const [pins, setPins] = useState<PinnedItemData[]>([]);
+  const [teamActivity, setTeamActivity] = useState<TeamActivityItem[] | null>(null);
   const [range, setRange] = useState<DateRange>("30d");
   const [activitySearch, setActivitySearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -102,25 +150,50 @@ export default function DashboardPage() {
     try {
       // Surface failures instead of swallowing them — partial dashboard
       // data with no indication is worse than a clear error.
-      const [statsRes, activityRes, trendsRes, usageRes] = await Promise.all([
+      const [
+        statsRes,
+        activityRes,
+        trendsRes,
+        usageRes,
+        scoreDistRes,
+        topIssuesRes,
+        pinsRes,
+      ] = await Promise.all([
         apiFetch("/api/dashboard/stats", { signal }),
         apiFetch("/api/dashboard/recent-activity", { signal }),
         apiFetch(`/api/dashboard/trends?range=${rangeParam}`, { signal }),
         apiFetch("/api/dashboard/usage", { signal }),
+        apiFetch("/api/dashboard/score-distribution", { signal }),
+        apiFetch("/api/dashboard/top-issues", { signal }),
+        apiFetch("/api/auth/me/pins", { signal }),
       ]);
-      if (!statsRes.ok || !activityRes.ok || !trendsRes.ok || !usageRes.ok) {
+      if (
+        !statsRes.ok ||
+        !activityRes.ok ||
+        !trendsRes.ok ||
+        !usageRes.ok ||
+        !scoreDistRes.ok ||
+        !topIssuesRes.ok ||
+        !pinsRes.ok
+      ) {
         throw new Error("Dashboard request failed");
       }
-      const [s, a, t, u] = await Promise.all([
+      const [s, a, t, u, sd, ti, pn] = await Promise.all([
         statsRes.json(),
         activityRes.json(),
         trendsRes.json(),
         usageRes.json(),
+        scoreDistRes.json(),
+        topIssuesRes.json(),
+        pinsRes.json(),
       ]);
       setStats(s);
       setActivity(a || []);
       setTrends(t?.data || []);
       setUsage(u);
+      setScoreDist(sd);
+      setTopIssues(ti);
+      setPins(Array.isArray(pn) ? pn : []);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
@@ -129,11 +202,58 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Refetch only the pins after a mutation (unpin) without a full dashboard reload.
+  const refetchPins = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/auth/me/pins");
+      if (!res.ok) return;
+      const data = await res.json();
+      setPins(Array.isArray(data) ? data : []);
+    } catch {
+      // Network blip — leave the optimistic state alone.
+    }
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     load(range, controller.signal);
     return () => controller.abort();
   }, [load, range]);
+
+  // Team activity: only fetched once we know the tier from /api/dashboard/usage.
+  // 403 (not on team tier) and 404 (team tier without an org) hide the widget
+  // silently — surface only as a console warning so support can debug from logs.
+  useEffect(() => {
+    if (usage?.tier !== "team") {
+      setTeamActivity(null);
+      return;
+    }
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await apiFetch("/api/dashboard/team-activity", {
+          signal: controller.signal,
+        });
+        if (res.status === 403 || res.status === 404) {
+          console.warn(
+            `Team activity hidden: HTTP ${res.status}. The user is on the team tier but the backend declined to return team data.`,
+          );
+          setTeamActivity(null);
+          return;
+        }
+        if (!res.ok) {
+          setTeamActivity(null);
+          return;
+        }
+        const body = await res.json();
+        setTeamActivity(Array.isArray(body?.items) ? body.items : []);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setTeamActivity(null);
+      }
+    })();
+    return () => controller.abort();
+  }, [usage?.tier]);
 
   // Refetch only the trends when the range changes after initial load,
   // rather than re-running the whole dashboard every time. The full `load`
@@ -257,6 +377,18 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Pinned items (full width) */}
+      <PinnedItems pins={pins} onChanged={refetchPins} />
+
+      {/* Score distribution + Top issues */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <ScoreDistribution data={scoreDist} />
+        <TopIssues data={topIssues} />
+      </div>
+
+      {/* Team activity (team tier only) */}
+      {teamActivity != null && <TeamActivityWidget items={teamActivity} />}
 
       {/* Trends + Activity */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -700,5 +832,347 @@ function UsageRow({ label, bucket }: { label: string; bucket: UsageBucket }) {
         />
       </div>
     </div>
+  );
+}
+
+
+/* ───── Score distribution — high/medium/low across the user's checks ───── */
+
+function ScoreDistribution({ data }: { data: ScoreDistributionData | null }) {
+  if (!data) return null;
+  const total = data.total;
+  const empty = total === 0;
+
+  // Stacked bar uses flex-grow proportional to count so the browser handles
+  // widths — simpler and pixel-rounding-resilient than computing percentages.
+  const buckets: Array<{
+    key: keyof Pick<ScoreDistributionData, "high" | "medium" | "low">;
+    label: string;
+    barClass: string;
+    swatchClass: string;
+  }> = [
+    {
+      key: "high",
+      label: "High (≥70)",
+      barClass: "bg-emerald-500",
+      swatchClass: "bg-emerald-500",
+    },
+    {
+      key: "medium",
+      label: "Medium (40–69)",
+      barClass: "bg-amber-500",
+      swatchClass: "bg-amber-500",
+    },
+    {
+      key: "low",
+      label: "Low (<40)",
+      barClass: "bg-red-500",
+      swatchClass: "bg-red-500",
+    },
+  ];
+
+  return (
+    <Card className="border-zinc-200 bg-white lg:col-span-2 dark:border-zinc-800 dark:bg-zinc-900/50">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <BarChart3 className="h-4 w-4" /> Score Distribution
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {empty ? (
+          <p className="py-6 text-center text-sm text-zinc-500">
+            Run a few source checks to see your score distribution.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div
+              role="img"
+              aria-label={`Score distribution: ${data.high} high, ${data.medium} medium, ${data.low} low`}
+              className="flex h-3 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
+            >
+              {buckets.map((b) => {
+                const count = data[b.key];
+                if (count <= 0) return null;
+                return (
+                  <div
+                    key={b.key}
+                    className={b.barClass}
+                    style={{ flexGrow: count }}
+                  />
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              {buckets.map((b) => {
+                const count = data[b.key];
+                const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+                return (
+                  <div
+                    key={b.key}
+                    className="flex items-center gap-2 rounded-md border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${b.swatchClass}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
+                        {b.label}
+                      </p>
+                      <p className="tabular-nums text-[11px] text-fg-tertiary">
+                        {count} · {percent}%
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+/* ───── Top issues — flagged findings count per category ───── */
+
+function TopIssues({ data }: { data: TopIssuesData | null }) {
+  if (!data) return null;
+
+  const rows: Array<{
+    key: keyof TopIssuesData;
+    icon: React.ComponentType<{ className?: string }>;
+    iconClass: string;
+    label: string;
+  }> = [
+    {
+      key: "ai_content_checks",
+      icon: Brain,
+      iconClass: "text-blue-700 dark:text-blue-400",
+      label: "AI content detected",
+    },
+    {
+      key: "low_credibility_checks",
+      icon: AlertTriangle,
+      iconClass: "text-amber-700 dark:text-amber-400",
+      label: "Low credibility",
+    },
+    {
+      key: "retracted_citations",
+      icon: XCircle,
+      iconClass: "text-red-700 dark:text-red-400",
+      label: "Retracted citations",
+    },
+    {
+      key: "broken_citations",
+      icon: Unlink,
+      iconClass: "text-amber-700 dark:text-amber-400",
+      label: "Broken citations",
+    },
+    {
+      key: "citation_rings_flagged",
+      icon: GitBranch,
+      iconClass: "text-red-700 dark:text-red-400",
+      label: "Citation rings flagged",
+    },
+  ];
+
+  // "Every row 0" is determined against the response object, before we filter.
+  const allZero = rows.every((r) => data[r.key] === 0);
+
+  return (
+    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <AlertTriangle className="h-4 w-4" /> Top Issues
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {allZero ? (
+          <p className="py-4 text-center text-sm text-zinc-500">
+            No flagged issues yet.
+          </p>
+        ) : (
+          rows
+            .filter((r) => data[r.key] > 0)
+            .map((r) => {
+              const Icon = r.icon;
+              const count = data[r.key];
+              return (
+                <div
+                  key={r.key}
+                  className="flex items-center gap-3 rounded-md px-2 py-1.5"
+                >
+                  <Icon className={`h-4 w-4 shrink-0 ${r.iconClass}`} />
+                  <p className="text-sm">
+                    <span className="font-semibold tabular-nums text-zinc-900 dark:text-white">
+                      {count}
+                    </span>{" "}
+                    <span className="text-fg-secondary">{r.label}</span>
+                  </p>
+                </div>
+              );
+            })
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+/* ───── Pinned items — quick access to starred checks/researchers ───── */
+
+function PinnedItems({
+  pins,
+  onChanged,
+}: {
+  pins: PinnedItemData[];
+  onChanged: () => void | Promise<void>;
+}) {
+  const visible = pins.slice(0, 12);
+
+  async function unpin(kind: PinnedItemData["kind"], id: string) {
+    try {
+      const res = await apiFetch(`/api/auth/me/pins/${kind}/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) {
+        console.warn(`Unpin failed: HTTP ${res.status}`);
+        return;
+      }
+      await onChanged();
+    } catch (e) {
+      console.warn("Unpin failed:", e);
+    }
+  }
+
+  function hrefFor(item: PinnedItemData): string {
+    switch (item.kind) {
+      case "source_check":
+        return `/check/${item.id}`;
+      case "researcher":
+        return `/researcher/${item.id}`;
+      case "report":
+        return `/reports/${item.id}`;
+    }
+  }
+
+  return (
+    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <Pin className="h-4 w-4" /> Pinned
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {visible.length === 0 ? (
+          <p className="py-4 text-center text-sm text-zinc-500">
+            Pin checks or researchers you want quick access to. Use the star
+            icon on any detail page.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {visible.map((item) => (
+              <li
+                key={`${item.kind}:${item.id}`}
+                className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 transition hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700"
+              >
+                <Link
+                  href={hrefFor(item)}
+                  className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+                >
+                  {item.title}
+                </Link>
+                {item.score != null && (
+                  <span
+                    className={`shrink-0 text-[11px] font-bold tabular-nums ${scoreColor(item.score)}`}
+                  >
+                    {item.score.toFixed(0)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => unpin(item.kind, item.id)}
+                  aria-label={`Unpin ${item.title}`}
+                  className="shrink-0 rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+/* ───── Team activity feed — team-tier only ───── */
+
+function TeamActivityWidget({ items }: { items: TeamActivityItem[] }) {
+  const visible = items.slice(0, 50);
+
+  function actionFor(kind: TeamActivityItem["kind"]): string {
+    switch (kind) {
+      case "source_check":
+        return "Ran a source check";
+      case "researcher":
+        return "Analyzed a researcher";
+      case "report":
+        return "Generated a report";
+    }
+  }
+
+  return (
+    <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <Activity className="h-4 w-4" /> Team Activity
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {visible.length === 0 ? (
+          <p className="py-4 text-center text-sm text-zinc-500">
+            No team activity in the last 30 days.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {visible.map((item) => {
+              const actorLabel =
+                item.actor?.full_name?.trim() ||
+                item.actor?.email ||
+                "Someone";
+              return (
+                <li
+                  key={`${item.kind}:${item.id}`}
+                  className="flex items-start gap-2 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs">
+                      <span className="font-medium text-zinc-900 dark:text-white">
+                        {actorLabel}
+                      </span>{" "}
+                      <span className="text-fg-secondary">
+                        {actionFor(item.kind).toLowerCase()}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] text-fg-tertiary">
+                      {item.title}
+                    </p>
+                  </div>
+                  {item.created_at && (
+                    <span className="shrink-0 text-[10px] text-fg-tertiary">
+                      {timeAgo(item.created_at)}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

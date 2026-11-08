@@ -37,6 +37,7 @@ import {
   ScoreExplanationCard,
   ScoreExplanationCompact,
 } from "@/components/ui/score-explanation";
+import { PinButton } from "@/components/ui/pin-button";
 
 // ── Types ──
 
@@ -460,6 +461,7 @@ function FullWidthView({ data }: { data: SourceCheckData }) {
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Source Check Results</h1>
         </div>
         <div className="flex gap-2">
+          <PinButton kind="source_check" id={data.id} />
           <Button
             variant="outline"
             size="sm"
