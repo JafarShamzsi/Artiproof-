@@ -1,10 +1,18 @@
 "use client";
 
-import { use, useEffect, useState, useRef, lazy, Suspense } from "react";
+import { use, useEffect, useState, useRef, useCallback, lazy, Suspense } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useRouter } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Shield,
   Brain,
@@ -17,8 +25,13 @@ import {
   HelpCircle,
   Loader2,
   ArrowLeft,
-  ExternalLink,
-  Globe,
+  RefreshCw,
+  Link2,
+  ChevronDown,
+  Copy,
+  Trash2,
+  FileJson,
+  FileSpreadsheet,
 } from "lucide-react";
 import type { PdfViewerHandle } from "@/components/pdf-viewer";
 
@@ -34,90 +47,26 @@ import {
   scoreSolidBorderColor,
 } from "@/lib/colors";
 import {
-  ScoreExplanationCard,
   ScoreExplanationCompact,
 } from "@/components/ui/score-explanation";
 import { PinButton } from "@/components/ui/pin-button";
+import { toast } from "@/lib/toast";
+import {
+  FullWidthView,
+  type AIDetection,
+  type CitationData,
+  type ClaimData,
+  type FullWidthSourceCheckData,
+  type ModelMetadataData,
+  type ScoreBreakdownData,
+} from "@/components/source-check/FullWidthView";
 
-// ── Types ──
+// ── Types — extends the shared shape with fields the authed view needs (input_content, share_token). ──
 
-interface ClaimData {
-  id: string;
-  claim_text: string;
-  verdict: string;
-  confidence: number;
-  explanation: string;
-  true_version: string | null;
-  sources: Array<{ name?: string; url?: string }> | null;
-  origin_trace: {
-    origin_platform?: string;
-    first_seen?: string;
-    [k: string]: unknown;
-  } | null;
-  position_in_text: { start: number; end: number } | null;
-}
-
-interface AIDetection {
-  id: string;
-  paragraph_index: number;
-  paragraph_text: string;
-  ai_probability: number;
-  detection_method: string;
-}
-
-interface CitationData {
-  id: string;
-  original_citation: string;
-  citation_url: string | null;
-  is_accessible: boolean;
-  is_retracted: boolean;
-  credibility_score: number | null;
-  issues: string[] | null;
-  suggested_alternative: string | null;
-}
-
-interface ScoreBreakdownData {
-  base: number;
-  deductions: Array<{
-    reason: string;
-    impact: number;
-    detail?: Record<string, unknown>;
-  }>;
-  warnings?: string[];
-  final: number;
-  confidence?: number;
-  formula_version?: string;
-}
-
-interface ModelMetadataData {
-  model_provider?: string;
-  model_name?: string;
-  apis_used?: string[];
-  fallback_used?: boolean;
-  processing_warnings?: Array<Record<string, unknown>>;
-  timestamp?: string;
-  formula_version?: string;
-  context?: Record<string, unknown>;
-}
-
-interface SourceCheckData {
-  id: string;
-  input_type: string;
+interface SourceCheckData extends FullWidthSourceCheckData {
   input_content: string;
-  input_title: string | null;
-  status: string;
-  overall_credibility_score: number | null;
-  ai_content_percentage: number | null;
-  misinfo_claims_found: number | null;
-  has_pdf: boolean;
-  has_annotated_pdf: boolean;
-  created_at: string;
-  completed_at: string | null;
-  claims: ClaimData[];
-  ai_detections: AIDetection[];
-  citations: CitationData[];
-  score_breakdown?: ScoreBreakdownData | null;
-  model_metadata?: ModelMetadataData | null;
+  /** Public share token — null when no link has been issued yet. */
+  share_token: string | null;
 }
 
 interface PositionMap {
@@ -215,10 +164,319 @@ export default function SourceCheckResultPage({
 
   // Split-view for PDFs, full-width for URL/text
   if (isPdf && pdfUrl) {
-    return <SplitView data={data} pdfUrl={pdfUrl} positionMap={positionMap} pdfViewerRef={pdfViewerRef} onFindingClick={handleFindingClick} />;
+    return (
+      <SplitView
+        data={data}
+        pdfUrl={pdfUrl}
+        positionMap={positionMap}
+        pdfViewerRef={pdfViewerRef}
+        onFindingClick={handleFindingClick}
+        onShareTokenChange={(token) => setData({ ...data, share_token: token })}
+      />
+    );
   }
 
-  return <FullWidthView data={data} />;
+  return (
+    <FullWidthView
+      data={data}
+      actionsSlot={
+        <ActionButtons
+          data={data}
+          onShareTokenChange={(token) => setData({ ...data, share_token: token })}
+        />
+      }
+    />
+  );
+}
+
+// ── Action button cluster (Pin · Re-check · Share link · Export ▾ · Report) ──
+
+function ActionButtons({
+  data,
+  onShareTokenChange,
+}: {
+  data: SourceCheckData;
+  onShareTokenChange: (token: string | null) => void;
+}) {
+  const router = useRouter();
+  const [rerunBusy, setRerunBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const { share, download, busy: reportBusy, copied, error: reportError } =
+    useReportActions({ sourceCheckId: data.id });
+  const [exportBusy, setExportBusy] = useState<"json" | "csv" | null>(null);
+
+  const handleRerun = useCallback(async () => {
+    if (rerunBusy) return;
+    setRerunBusy(true);
+    try {
+      const res = await apiFetch(`/api/source-check/${data.id}/rerun`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || `Re-check failed (HTTP ${res.status})`);
+        return;
+      }
+      const newCheck = await res.json();
+      toast.success("Re-check started");
+      router.push(`/check/${newCheck.id}`);
+    } catch {
+      toast.error("Network error — please try again");
+    } finally {
+      setRerunBusy(false);
+    }
+  }, [data.id, rerunBusy, router]);
+
+  // Copy a string to the clipboard with a graceful fallback so the action
+  // works on insecure-context dev URLs (no `navigator.clipboard`).
+  const copyToClipboard = useCallback(async (url: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        return true;
+      }
+    } catch {
+      /* fall through to textarea fallback */
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const handleCreateShareLink = useCallback(async () => {
+    if (shareBusy) return;
+    setShareBusy(true);
+    try {
+      const res = await apiFetch(`/api/source-check/${data.id}/share-token`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || `Failed to create share link (HTTP ${res.status})`);
+        return;
+      }
+      const body = (await res.json()) as { share_token: string; share_url: string };
+      onShareTokenChange(body.share_token);
+      const ok = await copyToClipboard(body.share_url);
+      if (ok) toast.success("Public link copied");
+      else toast.success("Public link created");
+    } catch {
+      toast.error("Network error — please try again");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [data.id, shareBusy, onShareTokenChange, copyToClipboard]);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!data.share_token) return;
+    // Reconstruct the share URL using the current origin so the copied link
+    // matches the environment the user is browsing from.
+    const url = `${window.location.origin}/check/shared/${data.share_token}`;
+    const ok = await copyToClipboard(url);
+    if (ok) toast.success("Public link copied");
+    else toast.error("Failed to copy link");
+  }, [data.share_token, copyToClipboard]);
+
+  const handleRevokeShareLink = useCallback(async () => {
+    if (shareBusy) return;
+    setShareBusy(true);
+    try {
+      const res = await apiFetch(`/api/source-check/${data.id}/share-token`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || `Failed to revoke (HTTP ${res.status})`);
+        return;
+      }
+      onShareTokenChange(null);
+      toast.success("Public link revoked");
+    } catch {
+      toast.error("Network error — please try again");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [data.id, shareBusy, onShareTokenChange]);
+
+  const handleExport = useCallback(async (format: "json" | "csv") => {
+    if (exportBusy) return;
+    setExportBusy(format);
+    try {
+      const res = await apiFetch(
+        `/api/source-check/${data.id}/export?format=${format}`,
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || `Export failed (HTTP ${res.status})`);
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `artiproof-check-${data.id.slice(0, 8)}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success(`Exported as ${format.toUpperCase()}`);
+    } catch {
+      toast.error("Network error during export");
+    } finally {
+      setExportBusy(null);
+    }
+  }, [data.id, exportBusy]);
+
+  return (
+    <>
+      <PinButton kind="source_check" id={data.id} />
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleRerun}
+        disabled={rerunBusy}
+        className="border-zinc-300 text-zinc-700 dark:border-zinc-700 dark:text-zinc-400"
+      >
+        {rerunBusy ? (
+          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+        ) : (
+          <RefreshCw className="mr-1.5 h-4 w-4" />
+        )}
+        Re-check
+      </Button>
+
+      {data.share_token == null ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleCreateShareLink}
+          disabled={shareBusy}
+          className="border-zinc-300 text-zinc-700 dark:border-zinc-700 dark:text-zinc-400"
+        >
+          {shareBusy ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <Link2 className="mr-1.5 h-4 w-4" />
+          )}
+          Create share link
+        </Button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="Manage share link"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-zinc-300 bg-transparent px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            disabled={shareBusy}
+          >
+            {shareBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Link2 className="h-4 w-4" />
+            )}
+            <span>Share link</span>
+            <ChevronDown className="h-3 w-3" aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="w-44 border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            <DropdownMenuItem
+              onClick={handleCopyShareLink}
+              className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+            >
+              <Copy className="h-4 w-4" /> Copy link
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-zinc-200 dark:bg-zinc-800" />
+            <DropdownMenuItem
+              onClick={handleRevokeShareLink}
+              className="flex items-center gap-2 text-red-600 dark:text-red-400"
+            >
+              <Trash2 className="h-4 w-4" /> Revoke link
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="Export"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-zinc-300 bg-transparent px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          disabled={exportBusy != null}
+        >
+          {exportBusy != null ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          <span>Export</span>
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="w-48 border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          <DropdownMenuItem
+            onClick={() => handleExport("json")}
+            className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+          >
+            <FileJson className="h-4 w-4" /> Export as JSON
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => handleExport("csv")}
+            className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+          >
+            <FileSpreadsheet className="h-4 w-4" /> Export as CSV
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="bg-zinc-200 dark:bg-zinc-800" />
+          <DropdownMenuItem
+            onClick={download}
+            disabled={reportBusy}
+            className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+          >
+            <Download className="h-4 w-4" /> Generate full PDF report
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={share}
+            disabled={reportBusy}
+            className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+          >
+            <Share2 className="h-4 w-4" /> {copied ? "Copied!" : "Share PDF report link"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Button
+        size="sm"
+        onClick={download}
+        disabled={reportBusy}
+        className="bg-brand text-white hover:bg-brand-hover"
+      >
+        {reportBusy ? (
+          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+        ) : (
+          <Download className="mr-1.5 h-4 w-4" />
+        )}
+        Report
+      </Button>
+
+      {reportError && (
+        <span className="ml-2 inline-block max-w-xs truncate rounded-md border border-red-500/20 bg-red-500/10 px-2 py-1 text-xs text-red-700 dark:text-red-400">
+          {reportError}
+        </span>
+      )}
+    </>
+  );
 }
 
 // ── Split View (PDF) ──
@@ -229,12 +487,14 @@ function SplitView({
   positionMap,
   pdfViewerRef,
   onFindingClick,
+  onShareTokenChange,
 }: {
   data: SourceCheckData;
   pdfUrl: string;
   positionMap: PositionMap | null;
   pdfViewerRef: React.RefObject<PdfViewerHandle | null>;
   onFindingClick: (type: "claims" | "ai_detections" | "citations", id: string) => void;
+  onShareTokenChange: (token: string | null) => void;
 }) {
   const score = data.overall_credibility_score ?? 0;
   const explanation = explainCredibility({
@@ -267,6 +527,11 @@ function SplitView({
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <h1 className="font-display text-xl font-bold text-zinc-900 dark:text-white">Source Check</h1>
+        </div>
+
+        {/* Action buttons live above the score for PDF view too */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <ActionButtons data={data} onShareTokenChange={onShareTokenChange} />
         </div>
 
         {/* Score */}
@@ -434,339 +699,12 @@ function FindingsList({
   );
 }
 
-// ── Full Width View (URL/text — existing layout) ──
-
-function FullWidthView({ data }: { data: SourceCheckData }) {
-  const score = data.overall_credibility_score ?? 0;
-  const aiPct = data.ai_content_percentage ?? 0;
-  const explanation = explainCredibility({
-    score,
-    aiPercent: aiPct,
-    misinfoCount: data.misinfo_claims_found,
-    citationsTotal: data.citations.length,
-    retractedCitations: data.citations.filter((c) => c.is_retracted).length,
-    brokenCitations: data.citations.filter((c) => !c.is_accessible && !c.is_retracted).length,
-  });
-  const { share, download, busy, copied, error } = useReportActions({
-    sourceCheckId: data.id,
-  });
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/check" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Source Check Results</h1>
-        </div>
-        <div className="flex gap-2">
-          <PinButton kind="source_check" id={data.id} />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={share}
-            disabled={busy}
-            className="border-zinc-300 text-zinc-700 dark:border-zinc-700 dark:text-zinc-400"
-          >
-            {busy ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <Share2 className="mr-1.5 h-4 w-4" />
-            )}
-            {copied ? "Copied!" : "Share"}
-          </Button>
-          <Button
-            size="sm"
-            onClick={download}
-            disabled={busy}
-            className="bg-brand text-white hover:bg-brand-hover"
-          >
-            {busy ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-1.5 h-4 w-4" />
-            )}
-            Report
-          </Button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
-          {error}
-        </div>
-      )}
-
-      {data.status !== "completed" && (
-        <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardContent className="flex items-center gap-3 py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-blue-700 dark:text-blue-400" />
-            <span className="text-sm text-zinc-700 dark:text-zinc-300">Status: {data.status}</span>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Score Card */}
-      <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
-        <CardContent className="py-8">
-          <div className="flex flex-col items-center gap-6 md:flex-row">
-            <div
-              role="meter"
-              aria-label="Credibility score"
-              aria-valuenow={Math.round(score)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuetext={`${Math.round(score)} out of 100`}
-              className={`flex h-28 w-28 shrink-0 flex-col items-center justify-center rounded-full border-4 ${scoreColor(score)} ${scoreSolidBorderColor(score)}`}
-            >
-              <span className="text-3xl font-bold">{Math.round(score)}</span>
-              <span className="text-xs opacity-70">/ 100</span>
-            </div>
-            <div className="flex-1 text-center md:text-left">
-              <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">{data.input_title || "Credibility Score"}</h2>
-              {data.input_type === "url" && (
-                <p className="mt-1 flex items-center gap-1 text-sm text-zinc-500">
-                  <Globe className="h-3 w-3" /> {data.input_content}
-                </p>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge className="bg-blue-500/20 text-blue-700 dark:text-blue-400"><Brain className="mr-1 h-3 w-3" /> AI: {aiPct.toFixed(0)}%</Badge>
-                <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-400"><Shield className="mr-1 h-3 w-3" /> {data.misinfo_claims_found ?? 0} misinfo</Badge>
-                <Badge className="bg-fg-tertiary/15 text-fg-secondary"><BookOpen className="mr-1 h-3 w-3" /> {data.citations.length} citations</Badge>
-              </div>
-            </div>
-          </div>
-          <ScoreExplanationCard explanation={explanation} className="mt-6" />
-          {data.score_breakdown && (
-            <ScoreBreakdownPanel breakdown={data.score_breakdown} className="mt-6" />
-          )}
-          {data.model_metadata && (
-            <CoverageIndicators metadata={data.model_metadata} className="mt-3" />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Claims */}
-      {data.claims.length > 0 && (
-        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"><Shield className="h-4 w-4" /> Claims ({data.claims.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {data.claims.map((claim) => {
-              const config = VERDICT_CONFIG[claim.verdict] || VERDICT_CONFIG.unverified;
-              const Icon = config.icon;
-              return (
-                <div key={claim.id} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
-                  <div className="flex items-start gap-3">
-                    <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${config.color}`} />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Badge className={`${config.bg} ${config.color}`}>{config.label}</Badge>
-                        <span className="text-xs text-zinc-500">{(claim.confidence * 100).toFixed(0)}%</span>
-                      </div>
-                      <p className="mt-2 text-sm text-zinc-900 dark:text-white">&ldquo;{claim.claim_text}&rdquo;</p>
-                      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{claim.explanation}</p>
-                      {claim.true_version && (
-                        <div className="mt-2 rounded border border-emerald-500/20 bg-emerald-500/5 p-2">
-                          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Correct version:</p>
-                          <p className="text-sm text-zinc-700 dark:text-zinc-300">{claim.true_version}</p>
-                        </div>
-                      )}
-                      {claim.origin_trace && (
-                        <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/5 p-2">
-                          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Origin: {claim.origin_trace.origin_platform} ({claim.origin_trace.first_seen})</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* AI Detection */}
-      {data.ai_detections.length > 0 && (
-        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"><Brain className="h-4 w-4" /> AI Detection</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.ai_detections.map((d) => (
-              <div key={d.id} className="flex items-start gap-3">
-                <div className="flex w-16 shrink-0 flex-col items-center">
-                  <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                    <div className={`h-full rounded-full ${aiProbColor(d.ai_probability)}`} style={{ width: `${d.ai_probability * 100}%` }} />
-                  </div>
-                  <span className="mt-1 text-[10px] text-zinc-500">{(d.ai_probability * 100).toFixed(0)}%</span>
-                </div>
-                <p className="flex-1 text-sm text-zinc-600 dark:text-zinc-400 line-clamp-2">{d.paragraph_text}</p>
-              </div>
-            ))}
-            <p className="border-t border-zinc-200 pt-3 text-[11px] leading-relaxed text-zinc-500 dark:border-zinc-800">
-              AI detection is probabilistic and should be treated as one signal
-              among many — not as proof of authorship.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Citations */}
-      {data.citations.length > 0 && (
-        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"><BookOpen className="h-4 w-4" /> Citations ({data.citations.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.citations.map((cit) => (
-              <div key={cit.id} className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-                {cit.is_retracted ? (
-                  <>
-                    <XCircle aria-hidden="true" className="h-4 w-4 text-red-700 dark:text-red-400" />
-                    <span className="sr-only">Retracted citation:</span>
-                  </>
-                ) : !cit.is_accessible ? (
-                  <>
-                    <AlertTriangle aria-hidden="true" className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                    <span className="sr-only">Inaccessible citation:</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle aria-hidden="true" className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
-                    <span className="sr-only">Verified citation:</span>
-                  </>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-zinc-900 dark:text-white">{cit.original_citation}</p>
-                  {cit.citation_url && (
-                    <a href={cit.citation_url} target="_blank" rel="noopener noreferrer" className="mt-0.5 flex items-center gap-1 text-xs text-blue-700 hover:underline dark:text-blue-400">
-                      {cit.citation_url.substring(0, 60)}... <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {cit.is_retracted && <Badge className="bg-red-500/20 text-red-700 text-[10px] dark:text-red-400">RETRACTED</Badge>}
-                    {!cit.is_accessible && <Badge className="bg-amber-500/20 text-amber-700 text-[10px] dark:text-amber-400">INACCESSIBLE</Badge>}
-                  </div>
-                  {cit.issues?.map((issue: string, i: number) => (
-                    <p key={i} className="mt-0.5 text-xs text-amber-700/90 dark:text-amber-400/80">- {issue}</p>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-// ─── Score breakdown / coverage helpers ───
-
-function ScoreBreakdownPanel({
-  breakdown,
-  className = "",
-}: {
-  breakdown: ScoreBreakdownData;
-  className?: string;
-}) {
-  if (!breakdown.deductions || breakdown.deductions.length === 0) {
-    return null;
-  }
-  return (
-    <div className={`rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40 ${className}`}>
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-        Score breakdown
-      </h4>
-      <div className="mt-3 space-y-1.5">
-        <div className="flex justify-between text-xs text-zinc-500">
-          <span>Starting score</span>
-          <span>{breakdown.base.toFixed(0)}</span>
-        </div>
-        {breakdown.deductions.map((d, i) => (
-          <div key={i} className="flex justify-between text-xs">
-            <span className="text-zinc-700 dark:text-zinc-300">
-              {d.reason.replace(/_/g, " ")}
-            </span>
-            <span className="text-red-700 dark:text-red-400">
-              {d.impact > 0 ? "+" : ""}
-              {d.impact.toFixed(1)}
-            </span>
-          </div>
-        ))}
-        <div className="flex justify-between border-t border-zinc-200 pt-1.5 text-xs font-medium dark:border-zinc-800">
-          <span className="text-zinc-900 dark:text-white">Final</span>
-          <span className="text-zinc-900 dark:text-white">{breakdown.final.toFixed(1)}</span>
-        </div>
-        {typeof breakdown.confidence === "number" && (
-          <div className="flex justify-between pt-1 text-xs">
-            <span className="text-zinc-500">Confidence</span>
-            <span className="text-zinc-700 dark:text-zinc-300">
-              {Math.round(breakdown.confidence * 100)}%
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CoverageIndicators({
-  metadata,
-  className = "",
-}: {
-  metadata: ModelMetadataData;
-  className?: string;
-}) {
-  const ctx = metadata.context || {};
-  const truncated = Boolean(
-    metadata.processing_warnings?.some(
-      (w) => w["type"] === "text_truncated",
-    ),
-  );
-  const paragraphsCapped = Boolean(
-    metadata.processing_warnings?.some(
-      (w) => w["type"] === "paragraphs_capped",
-    ),
-  );
-  const claimsExtracted = typeof ctx.claims_extracted === "number" ? ctx.claims_extracted : null;
-  const paragraphs = typeof ctx.paragraphs_analyzed === "number" ? ctx.paragraphs_analyzed : null;
-  const textLength = typeof ctx.text_length === "number" ? ctx.text_length : null;
-
-  // Hide entirely if we have nothing useful to show
-  if (!truncated && !paragraphsCapped && claimsExtracted == null && paragraphs == null) {
-    return null;
-  }
-
-  return (
-    <div className={`flex flex-wrap gap-2 ${className}`}>
-      {truncated && textLength != null && (
-        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
-          First 15,000 of {textLength.toLocaleString()} chars analyzed
-        </span>
-      )}
-      {paragraphsCapped && (
-        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
-          AI detection capped at 20 paragraphs
-        </span>
-      )}
-      {claimsExtracted != null && (
-        <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
-          {claimsExtracted} claim{claimsExtracted === 1 ? "" : "s"} extracted
-        </span>
-      )}
-      {paragraphs != null && paragraphs > 0 && (
-        <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
-          {paragraphs} paragraph{paragraphs === 1 ? "" : "s"} analyzed
-        </span>
-      )}
-      {metadata.fallback_used && (
-        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
-          Heuristic fallback used
-        </span>
-      )}
-    </div>
-  );
-}
+// Re-export shared types so any external importers of this file (none today,
+// but historically the page held the canonical `SourceCheckData`) keep working.
+export type {
+  AIDetection,
+  CitationData,
+  ClaimData,
+  ModelMetadataData,
+  ScoreBreakdownData,
+};

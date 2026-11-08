@@ -117,6 +117,44 @@ export interface SourceCheck {
   citations: CitationCheck[];
   score_breakdown?: ScoreBreakdown | null;
   model_metadata?: ModelMetadata | null;
+  /** Public share token, when issued. Null when no share link exists yet. */
+  share_token?: string | null;
+}
+
+/**
+ * Public view of a source check returned by GET /api/source-check/shared/{token}.
+ * Mirrors `SharedSourceCheckResponse` in the backend — strips `user_id`, omits
+ * `input_content` for url-type checks (the URL is treated as the secret),
+ * never returns `share_token` or `model_metadata`.
+ */
+export interface SharedSourceCheck {
+  id: string;
+  input_type: "url" | "text" | "document";
+  input_title: string | null;
+  status: CheckStatus;
+  overall_credibility_score: number | null;
+  ai_content_percentage: number | null;
+  misinfo_claims_found: number | null;
+  has_pdf: boolean;
+  has_annotated_pdf: boolean;
+  created_at: string;
+  completed_at: string | null;
+  claims: ClaimAnalysis[];
+  ai_detections: AIDetectionResult[];
+  citations: CitationCheck[];
+  score_breakdown?: ScoreBreakdown | null;
+}
+
+/** Returned by POST /api/source-check/{id}/share-token. Idempotent. */
+export interface ShareTokenResponse {
+  share_token: string;
+  share_url: string;
+}
+
+/** Returned by POST /api/source-check/bulk. */
+export interface BulkSourceCheckResponse {
+  batch_id: string;
+  items: SourceCheckListItem[];
 }
 
 export interface SourceCheckListItem {
