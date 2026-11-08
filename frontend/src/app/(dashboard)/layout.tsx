@@ -16,6 +16,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { KeyboardShortcutsPanel } from "@/components/dashboard/KeyboardShortcutsPanel";
 import {
+  CommandPalette,
+  useCommandPalette,
+} from "@/components/dashboard/CommandPalette";
+import {
   LayoutDashboard,
   Search,
   Users,
@@ -92,6 +96,9 @@ export default function DashboardLayout({
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const { data: session } = useSession();
+  // Owns the palette's open state so the header search button and the
+  // global Cmd/Ctrl+K listener can both flip it.
+  const { open: paletteOpen, setOpen: setPaletteOpen, isMac } = useCommandPalette();
 
   const initials = session?.user?.name
     ? session.user.name
@@ -151,6 +158,29 @@ export default function DashboardLayout({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Search-shaped button — looks like a search bar but acts as a
+                trigger so the focused element stays inside the palette dialog
+                when it opens. Renders the platform-correct kbd hint. */}
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Open command palette"
+              className="hidden h-9 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 text-sm text-zinc-500 transition-colors hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-700 sm:inline-flex md:w-64 md:justify-between dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
+            >
+              <span className="flex items-center gap-2">
+                <Search aria-hidden="true" className="h-4 w-4" />
+                <span>Search…</span>
+              </span>
+              {/* The kbd renders only after platform detection lands so SSR
+                  and CSR agree. Ctrl+K is the safer default for everyone but
+                  Mac users; rendering nothing avoids a "Ctrl→⌘" flash. */}
+              {isMac != null && (
+                <kbd className="hidden items-center gap-0.5 rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 md:inline-flex dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                  {isMac ? "⌘" : "Ctrl"}
+                  <span>K</span>
+                </kbd>
+              )}
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Open account menu"
@@ -204,6 +234,10 @@ export default function DashboardLayout({
 
       {/* Global keyboard shortcuts: `?` opens, `g + letter` chords navigate. */}
       <KeyboardShortcutsPanel />
+
+      {/* Command palette — Cmd/Ctrl+K. State lives in the layout so the
+          header search button and the global hotkey both control it. */}
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }

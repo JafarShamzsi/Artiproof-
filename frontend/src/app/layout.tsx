@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Fraunces, JetBrains_Mono, Newsreader } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 import SessionProvider from "@/components/shared/SessionProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -96,6 +97,16 @@ export default function RootLayout({
             </ThemeProvider>
           </ColorModeProvider>
         </SessionProvider>
+        {/* Toast notifications — sonner. richColors uses brand-tinted
+            success / error / info palettes. Position top-right so toasts
+            don't fight with the bottom keyboard-shortcuts panel. */}
+        <Toaster
+          richColors
+          position="top-right"
+          toastOptions={{
+            className: "font-sans",
+          }}
+        />
       </body>
     </html>
   );

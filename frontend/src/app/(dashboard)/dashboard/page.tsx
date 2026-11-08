@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,13 +20,14 @@ import {
   Filter,
   CheckCircle2,
   FileText,
-  Compass,
   Brain,
   XCircle,
   Unlink,
   GitBranch,
   Pin,
   Activity,
+  Check,
+  Circle,
 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useColorMode } from "@/contexts/ColorModeContext";
@@ -121,6 +123,7 @@ interface TeamActivityItem {
 }
 
 export default function DashboardPage() {
+  const { data: session } = useSession();
   const [stats, setStats] = useState<Stats | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
@@ -129,6 +132,10 @@ export default function DashboardPage() {
   const [topIssues, setTopIssues] = useState<TopIssuesData | null>(null);
   const [pins, setPins] = useState<PinnedItemData[]>([]);
   const [teamActivity, setTeamActivity] = useState<TeamActivityItem[] | null>(null);
+  // /api/dashboard/stats does not include reports — the onboarding "Generate a
+  // report" step needs that count to compute its checkmark, so we fetch it
+  // separately via /api/reports/?page_size=1 and read .total alongside.
+  const [reportsTotal, setReportsTotal] = useState<number>(0);
   const [range, setRange] = useState<DateRange>("30d");
   const [activitySearch, setActivitySearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -158,6 +165,7 @@ export default function DashboardPage() {
         scoreDistRes,
         topIssuesRes,
         pinsRes,
+        reportsRes,
       ] = await Promise.all([
         apiFetch("/api/dashboard/stats", { signal }),
         apiFetch("/api/dashboard/recent-activity", { signal }),
@@ -166,6 +174,7 @@ export default function DashboardPage() {
         apiFetch("/api/dashboard/score-distribution", { signal }),
         apiFetch("/api/dashboard/top-issues", { signal }),
         apiFetch("/api/auth/me/pins", { signal }),
+        apiFetch("/api/reports/?page_size=1", { signal }),
       ]);
       if (
         !statsRes.ok ||
@@ -174,11 +183,12 @@ export default function DashboardPage() {
         !usageRes.ok ||
         !scoreDistRes.ok ||
         !topIssuesRes.ok ||
-        !pinsRes.ok
+        !pinsRes.ok ||
+        !reportsRes.ok
       ) {
         throw new Error("Dashboard request failed");
       }
-      const [s, a, t, u, sd, ti, pn] = await Promise.all([
+      const [s, a, t, u, sd, ti, pn, rpt] = await Promise.all([
         statsRes.json(),
         activityRes.json(),
         trendsRes.json(),
@@ -186,6 +196,7 @@ export default function DashboardPage() {
         scoreDistRes.json(),
         topIssuesRes.json(),
         pinsRes.json(),
+        reportsRes.json(),
       ]);
       setStats(s);
       setActivity(a || []);
@@ -194,6 +205,7 @@ export default function DashboardPage() {
       setScoreDist(sd);
       setTopIssues(ti);
       setPins(Array.isArray(pn) ? pn : []);
+      setReportsTotal(typeof rpt?.total === "number" ? rpt.total : 0);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
@@ -284,11 +296,13 @@ export default function DashboardPage() {
     );
   }, [activity, activitySearch]);
 
-  const showOnboarding =
-    !onboardingDismissed &&
-    stats != null &&
-    stats.total_source_checks === 0 &&
-    stats.total_researcher_analyses === 0;
+  // Show the onboarding card until the user dismisses it. Previously we hid
+  // it as soon as the user did anything (scoring zero on both check + analyze
+  // gates); now the card itself shows progress, so we keep it visible until
+  // they explicitly close it. They can still dismiss it at any point.
+  const showOnboarding = !onboardingDismissed && stats != null;
+  const firstName =
+    session?.user?.name?.split(" ")[0]?.trim() || null;
 
   const showUsageWidget = usage != null && usage.tier !== "team";
 
@@ -319,7 +333,15 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Dashboard</h1>
 
-      {showOnboarding && <Onboarding onDismiss={dismissOnboarding} />}
+      {showOnboarding && stats && (
+        <Onboarding
+          firstName={firstName}
+          sourceChecks={stats.total_source_checks}
+          researcherAnalyses={stats.total_researcher_analyses}
+          reports={reportsTotal}
+          onDismiss={dismissOnboarding}
+        />
+      )}
 
       {showUsageWidget && <UsageWidget data={usage!} />}
 
@@ -617,9 +639,62 @@ function RangeSelector({
 }
 
 
-/* ───── Onboarding card — shown when the user has zero activity yet ───── */
+/* ───── Onboarding card — progressive checklist of first-run actions ───── */
 
-function Onboarding({ onDismiss }: { onDismiss: () => void }) {
+interface OnboardingStepDef {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  body: string;
+  cta: { label: string; href: string };
+}
+
+const ONBOARDING_STEPS: ReadonlyArray<OnboardingStepDef> = [
+  {
+    icon: Search,
+    title: "Run your first source check",
+    body: "Paste a URL, drop a PDF, or paste raw text. ArtiProof returns a credibility score with per-deduction reasoning.",
+    cta: { label: "Check a source", href: "/check" },
+  },
+  {
+    icon: Users,
+    title: "Analyze a researcher",
+    body: "Look up by ORCID or name. We compute self-citation, ring detection, and an adjusted h-index.",
+    cta: { label: "Analyze researcher", href: "/researcher" },
+  },
+  {
+    icon: FileText,
+    title: "Generate a report",
+    body: "Every check produces a downloadable PDF with the full breakdown — share it via a private link or save for the record.",
+    cta: { label: "View reports", href: "/reports" },
+  },
+];
+
+function Onboarding({
+  firstName,
+  sourceChecks,
+  researcherAnalyses,
+  reports,
+  onDismiss,
+}: {
+  firstName: string | null;
+  sourceChecks: number;
+  researcherAnalyses: number;
+  reports: number;
+  onDismiss: () => void;
+}) {
+  // Each step's done flag is computed against the current dashboard data
+  // so the checklist reflects the real account state on every render.
+  const stepDone: ReadonlyArray<boolean> = [
+    sourceChecks > 0,
+    researcherAnalyses > 0,
+    reports > 0,
+  ];
+  const completed = stepDone.filter(Boolean).length;
+  const total = stepDone.length;
+  const allDone = completed === total;
+  const greeting = firstName ? `Welcome, ${firstName}` : "Welcome";
+  const progressPercent = Math.round((completed / total) * 100);
+
   return (
     <Card className="relative overflow-hidden border-brand/30 bg-brand-soft/50 dark:border-brand/40 dark:bg-brand/10">
       <button
@@ -630,45 +705,64 @@ function Onboarding({ onDismiss }: { onDismiss: () => void }) {
       >
         <X className="h-4 w-4" />
       </button>
-      <CardContent className="space-y-4 py-6">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-brand dark:text-brand-fg" />
-          <h2 className="font-display text-lg font-semibold text-fg-primary">
-            Welcome to ArtiProof
-          </h2>
+      <CardContent className="space-y-5 py-6">
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-brand dark:text-brand-fg" />
+            <h2 className="font-display text-lg font-semibold text-fg-primary">
+              {greeting}
+            </h2>
+          </div>
+          {allDone ? (
+            <p className="max-w-2xl text-sm text-fg-secondary">
+              You&apos;re all set. ArtiProof has everything it needs — close
+              this card to clear it from your dashboard.
+            </p>
+          ) : (
+            <p className="max-w-2xl text-sm text-fg-secondary">
+              {completed === 0
+                ? "Three steps to get the most out of your account. Each one takes about a minute."
+                : `${completed} of ${total} done — ${total - completed} to go.`}
+            </p>
+          )}
+          {/* Progress bar at the top — feels like first-class state, not a
+              static page element. Dynamic count + visual indicator make
+              "I'm halfway there" instantly legible. */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-fg-tertiary">
+              <span>Setup progress</span>
+              <span className="tabular-nums">
+                {completed} of {total}
+              </span>
+            </div>
+            <div
+              role="progressbar"
+              aria-label="Onboarding progress"
+              aria-valuenow={completed}
+              aria-valuemin={0}
+              aria-valuemax={total}
+              className="h-1.5 overflow-hidden rounded-full bg-zinc-200/60 dark:bg-zinc-800/60"
+            >
+              <div
+                className="h-full rounded-full bg-brand transition-all duration-500 dark:bg-brand-fg"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
         </div>
-        <p className="max-w-2xl text-sm text-fg-secondary">
-          Three steps to get the most out of your account. Each one takes about
-          a minute.
-        </p>
         <ol className="grid gap-3 md:grid-cols-3">
-          <OnboardingStep
-            n={1}
-            icon={<Search className="h-4 w-4" />}
-            title="Run your first source check"
-            body="Paste a URL, drop a PDF, or paste raw text. ArtiProof returns a credibility score with per-deduction reasoning."
-            cta={{ label: "Check a source", href: "/check" }}
-          />
-          <OnboardingStep
-            n={2}
-            icon={<Users className="h-4 w-4" />}
-            title="Analyze a researcher"
-            body="Look up by ORCID or name. We compute self-citation, ring detection, and an adjusted h-index."
-            cta={{ label: "Analyze researcher", href: "/researcher" }}
-          />
-          <OnboardingStep
-            n={3}
-            icon={<FileText className="h-4 w-4" />}
-            title="Generate a report"
-            body="Every check produces a downloadable PDF with the full breakdown — share it via a private link or save for the record."
-            cta={{ label: "View reports", href: "/reports" }}
-          />
+          {ONBOARDING_STEPS.map((step, i) => (
+            <OnboardingStep
+              key={step.title}
+              n={i + 1}
+              done={stepDone[i]}
+              icon={step.icon}
+              title={step.title}
+              body={step.body}
+              cta={step.cta}
+            />
+          ))}
         </ol>
-        <p className="flex items-center gap-1.5 pt-1 text-[11px] text-fg-tertiary">
-          <Compass className="h-3 w-3" />
-          You can dismiss this any time — it won&apos;t come back unless you
-          clear browser data.
-        </p>
       </CardContent>
     </Card>
   );
@@ -676,33 +770,62 @@ function Onboarding({ onDismiss }: { onDismiss: () => void }) {
 
 function OnboardingStep({
   n,
-  icon,
+  done,
+  icon: Icon,
   title,
   body,
   cta,
 }: {
   n: number;
-  icon: React.ReactNode;
+  done: boolean;
+  icon: React.ComponentType<{ className?: string }>;
   title: string;
   body: string;
   cta: { label: string; href: string };
 }) {
   return (
-    <li className="rounded-lg border border-border-default bg-surface-card p-4 dark:border-zinc-800/80 dark:bg-zinc-900/40">
+    <li
+      className={`rounded-lg border p-4 transition-colors ${
+        done
+          ? "border-emerald-500/30 bg-emerald-500/5 dark:border-emerald-500/30 dark:bg-emerald-500/5"
+          : "border-border-default bg-surface-card dark:border-zinc-800/80 dark:bg-zinc-900/40"
+      }`}
+    >
       <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
-          {n}
+        {done ? (
+          <span
+            aria-hidden="true"
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white"
+          >
+            <Check className="h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-border-default text-[11px] font-semibold text-fg-tertiary"
+          >
+            <Circle className="h-3 w-3" />
+          </span>
+        )}
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-tertiary">
+          Step {n}
         </span>
-        <span className="text-fg-secondary">{icon}</span>
+        <Icon className="ml-auto h-4 w-4 text-fg-secondary" />
       </div>
       <h3 className="mt-3 text-sm font-semibold text-fg-primary">{title}</h3>
       <p className="mt-1 text-xs leading-relaxed text-fg-secondary">{body}</p>
-      <Link
-        href={cta.href}
-        className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover dark:text-brand-fg"
-      >
-        {cta.label} <ArrowRight className="h-3 w-3" />
-      </Link>
+      {done ? (
+        <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+          <Check className="h-3 w-3" /> Completed
+        </span>
+      ) : (
+        <Link
+          href={cta.href}
+          className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover dark:text-brand-fg"
+        >
+          {cta.label} <ArrowRight className="h-3 w-3" />
+        </Link>
+      )}
     </li>
   );
 }

@@ -41,6 +41,7 @@ import {
 import { useColorMode } from "@/contexts/ColorModeContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -227,7 +228,6 @@ function ProfileSection({
   const [fullName, setFullName] = useState("");
   const [institution, setInstitution] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -249,15 +249,20 @@ function ProfileSection({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError((data as { detail?: string }).detail || "Failed to save profile");
+        const msg = (data as { detail?: string }).detail || "Failed to save profile";
+        // Spec: keep the inline error block on Profile (existing UX) AND
+        // also fire a toast so the user gets the audible/persistent signal.
+        setError(msg);
+        toast.error(msg);
         return;
       }
       const updated = (await res.json()) as ProfileResponse;
       onProfileUpdate(updated);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 4000);
+      toast.success("Profile updated");
     } catch {
-      setError("Network error — please try again");
+      const msg = "Network error — please try again";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -356,7 +361,7 @@ function ProfileSection({
             ) : (
               <Save className="mr-2 h-4 w-4" />
             )}
-            {saved ? "Saved!" : "Save Changes"}
+            Save Changes
           </Button>
         </>
       )}
@@ -390,8 +395,9 @@ function NotificationsSection() {
   const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The load-time error is preserved as state so we can show a "couldn't
+  // load" hint inline. Save-time errors are surfaced via toast only.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -401,13 +407,13 @@ function NotificationsSection() {
           signal: controller.signal,
         });
         if (!res.ok) {
-          setError(`Failed to load preferences (HTTP ${res.status})`);
+          setLoadError(`Failed to load preferences (HTTP ${res.status})`);
           return;
         }
         setPrefs((await res.json()) as NotificationPrefs);
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
-        setError("Failed to load preferences");
+        setLoadError("Failed to load preferences");
       } finally {
         setLoading(false);
       }
@@ -417,7 +423,6 @@ function NotificationsSection() {
 
   async function persist(next: NotificationPrefs) {
     setSaving(true);
-    setError(null);
     try {
       const res = await apiFetch("/api/auth/me/notifications", {
         method: "PUT",
@@ -425,13 +430,14 @@ function NotificationsSection() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError((data as { detail?: string }).detail || "Failed to save preferences");
+        toast.error(
+          (data as { detail?: string }).detail || "Failed to save preferences",
+        );
         return;
       }
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast.success("Notifications saved");
     } catch {
-      setError("Network error — please try again");
+      toast.error("Network error — please try again");
     } finally {
       setSaving(false);
     }
@@ -449,9 +455,7 @@ function NotificationsSection() {
       icon={<Bell className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
       title="Notifications"
       action={
-        saved ? (
-          <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved</span>
-        ) : saving ? (
+        saving ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />
         ) : null
       }
@@ -467,7 +471,7 @@ function NotificationsSection() {
         </div>
       ) : (
         <>
-          {error && <InlineError>{error}</InlineError>}
+          {loadError && <InlineError>{loadError}</InlineError>}
           <div className="space-y-1">
             {(Object.keys(NOTIFICATION_LABELS) as Array<keyof NotificationPrefs>).map(
               (key) => {
@@ -521,8 +525,6 @@ function PrivacySection({
 }) {
   const [share, setShare] = useState<boolean>(initialShare);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Keep local state in sync if the parent reloads /api/auth/me.
   useEffect(() => {
@@ -533,7 +535,6 @@ function PrivacySection({
     const previous = share;
     setShare(next);
     setSaving(true);
-    setError(null);
     try {
       const res = await apiFetch("/api/auth/me/share-activity-with-team", {
         method: "PUT",
@@ -541,7 +542,7 @@ function PrivacySection({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(
+        toast.error(
           (data as { detail?: string }).detail ||
             `Failed to save (HTTP ${res.status})`,
         );
@@ -550,10 +551,11 @@ function PrivacySection({
       }
       const updated = (await res.json()) as ProfileResponse;
       onProfileUpdate(updated);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast.success(
+        next ? "Activity sharing turned on" : "Activity sharing turned off",
+      );
     } catch {
-      setError("Network error — please try again");
+      toast.error("Network error — please try again");
       setShare(previous);
     } finally {
       setSaving(false);
@@ -565,14 +567,11 @@ function PrivacySection({
       icon={<EyeOff className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
       title="Privacy"
       action={
-        saved ? (
-          <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved</span>
-        ) : saving ? (
+        saving ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />
         ) : null
       }
     >
-      {error && <InlineError>{error}</InlineError>}
       <div className="flex items-start justify-between gap-4 rounded-lg px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
         <div className="min-w-0 flex-1">
           <Label
@@ -854,8 +853,6 @@ function ThemeSection() {
 function LanguageSection({ initialLocale }: { initialLocale: string }) {
   const [locale, setLocale] = useState(initialLocale);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLocale(initialLocale);
@@ -866,7 +863,6 @@ function LanguageSection({ initialLocale }: { initialLocale: string }) {
     const previous = locale;
     setLocale(next);
     setSaving(true);
-    setError(null);
     try {
       const res = await apiFetch("/api/auth/me/locale", {
         method: "PUT",
@@ -874,14 +870,15 @@ function LanguageSection({ initialLocale }: { initialLocale: string }) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError((data as { detail?: string }).detail || "Failed to save language");
+        toast.error(
+          (data as { detail?: string }).detail || "Failed to save language",
+        );
         setLocale(previous);
         return;
       }
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast.success("Language preference saved");
     } catch {
-      setError("Network error — please try again");
+      toast.error("Network error — please try again");
       setLocale(previous);
     } finally {
       setSaving(false);
@@ -893,14 +890,11 @@ function LanguageSection({ initialLocale }: { initialLocale: string }) {
       icon={<Globe className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
       title="Language"
       action={
-        saved ? (
-          <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved</span>
-        ) : saving ? (
+        saving ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />
         ) : null
       }
     >
-      {error && <InlineError>{error}</InlineError>}
       <div className="space-y-2">
         <Label
           htmlFor="settings-locale"
@@ -1454,17 +1448,23 @@ function EmailVerificationBanner() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(
+        const msg =
           (data as { detail?: string }).detail ||
-            `Failed to send link (HTTP ${res.status})`
-        );
+          `Failed to send link (HTTP ${res.status})`;
+        // The amber banner shows the message inline (its UX is bespoke);
+        // toast carries it to anyone scrolled away from this card.
+        setError(msg);
+        toast.error(msg);
         return;
       }
       const data = (await res.json()) as EmailVerificationRequestResponse;
       setSent(true);
       setDevUrl(data.dev_verify_url ?? null);
+      toast.success("Verification link sent");
     } catch {
-      setError("Network error — please try again");
+      const msg = "Network error — please try again";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setRequesting(false);
     }
@@ -1696,6 +1696,7 @@ function TotpSetupDialog({
         );
         return;
       }
+      toast.success("Two-factor authentication enabled");
       setStage("backup");
     } catch {
       setError("Network error — please try again");
@@ -1892,6 +1893,7 @@ function TotpDisableDialog({
         );
         return;
       }
+      toast.success("Two-factor authentication disabled");
       onOpenChange(false);
     } catch {
       setError("Network error — please try again");
@@ -1969,7 +1971,7 @@ function TotpDisableDialog({
 function ActiveSessionsSection() {
   const [sessions, setSessions] = useState<SessionItem[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokingAll, setRevokingAll] = useState(false);
   const [confirmAllOpen, setConfirmAllOpen] = useState(false);
@@ -1978,14 +1980,14 @@ function ActiveSessionsSection() {
     try {
       const res = await apiFetch("/api/auth/me/sessions", { signal });
       if (!res.ok) {
-        setError(`Failed to load sessions (HTTP ${res.status})`);
+        setLoadError(`Failed to load sessions (HTTP ${res.status})`);
         return;
       }
       setSessions((await res.json()) as SessionItem[]);
-      setError(null);
+      setLoadError(null);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
-      setError("Failed to load sessions");
+      setLoadError("Failed to load sessions");
     } finally {
       setLoading(false);
     }
@@ -1999,22 +2001,22 @@ function ActiveSessionsSection() {
 
   async function revokeOne(id: string) {
     setRevokingId(id);
-    setError(null);
     try {
       const res = await apiFetch(`/api/auth/me/sessions/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(
+        toast.error(
           (data as { detail?: string }).detail ||
-            `Failed to revoke session (HTTP ${res.status})`
+            `Failed to revoke session (HTTP ${res.status})`,
         );
         return;
       }
+      toast.success("Session revoked");
       await fetchSessions();
     } catch {
-      setError("Network error — please try again");
+      toast.error("Network error — please try again");
     } finally {
       setRevokingId(null);
     }
@@ -2022,21 +2024,21 @@ function ActiveSessionsSection() {
 
   async function revokeOthers() {
     setRevokingAll(true);
-    setError(null);
     try {
       const res = await apiFetch("/api/auth/me/sessions", { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(
+        toast.error(
           (data as { detail?: string }).detail ||
-            `Failed to revoke sessions (HTTP ${res.status})`
+            `Failed to revoke sessions (HTTP ${res.status})`,
         );
         return;
       }
+      toast.success("Other sessions signed out");
       setConfirmAllOpen(false);
       await fetchSessions();
     } catch {
-      setError("Network error — please try again");
+      toast.error("Network error — please try again");
     } finally {
       setRevokingAll(false);
     }
@@ -2058,7 +2060,7 @@ function ActiveSessionsSection() {
         </div>
       ) : (
         <>
-          {error && <InlineError>{error}</InlineError>}
+          {loadError && <InlineError>{loadError}</InlineError>}
           {sessions && sessions.length > 0 ? (
             <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
               {sessions.map((s) => (
@@ -2170,7 +2172,7 @@ function formatRelativeTime(iso: string): string {
 function ConnectedAccountsSection() {
   const [items, setItems] = useState<ConnectionItem[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
   const [unlinkConfirm, setUnlinkConfirm] = useState<ConnectionItem | null>(null);
 
@@ -2178,14 +2180,14 @@ function ConnectedAccountsSection() {
     try {
       const res = await apiFetch("/api/auth/me/connections", { signal });
       if (!res.ok) {
-        setError(`Failed to load connections (HTTP ${res.status})`);
+        setLoadError(`Failed to load connections (HTTP ${res.status})`);
         return;
       }
       setItems((await res.json()) as ConnectionItem[]);
-      setError(null);
+      setLoadError(null);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
-      setError("Failed to load connections");
+      setLoadError("Failed to load connections");
     } finally {
       setLoading(false);
     }
@@ -2199,7 +2201,6 @@ function ConnectedAccountsSection() {
 
   async function disconnect(item: ConnectionItem) {
     setWorking(item.provider);
-    setError(null);
     try {
       const res = await apiFetch(`/api/auth/me/connections/${item.provider}`, {
         method: "DELETE",
@@ -2207,16 +2208,19 @@ function ConnectedAccountsSection() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(
+        toast.error(
           (data as { detail?: string }).detail ||
-            `Failed to disconnect (HTTP ${res.status})`
+            `Failed to disconnect (HTTP ${res.status})`,
         );
         return;
       }
+      toast.success(
+        `Disconnected ${item.provider === "google" ? "Google" : item.provider}`,
+      );
       setUnlinkConfirm(null);
       await fetchConnections();
     } catch {
-      setError("Network error — please try again");
+      toast.error("Network error — please try again");
     } finally {
       setWorking(null);
     }
@@ -2231,7 +2235,7 @@ function ConnectedAccountsSection() {
         <div className="h-14 animate-pulse rounded-md bg-zinc-200/70 dark:bg-zinc-800/60" />
       ) : (
         <>
-          {error && <InlineError>{error}</InlineError>}
+          {loadError && <InlineError>{loadError}</InlineError>}
           <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
             {(items ?? []).map((item) => (
               <li
@@ -2350,8 +2354,7 @@ function AnalysisPreferencesSection() {
   const [prefs, setPrefs] = useState<AnalysisPreferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2361,13 +2364,13 @@ function AnalysisPreferencesSection() {
           signal: controller.signal,
         });
         if (!res.ok) {
-          setError(`Failed to load preferences (HTTP ${res.status})`);
+          setLoadError(`Failed to load preferences (HTTP ${res.status})`);
           return;
         }
         setPrefs((await res.json()) as AnalysisPreferences);
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
-        setError("Failed to load preferences");
+        setLoadError("Failed to load preferences");
       } finally {
         setLoading(false);
       }
@@ -2377,7 +2380,6 @@ function AnalysisPreferencesSection() {
 
   async function persist(next: AnalysisPreferences) {
     setSaving(true);
-    setError(null);
     try {
       const res = await apiFetch("/api/auth/me/analysis-preferences", {
         method: "PUT",
@@ -2385,13 +2387,14 @@ function AnalysisPreferencesSection() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError((data as { detail?: string }).detail || "Failed to save preferences");
+        toast.error(
+          (data as { detail?: string }).detail || "Failed to save preferences",
+        );
         return;
       }
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast.success("Analysis preferences saved");
     } catch {
-      setError("Network error — please try again");
+      toast.error("Network error — please try again");
     } finally {
       setSaving(false);
     }
@@ -2416,9 +2419,7 @@ function AnalysisPreferencesSection() {
       icon={<Sliders className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
       title="Default analysis options"
       action={
-        saved ? (
-          <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved</span>
-        ) : saving ? (
+        saving ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />
         ) : null
       }
@@ -2434,7 +2435,7 @@ function AnalysisPreferencesSection() {
         </div>
       ) : (
         <>
-          {error && <InlineError>{error}</InlineError>}
+          {loadError && <InlineError>{loadError}</InlineError>}
           <div className="space-y-1">
             {ANALYSIS_TOGGLES.map((t) => {
               const value = prefs?.[t.key] ?? false;

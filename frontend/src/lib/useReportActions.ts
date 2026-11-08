@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { apiFetch } from "./api";
+import { toast } from "./toast";
 
 type Opts =
   | { sourceCheckId: string; researcherProfileId?: undefined }
@@ -38,14 +39,18 @@ export function useReportActions(opts: Opts) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.detail || "Failed to generate report");
+        const msg = data.detail || "Failed to generate report";
+        setError(msg);
+        toast.error(msg);
         return null;
       }
       const r = (await res.json()) as GeneratedReport;
       setReport(r);
       return r;
     } catch {
-      setError("Network error — please try again");
+      const msg = "Network error — please try again";
+      setError(msg);
+      toast.error(msg);
       return null;
     } finally {
       setBusy(false);
@@ -57,11 +62,19 @@ export function useReportActions(opts: Opts) {
     if (!r) return;
     const url = `${window.location.origin}/report/${r.share_token}`;
 
+    // Inline `Copied!` text on the button gives instant visual confirmation;
+    // the toast covers accessibility (screen-reader announcement) and people
+    // who clicked away before the button settled.
+    function announce() {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success("Link copied to clipboard");
+    }
+
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        announce();
         return;
       }
     } catch {
@@ -78,8 +91,7 @@ export function useReportActions(opts: Opts) {
       ta.select();
       document.execCommand("copy");
       document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      announce();
     } catch {
       window.prompt("Copy this share link:", url);
     }
@@ -94,7 +106,9 @@ export function useReportActions(opts: Opts) {
       const res = await apiFetch(`/api/reports/${r.id}/download`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.detail || `PDF download failed (HTTP ${res.status})`);
+        const msg = data.detail || `PDF download failed (HTTP ${res.status})`;
+        setError(msg);
+        toast.error(msg);
         return;
       }
       const blob = await res.blob();
@@ -107,7 +121,9 @@ export function useReportActions(opts: Opts) {
       a.remove();
       URL.revokeObjectURL(objectUrl);
     } catch {
-      setError("Network error during download");
+      const msg = "Network error during download";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }
