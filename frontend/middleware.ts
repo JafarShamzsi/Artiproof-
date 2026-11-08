@@ -13,5 +13,9 @@ export const config = {
     "/researcher/:path*",
     "/reports/:path*",
     "/settings/:path*",
+    "/admin/:path*",
+    // Bare /admin too — `:path*` requires a trailing segment in some
+    // route patterns, so the explicit match catches the index route.
+    "/admin",
   ],
 };

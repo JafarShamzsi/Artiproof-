@@ -7,11 +7,12 @@ Approach:
    most recent source-check activity (within the schedule's window —
    weekly = last 7 days, monthly = last 30).
 3. Persist as a normal `Report` row so it shows up in `/reports`.
-4. Update `last_run_at` + advance `next_run_at` by frequency.
+4. Email the user with a deep link to the report (when Resend is wired).
+5. Update `last_run_at` + advance `next_run_at` by frequency.
 
-Email delivery is deferred — SMTP infra isn't wired yet. The user sees
-the generated report in their /reports list at the next sign-in, same as
-manually-generated ones.
+When email is unconfigured the report still lands in the user's /reports
+list at next sign-in — so a misconfigured prod doesn't silently drop the
+generated artifact.
 """
 
 from __future__ import annotations
@@ -23,7 +24,9 @@ from typing import List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import Report, ReportSchedule, SourceCheck, User
+from app.services.email import render_scheduled_report_ready, send_email
 from app.services.report_engine.html_template import (
     render_executive_summary_report,
     render_source_check_report,
@@ -170,6 +173,7 @@ async def run_due_schedules(db: AsyncSession) -> int:
 
             report = Report(
                 user_id=schedule.user_id,
+                organization_id=getattr(user, "organization_id", None),
                 report_type="scheduled_summary",
                 template=template,
                 title=f"{window_label.title()} Activity Summary",
@@ -181,6 +185,37 @@ async def run_due_schedules(db: AsyncSession) -> int:
             schedule.last_run_at = now
             schedule.next_run_at = _next_run_after(schedule.frequency, now)
             await db.commit()
+            await db.refresh(report)
+
+            # Honor the user's notification preference. Both weekly and
+            # monthly schedules share the same toggle for now — the
+            # NotificationPreferences shape doesn't split them, and adding
+            # a separate key is a UX decision the Settings page hasn't
+            # asked for yet.
+            #
+            # ``getattr`` defaults guard against test stubs that omit
+            # these columns; the real User model always populates them.
+            prefs = getattr(user, "notification_preferences", None) or {}
+            if prefs.get("email_weekly_digest", False):
+                try:
+                    report_url = f"{settings.APP_URL}/reports/{report.id}"
+                    subject, html, text = render_scheduled_report_ready(
+                        name=getattr(user, "full_name", "") or "",
+                        report_title=report.title,
+                        report_url=report_url,
+                        window_label=window_label,
+                    )
+                    await send_email(
+                        to=getattr(user, "email", ""),
+                        subject=subject,
+                        html=html,
+                        text=text,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Scheduled-report email failed for user %s report %s",
+                        user.id, report.id,
+                    )
             generated += 1
         except Exception:
             logger.exception("Failed to fire schedule %s", schedule.id)

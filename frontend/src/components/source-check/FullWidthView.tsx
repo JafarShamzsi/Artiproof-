@@ -95,6 +95,23 @@ export interface ModelMetadataData {
  * conform to this — `input_content` is optional because the public shared
  * view redacts it for url-type checks, and `model_metadata` is omitted there.
  */
+export interface CoverageNoteData {
+  kind: string;
+  severity: "info" | "warning";
+  headline: string;
+  detail: string;
+}
+
+export interface CoverageSummaryData {
+  notes: CoverageNoteData[];
+  claims_analyzed: number | null;
+  claims_extracted: number | null;
+  paragraphs_analyzed: number | null;
+  paragraphs_total: number | null;
+  text_chars_analyzed: number | null;
+  text_chars_total: number | null;
+}
+
 export interface FullWidthSourceCheckData {
   id: string;
   input_type: string;
@@ -113,6 +130,10 @@ export interface FullWidthSourceCheckData {
   citations: CitationData[];
   score_breakdown?: ScoreBreakdownData | null;
   model_metadata?: ModelMetadataData | null;
+  /** Backend-computed coverage caveats. Present in current API responses;
+   * older clients/snapshots may omit it, so the CoverageIndicators
+   * component still derives a fallback view from model_metadata. */
+  coverage?: CoverageSummaryData | null;
 }
 
 const VERDICT_CONFIG: Record<
@@ -245,8 +266,17 @@ export function FullWidthView({
           {data.score_breakdown && (
             <ScoreBreakdownPanel breakdown={data.score_breakdown} className="mt-6" />
           )}
-          {!readOnly && data.model_metadata && (
-            <CoverageIndicators metadata={data.model_metadata} className="mt-3" />
+          {/* Coverage caveats — surfaced on BOTH authed and read-only views;
+              an institutional buyer reading a shared report has the same
+              right to know which parts of the source were sampled vs
+              skipped. Prefer the backend-computed summary; fall back to
+              the legacy model_metadata derivation. */}
+          {(data.coverage || data.model_metadata) && (
+            <CoverageIndicators
+              coverage={data.coverage ?? null}
+              metadata={data.model_metadata ?? null}
+              className="mt-3"
+            />
           )}
         </CardContent>
       </Card>
@@ -446,28 +476,95 @@ function ScoreBreakdownPanel({
 }
 
 function CoverageIndicators({
+  coverage,
   metadata,
   className = "",
 }: {
-  metadata: ModelMetadataData;
+  coverage: CoverageSummaryData | null;
+  metadata: ModelMetadataData | null;
   className?: string;
 }) {
+  // Prefer the backend-computed summary when present. It tracks the actual
+  // truncation constants and warning types, so we don't drift when the
+  // pipeline limits change.
+  if (coverage) {
+    const warnings = coverage.notes.filter((n) => n.severity === "warning");
+    const info = coverage.notes.filter((n) => n.severity === "info");
+    const hasFigures =
+      coverage.claims_analyzed != null ||
+      coverage.paragraphs_analyzed != null ||
+      coverage.text_chars_analyzed != null;
+    if (warnings.length === 0 && info.length === 0 && !hasFigures) return null;
+
+    return (
+      <div className={`space-y-2 ${className}`}>
+        {warnings.length > 0 && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+              Coverage caveats
+            </div>
+            <ul className="space-y-1.5">
+              {warnings.map((note) => (
+                <li
+                  key={`${note.kind}-${note.headline}`}
+                  className="text-xs leading-relaxed text-amber-900 dark:text-amber-100"
+                >
+                  <span className="font-medium">{note.headline}</span>
+                  <span className="text-amber-800/80 dark:text-amber-200/80">
+                    {" "}
+                    — {note.detail}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {(info.length > 0 || hasFigures) && (
+          <div className="flex flex-wrap gap-2">
+            {info.map((note) => (
+              <span
+                key={note.kind}
+                className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                title={note.detail}
+              >
+                {note.headline}
+              </span>
+            ))}
+            {coverage.claims_analyzed != null && warnings.every((w) => w.kind !== "claims_capped") && (
+              <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                {coverage.claims_analyzed} claim
+                {coverage.claims_analyzed === 1 ? "" : "s"} verified
+              </span>
+            )}
+            {coverage.paragraphs_analyzed != null &&
+              warnings.every((w) => w.kind !== "paragraphs_capped") && (
+                <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  {coverage.paragraphs_analyzed} paragraph
+                  {coverage.paragraphs_analyzed === 1 ? "" : "s"} analyzed
+                </span>
+              )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Legacy fallback: derive a minimal pill view from model_metadata directly
+  // for responses that pre-date the structured `coverage` field.
+  if (!metadata) return null;
   const ctx = metadata.context || {};
   const truncated = Boolean(
-    metadata.processing_warnings?.some(
-      (w) => w["type"] === "text_truncated",
-    ),
+    metadata.processing_warnings?.some((w) => w["type"] === "text_truncated"),
   );
   const paragraphsCapped = Boolean(
-    metadata.processing_warnings?.some(
-      (w) => w["type"] === "paragraphs_capped",
-    ),
+    metadata.processing_warnings?.some((w) => w["type"] === "paragraphs_capped"),
   );
-  const claimsExtracted = typeof ctx.claims_extracted === "number" ? ctx.claims_extracted : null;
-  const paragraphs = typeof ctx.paragraphs_analyzed === "number" ? ctx.paragraphs_analyzed : null;
+  const claimsExtracted =
+    typeof ctx.claims_extracted === "number" ? ctx.claims_extracted : null;
+  const paragraphs =
+    typeof ctx.paragraphs_analyzed === "number" ? ctx.paragraphs_analyzed : null;
   const textLength = typeof ctx.text_length === "number" ? ctx.text_length : null;
 
-  // Hide entirely if we have nothing useful to show
   if (!truncated && !paragraphsCapped && claimsExtracted == null && paragraphs == null) {
     return null;
   }

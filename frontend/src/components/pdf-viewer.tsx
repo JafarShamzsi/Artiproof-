@@ -81,8 +81,8 @@ const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(
     return (
       <div className={`flex flex-col ${className}`}>
         {/* Toolbar */}
-        <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 py-2">
-          <span className="text-xs text-zinc-400">
+        <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+          <span className="text-xs text-zinc-600 dark:text-zinc-400">
             {numPages > 0 ? `${numPages} pages` : "Loading..."}
           </span>
           <div className="flex items-center gap-1">
@@ -90,18 +90,18 @@ const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(
               variant="ghost"
               size="sm"
               onClick={zoomOut}
-              className="h-7 w-7 p-0 text-zinc-400 hover:text-white"
+              className="h-7 w-7 p-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
             >
               <ZoomOut className="h-4 w-4" />
             </Button>
-            <span className="min-w-[3rem] text-center text-xs text-zinc-400">
+            <span className="min-w-[3rem] text-center text-xs text-zinc-600 dark:text-zinc-400">
               {Math.round(scale * 100)}%
             </span>
             <Button
               variant="ghost"
               size="sm"
               onClick={zoomIn}
-              className="h-7 w-7 p-0 text-zinc-400 hover:text-white"
+              className="h-7 w-7 p-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
             >
               <ZoomIn className="h-4 w-4" />
             </Button>
@@ -109,7 +109,7 @@ const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(
               variant="ghost"
               size="sm"
               onClick={resetZoom}
-              className="h-7 w-7 p-0 text-zinc-400 hover:text-white"
+              className="h-7 w-7 p-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>
@@ -119,7 +119,7 @@ const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(
         {/* PDF Pages */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto bg-zinc-950 p-4"
+          className="flex-1 overflow-auto bg-zinc-100 p-4 dark:bg-zinc-950"
         >
           <Document
             file={url}

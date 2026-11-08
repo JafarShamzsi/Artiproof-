@@ -124,6 +124,110 @@ class TestCrossrefRetraction:
         assert route.called
 
 
+class TestOpenAlexRetraction:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_detects_is_retracted_true(self):
+        respx.get(
+            "https://api.openalex.org/works/https://doi.org/10.1/oax"
+        ).respond(200, json={"id": "W1", "is_retracted": True})
+        assert await ca.check_retraction_openalex("10.1/oax") is True
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_normal_paper_not_flagged(self):
+        respx.get(
+            "https://api.openalex.org/works/https://doi.org/10.1/ok"
+        ).respond(200, json={"id": "W2", "is_retracted": False})
+        assert await ca.check_retraction_openalex("10.1/ok") is False
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_404_returns_false_not_retraction(self):
+        respx.get(
+            "https://api.openalex.org/works/https://doi.org/10.1/missing"
+        ).respond(404)
+        assert await ca.check_retraction_openalex("10.1/missing") is False
+
+    @pytest.mark.asyncio
+    async def test_empty_doi_short_circuits(self):
+        assert await ca.check_retraction_openalex("") is False
+
+
+class TestCheckRetractionCombined:
+    """``check_retraction`` queries both sources in parallel and attributes
+    the finding to whichever flagged it."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_both_sources_clean_means_not_retracted(self):
+        respx.get("https://api.crossref.org/works/10.1/x").respond(
+            200, json={"message": {"title": ["ok"], "update-to": []}}
+        )
+        respx.get(
+            "https://api.openalex.org/works/https://doi.org/10.1/x"
+        ).respond(200, json={"is_retracted": False})
+        retracted, sources = await ca.check_retraction("10.1/x")
+        assert retracted is False
+        assert sources == []
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_openalex_alone_can_trigger_retraction(self):
+        """OpenAlex catches DOIs CrossRef's ``update-to`` graph hasn't
+        propagated yet — that's the whole point of adding it."""
+        respx.get("https://api.crossref.org/works/10.1/oax-only").respond(
+            200, json={"message": {"title": ["ok"], "update-to": []}}
+        )
+        respx.get(
+            "https://api.openalex.org/works/https://doi.org/10.1/oax-only"
+        ).respond(200, json={"is_retracted": True})
+        retracted, sources = await ca.check_retraction("10.1/oax-only")
+        assert retracted is True
+        assert sources == ["OpenAlex"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_both_sources_flag_lists_both(self):
+        respx.get("https://api.crossref.org/works/10.1/both").respond(
+            200, json={"message": {"title": ["RETRACTED: x"], "update-to": []}}
+        )
+        respx.get(
+            "https://api.openalex.org/works/https://doi.org/10.1/both"
+        ).respond(200, json={"is_retracted": True})
+        retracted, sources = await ca.check_retraction("10.1/both")
+        assert retracted is True
+        assert set(sources) == {"CrossRef", "OpenAlex"}
+
+    @pytest.mark.asyncio
+    async def test_empty_doi_returns_clean_quickly(self):
+        retracted, sources = await ca.check_retraction("")
+        assert retracted is False
+        assert sources == []
+
+
+class TestAnalyzeCitationAttributesRetractionSource:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_retracted_issue_string_names_the_database(self):
+        # URL is accessible and has a DOI we can extract.
+        respx.head("https://doi.org/10.1/r").respond(200)
+        # CrossRef says clean, OpenAlex says retracted.
+        respx.get("https://api.crossref.org/works/10.1/r").respond(
+            200, json={"message": {"title": ["ok"], "update-to": []}}
+        )
+        respx.get(
+            "https://api.openalex.org/works/https://doi.org/10.1/r"
+        ).respond(200, json={"is_retracted": True})
+
+        result = await ca.analyze_citation(
+            {"text": "Smith 2020", "url": "https://doi.org/10.1/r"}
+        )
+        assert result["is_retracted"] is True
+        assert result["retraction_sources"] == ["OpenAlex"]
+        assert any("OpenAlex" in issue for issue in (result["issues"] or []))
+
+
 class TestAnalyzeAllCitationsParallel:
     @pytest.mark.asyncio
     @respx.mock

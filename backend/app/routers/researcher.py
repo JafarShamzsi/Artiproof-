@@ -25,6 +25,7 @@ from app.models.researcher import (
 from app.models.researcher_snapshot import ResearcherSnapshot
 from app.models.user import User
 from app.schemas.researcher import (
+    DEFAULT_INTEGRITY_DISCLAIMER,
     BulkResearcherCreate,
     BulkResearcherResponse,
     CitationGraphResponse,
@@ -42,12 +43,22 @@ from app.utils.auth import (
     decode_stream_ticket,
     get_current_user,
 )
+from app.utils.ownership import is_owner_or_org_admin
+from app.utils.quota import assert_quota, enforce_quota
+from app.utils.rate_limit import limiter, tier_aware_limit_for_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/researcher", tags=["Researcher Integrity"])
 
 
 def _profile_to_response(profile: ResearcherProfile, publications=None) -> ResearcherProfileResponse:
+    # Show the disclaimer whenever there's any analysis output to disclaim —
+    # a profile in `pending` with no scores doesn't need the framing yet.
+    has_findings = (
+        profile.integrity_score is not None
+        or profile.citation_ring_flags is not None
+        or profile.self_citation_rate is not None
+    )
     return ResearcherProfileResponse(
         id=profile.id,
         researcher_name=profile.researcher_name,
@@ -68,6 +79,7 @@ def _profile_to_response(profile: ResearcherProfile, publications=None) -> Resea
         created_at=profile.created_at,
         integrity_breakdown=profile.integrity_breakdown,
         model_metadata=profile.model_metadata,
+        disclaimer=DEFAULT_INTEGRITY_DISCLAIMER if has_findings else None,
         publications=[
             PublicationAnalysisResponse(
                 id=p.id,
@@ -87,10 +99,12 @@ def _profile_to_response(profile: ResearcherProfile, publications=None) -> Resea
 
 
 @router.post("/analyze", response_model=ResearcherProfileResponse, status_code=201)
+@limiter.limit(tier_aware_limit_for_key)
 async def analyze_researcher(
+    request: Request,
     data: ResearcherAnalyzeRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(enforce_quota("researcher_analyses")),
 ):
     """Submit a researcher for analysis."""
     user_id = current_user.id
@@ -105,6 +119,7 @@ async def analyze_researcher(
 
     profile = ResearcherProfile(
         user_id=user_id,
+        organization_id=current_user.organization_id,
         researcher_name=data.researcher_name or "Unknown",
         scopus_id=data.scopus_id,
         google_scholar_id=data.google_scholar_id,
@@ -223,7 +238,7 @@ async def get_researcher_profile(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
-    if profile.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized to view this profile")
 
     # Load publications
@@ -256,7 +271,7 @@ async def issue_researcher_stream_ticket(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
-    if profile.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized to stream this profile")
     return {"ticket": create_stream_ticket(current_user.id, "researcher_profile", profile_id)}
 
@@ -283,6 +298,10 @@ async def stream_researcher_analysis(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
+    # Stream tickets bind a specific user to a specific profile, so the
+    # org-admin override (is_owner_or_org_admin) deliberately does NOT
+    # apply here — a team admin who wants to stream a teammate's
+    # analysis must issue their own ticket.
     if profile.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to stream this profile")
 
@@ -338,7 +357,7 @@ async def get_publications(
     profile = profile_q.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
-    if profile.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized to view this profile")
 
     total_q = await db.execute(
@@ -388,7 +407,7 @@ async def get_citation_graph(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
-    if profile.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized to view this profile")
 
     # Graph data is stored in citation_ring_flags
@@ -416,7 +435,7 @@ async def delete_researcher_profile(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
-    if profile.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized to delete this profile")
     profile.deleted_at = datetime.now(timezone.utc)
     await db.commit()
@@ -426,7 +445,9 @@ async def delete_researcher_profile(
 
 
 @router.post("/bulk", response_model=BulkResearcherResponse, status_code=201)
+@limiter.limit(tier_aware_limit_for_key)
 async def create_bulk_researcher_analyses(
+    request: Request,
     data: BulkResearcherCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -444,6 +465,9 @@ async def create_bulk_researcher_analyses(
             status_code=400,
             detail=f"At most {MAX_BULK_RESEARCHERS} researchers per batch",
         )
+
+    # Bulk consumes N units up front. Same logic as source-check /bulk.
+    await assert_quota(db, current_user, "researcher_analyses", units=len(data.items))
 
     batch_id = str(uuid.uuid4())[:8]
     created: list[ResearcherProfile] = []
@@ -463,6 +487,7 @@ async def create_bulk_researcher_analyses(
         profile = ResearcherProfile(
             id=str(uuid.uuid4()),
             user_id=current_user.id,
+            organization_id=current_user.organization_id,
             researcher_name=item.researcher_name or "Unknown",
             scopus_id=item.scopus_id,
             google_scholar_id=item.google_scholar_id,
@@ -506,7 +531,9 @@ async def create_bulk_researcher_analyses(
 
 
 @router.post("/{profile_id}/rerun", response_model=ResearcherProfileResponse, status_code=200)
+@limiter.limit(tier_aware_limit_for_key)
 async def rerun_researcher_analysis(
+    request: Request,
     profile_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -532,7 +559,7 @@ async def rerun_researcher_analysis(
     profile = result.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
-    if profile.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized to re-analyze this")
 
     # Reset for the next pipeline run. Don't clear the live metric columns
@@ -597,7 +624,7 @@ async def list_snapshots(
     profile = profile_q.scalar_one_or_none()
     if not profile:
         raise HTTPException(status_code=404, detail="Researcher profile not found")
-    if profile.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, profile):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     snap_q = await db.execute(
@@ -717,7 +744,11 @@ async def add_to_watchlist(
     """Add a researcher to the watchlist. Verifies ownership; idempotent
     (re-adding returns the current list); enforces MAX_WATCHLIST cap."""
     profile = await db.get(ResearcherProfile, researcher_id)
-    if profile is None or profile.deleted_at is not None or profile.user_id != current_user.id:
+    if (
+        profile is None
+        or profile.deleted_at is not None
+        or not is_owner_or_org_admin(current_user, profile)
+    ):
         raise HTTPException(status_code=404, detail="Researcher profile not found")
 
     raw = list(current_user.watchlist or [])

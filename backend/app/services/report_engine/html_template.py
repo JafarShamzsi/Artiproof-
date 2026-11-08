@@ -154,7 +154,19 @@ def render_researcher_report(
 
     flags_html = ""
     if flags:
-        flags_html = "<h2 style='color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; margin-top: 24px;'>Integrity Flags</h2><ul>"
+        # Rename surfaces "Mutual Citation Patterns" rather than "Integrity
+        # Flags" — same data, accurate label. The disclaimer band below
+        # carries the "patterns, not proof" framing.
+        flags_html = (
+            "<h2 style='color: #1e293b; font-size: 18px; border-bottom: 2px solid #e2e8f0; "
+            "padding-bottom: 6px; margin-top: 24px;'>Mutual Citation Patterns</h2>"
+            "<div style='background:#fef3c7; border-left:4px solid #b45309; padding:10px 12px; "
+            "border-radius:6px; margin:8px 0 12px; font-size:12px; color:#7c2d12; line-height:1.5;'>"
+            "<strong>Patterns, not proof.</strong> Findings below are statistical signals from "
+            "publicly available bibliographic data and warrant human review — they are not "
+            "evidence of misconduct and should not be cited as conclusions."
+            "</div><ul>"
+        )
         for f in flags:
             flags_html += f"<li style='font-size: 13px; color: #b45309; margin: 4px 0;'>{_e(f)}</li>"
         flags_html += "</ul>"

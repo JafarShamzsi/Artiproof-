@@ -10,7 +10,17 @@ from typing import Optional
 
 import httpx
 
+from app.utils.retry import HTTP_RETRY_EXCEPTIONS
+
 logger = logging.getLogger(__name__)
+
+# Transient HTTP failures during best-effort fetches are expected and
+# shouldn't pager-storm Sentry. Demote them to WARNING with the cause;
+# anything else still trips logger.exception so real bugs get a trace.
+# The decorator-driven retry already handles transient failures inside
+# the helper's own loop — by the time we see one here it means even the
+# retry budget was exhausted, which is still worth a warning but not an
+# alert.
 
 S2_BASE = "https://api.semanticscholar.org/graph/v1"
 ORCID_BASE = "https://pub.orcid.org/v3.0"
@@ -32,6 +42,9 @@ async def search_by_name(name: str) -> Optional[dict]:
                 return None
             author = data[0]
             return _normalize_s2_author(author)
+    except HTTP_RETRY_EXCEPTIONS as e:
+        logger.warning("Semantic Scholar name search transient failure: %s", e)
+        return None
     except Exception:
         logger.exception("Semantic Scholar name search failed")
         return None
@@ -48,6 +61,9 @@ async def fetch_by_s2_id(author_id: str) -> Optional[dict]:
             if resp.status_code != 200:
                 return None
             return _normalize_s2_author(resp.json())
+    except HTTP_RETRY_EXCEPTIONS as e:
+        logger.warning("S2 author fetch transient failure for %s: %s", author_id, e)
+        return None
     except Exception:
         logger.exception("S2 author fetch failed")
         return None
@@ -87,6 +103,9 @@ async def fetch_by_orcid(orcid: str) -> Optional[dict]:
                 "paper_count": None,
                 "orcid": orcid,
             }
+    except HTTP_RETRY_EXCEPTIONS as e:
+        logger.warning("ORCID fetch transient failure for %s: %s", orcid, e)
+        return None
     except Exception:
         logger.exception("ORCID fetch failed")
         return None
@@ -129,6 +148,9 @@ async def fetch_publications(author_id: str, limit: int = 100) -> list[dict]:
                     ],
                 })
             return results
+    except HTTP_RETRY_EXCEPTIONS as e:
+        logger.warning("S2 publications fetch transient failure for %s: %s", author_id, e)
+        return []
     except Exception:
         logger.exception("S2 publications fetch failed")
         return []
@@ -163,6 +185,9 @@ async def fetch_paper_citations(paper_id: str, limit: int = 100) -> list[dict]:
                     ],
                 })
             return results
+    except HTTP_RETRY_EXCEPTIONS as e:
+        logger.warning("S2 citations fetch transient failure for %s: %s", paper_id, e)
+        return []
     except Exception:
         logger.exception("S2 citations fetch failed for paper %s", paper_id)
         return []
@@ -179,6 +204,9 @@ async def _resolve_via_scopus(scopus_id: str) -> Optional[dict]:
 
     try:
         scopus_profile = await get_author_profile(scopus_id)
+    except HTTP_RETRY_EXCEPTIONS as e:
+        logger.warning("Scopus profile fetch transient failure for %s: %s", scopus_id, e)
+        return None
     except Exception:
         logger.exception("Scopus profile fetch failed")
         return None
@@ -209,6 +237,9 @@ async def _resolve_via_google_scholar(scholar_id: str) -> Optional[dict]:
 
     try:
         gs = await scrape_profile(scholar_id)
+    except HTTP_RETRY_EXCEPTIONS as e:
+        logger.warning("Google Scholar profile scrape transient failure for %s: %s", scholar_id, e)
+        return None
     except Exception:
         logger.exception("Google Scholar profile scrape failed")
         return None

@@ -27,6 +27,18 @@ class UserRegister(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
     institution: Optional[str] = None
     role: UserRoleStr = "researcher"
+    # Optional org invite token. When present the register flow decodes
+    # it, validates that the signed email matches, and auto-attaches
+    # the new user as a member of the encoded org (with the encoded
+    # role). Surface comes from /api/organizations/{org}/members/invite.
+    invite_token: Optional[str] = None
+    # Optional plan intent — captured by the frontend register page
+    # from a ``?plan=`` query param. Stored as a tier_change_audits
+    # row with reason="signup_intent". DOES NOT change the user's
+    # tier; the actual upgrade happens after the payment processor
+    # confirms payment. Phase D scaffolding so the future billing
+    # wire-up has a "who came in wanting Pro" funnel to measure.
+    intent_plan: Optional[str] = None
 
     @field_validator("password")
     @classmethod
@@ -65,6 +77,19 @@ class UserResponse(BaseModel):
     # `/api/organizations/{organization_id}/branding` and we need this id
     # client-side. Null for free/pro users.
     organization_id: Optional[str] = None
+    # The user's role in their primary org, if any. ``get_current_user``
+    # resolves this from organization_members and stashes it on the
+    # User instance as ``_org_role``; we surface it here so the Settings
+    # UI can conditionally show admin-only controls without a separate
+    # round-trip.
+    org_role: Optional[str] = None
+    # ─── Billing scaffolding (Phase D) ─────────────────────────────────
+    # Surfaced so the Settings → Billing section can render the current
+    # subscription state badge + next billing date. The processor wires
+    # write these via ``apply_tier_change``; UI reads them.
+    subscription_state: str = "none"
+    next_billing_date: Optional[datetime] = None
+    last_billing_date: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

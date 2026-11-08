@@ -41,6 +41,27 @@ class Settings(BaseSettings):
     # Outbound HTTP identity (used by CrossRef and other politeness-required APIs)
     CONTACT_EMAIL: str = "info@example.invalid"
 
+    # Email delivery (Resend). Empty key → logs-only stub for dev.
+    # Production startup warns when this is unset. EMAIL_FROM must be a
+    # verified sender in the Resend dashboard.
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "ArtiProof <noreply@example.invalid>"
+
+    # Observability (Sentry). Empty DSN → no error tracking. The traces
+    # sample rate defaults low because every Celery pipeline run would
+    # otherwise pull a trace and inflate the bill; bump SENTRY_TRACES_SAMPLE
+    # to 0.5+ when actively debugging perf.
+    SENTRY_DSN: str = ""
+    SENTRY_ENVIRONMENT: str = ""  # falls back to ENVIRONMENT when empty
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.05
+
+    # Billing webhook signing — per-processor HMAC secret. Empty string
+    # means the webhook endpoint refuses every callback (production-safe
+    # default; nothing is wired). The processor name in the URL must
+    # match a key in BILLING_WEBHOOK_SECRETS for the request to be
+    # accepted. JSON object via env: BILLING_WEBHOOK_SECRETS='{"stub":"abc","X":"def"}'.
+    BILLING_WEBHOOK_SECRETS: dict[str, str] = {}
+
     # Demo seeding (used by /api/seed/demo). Two layers of gating:
     #   - ENABLE_SEED_ROUTES must be true (default false). The previous
     #     `ENVIRONMENT != "production"` check accidentally enabled the

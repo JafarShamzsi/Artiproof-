@@ -46,11 +46,17 @@ def _user(**overrides):
 def _stub_db_with(rows: list | None = None, scalar=None):
     """Build an AsyncMock session whose execute(...) returns a result with
     the given rows (or scalar). Tests that need richer behavior override
-    db.execute.return_value per-call."""
+    db.execute.return_value per-call.
+
+    ``scalar()`` (no args) returns 0 by default — quota-enforcement code
+    calls it to count MTD usage; returning 0 keeps tests below the limit
+    so the quota dependency doesn't trip on unrelated test paths.
+    """
     db = AsyncMock()
     result = SimpleNamespace(
         scalars=lambda: SimpleNamespace(all=lambda: rows or []),
         scalar_one_or_none=lambda: scalar,
+        scalar=lambda: 0,
         all=lambda: [],
     )
     db.execute.return_value = result
@@ -496,9 +502,29 @@ async def test_schedule_rejects_multi_record_template():
 
 
 @pytest.mark.asyncio
-async def test_branding_requires_team_tier():
+async def test_branding_requires_admin_role():
+    """Phase C: PUT branding now requires the org-admin role (was: any
+    team-tier member). A user with no membership row hits the
+    ``require_org_admin`` dep and gets a 403.
+    """
+    # Stub serves the org row for the dep's existence check, then nothing
+    # for the membership query — so the dep sees "org exists but no
+    # membership" → 403 "Org admin required".
+    org = SimpleNamespace(
+        id="org-1",
+        name="Acme University",
+        logo_url=None,
+        primary_color=None,
+        secondary_color=None,
+    )
+    db = AsyncMock()
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one_or_none=lambda: org),  # Organization
+        SimpleNamespace(scalar_one_or_none=lambda: None),  # membership
+    ]
+
     async def _db():
-        yield _stub_db_with()
+        yield db
 
     app.dependency_overrides[get_db] = _db
     app.dependency_overrides[get_current_user] = lambda: _user(
@@ -513,16 +539,31 @@ async def test_branding_requires_team_tier():
                 json={"primary_color": "#003366"},
             )
         assert r.status_code == 403
-        assert "team" in r.json()["detail"].lower()
+        assert "admin" in r.json()["detail"].lower()
     finally:
         app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
 async def test_branding_requires_org_membership():
-    """Team-tier user not in the target org → 403."""
+    """User belonging to a different org → can't write the target's
+    branding. require_org_admin still 403s because the membership query
+    finds nothing for them in the URL org."""
+    org = SimpleNamespace(
+        id="org-OTHER",
+        name="Other University",
+        logo_url=None,
+        primary_color=None,
+        secondary_color=None,
+    )
+    db = AsyncMock()
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one_or_none=lambda: org),  # Organization
+        SimpleNamespace(scalar_one_or_none=lambda: None),  # no membership
+    ]
+
     async def _db():
-        yield _stub_db_with()
+        yield db
 
     app.dependency_overrides[get_db] = _db
     app.dependency_overrides[get_current_user] = lambda: _user(
@@ -693,7 +734,14 @@ async def test_list_schedules_returns_owned_only():
 
 @pytest.mark.asyncio
 async def test_branding_put_happy_path():
-    """Team-tier user updating their own org's branding succeeds."""
+    """Org admin updating their own org's branding succeeds (Phase C).
+
+    The dep stack now resolves:
+      1. require_org_admin → loads Organization (must exist)
+      2. require_org_admin → loads OrganizationMember (must be admin)
+      3. handler → loads Organization again via db.get for the update
+    The execute side_effect serves both query results in order.
+    """
     org = SimpleNamespace(
         id="org-1",
         name="Acme University",
@@ -701,8 +749,19 @@ async def test_branding_put_happy_path():
         primary_color=None,
         secondary_color=None,
     )
+    admin_membership = SimpleNamespace(
+        organization_id="org-1",
+        user_id="user-a",
+        role="admin",
+        joined_at=datetime.now(timezone.utc),
+        invited_by=None,
+    )
     db = AsyncMock()
-    db.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: org)
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one_or_none=lambda: org),  # dep: Organization
+        SimpleNamespace(scalar_one_or_none=lambda: admin_membership),  # dep: membership
+    ]
+    db.get.return_value = org  # handler's own db.get(Organization)
     db.refresh.side_effect = lambda obj: None
 
     async def _db():

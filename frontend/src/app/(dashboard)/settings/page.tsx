@@ -27,6 +27,8 @@ import {
   Sun,
   Trash2,
   User as UserIcon,
+  Users,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,6 +64,22 @@ interface ProfileResponse {
   share_activity_with_team: boolean;
   // Null on free/pro tier.
   organization_id: string | null;
+  // The user's role within their org. Null when they aren't a member
+  // of any org. Used to gate admin-only buttons in the org-member
+  // management section.
+  org_role: "admin" | "member" | null;
+  // ─── Billing scaffolding (Phase D) ──────────────────────────────────
+  // "none" until a payment processor is wired. The Settings → Billing
+  // section uses these to render a state badge + the next billing
+  // date. No action buttons are wired yet; the placeholder explains.
+  subscription_state:
+    | "none"
+    | "active"
+    | "past_due"
+    | "cancelled"
+    | "paused";
+  next_billing_date: string | null;
+  last_billing_date: string | null;
 }
 
 interface NotificationPrefs {
@@ -135,8 +153,6 @@ interface AnalysisPreferences {
 
 const LOCALE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "en", label: "English (en)" },
-  { value: "az", label: "Azərbaycan (az)" },
-  { value: "ru", label: "Русский (ru)" },
 ];
 
 // ─── Page ──────────────────────────────────────────────────────────────────
@@ -207,12 +223,21 @@ export default function SettingsPage() {
 
       <UsageSection />
 
+      {profile && <BillingSection profile={profile} />}
+
       <DataExportSection />
 
       <ScheduledReportsSection />
 
       {profile?.tier === "team" && profile?.organization_id && (
-        <BrandingSection orgId={profile.organization_id} />
+        <>
+          <OrgMembersSection
+            orgId={profile.organization_id}
+            currentUserId={profile.id}
+            isOrgAdmin={profile.org_role === "admin"}
+          />
+          <BrandingSection orgId={profile.organization_id} />
+        </>
       )}
 
       <DangerZoneSection />
@@ -927,7 +952,7 @@ function LanguageSection({ initialLocale }: { initialLocale: string }) {
         </select>
       </div>
       <p className="mt-3 text-xs italic text-zinc-500 dark:text-zinc-400">
-        UI translation lands in a future release — for now this just saves your preference.
+        English is the only supported language right now. Additional locales return when our next-intl scaffold ships.
       </p>
     </SectionCard>
   );
@@ -2664,6 +2689,392 @@ function ScheduledReportsSection() {
           No scheduled reports yet.
         </p>
       )}
+    </SectionCard>
+  );
+}
+
+// ─── Org members (team tier) ───────────────────────────────────────────────
+
+interface OrgMember {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: "admin" | "member";
+  joined_at: string;
+  invited_by: string | null;
+  source_checks_mtd: number;
+  researcher_analyses_mtd: number;
+  reports_mtd: number;
+}
+
+interface OrgMemberListResponse {
+  items: OrgMember[];
+  total: number;
+}
+
+/**
+ * Membership management for team-tier orgs.
+ *
+ * Visible to every member of the org. The action buttons (invite,
+ * change role, remove) only render for org admins — the backend
+ * enforces the same gate, so a non-admin who races the UI gets a 403.
+ */
+function OrgMembersSection({
+  orgId,
+  currentUserId,
+  isOrgAdmin,
+}: {
+  orgId: string;
+  currentUserId: string;
+  isOrgAdmin: boolean;
+}) {
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
+  const [inviting, setInviting] = useState(false);
+  const [mutatingUserId, setMutatingUserId] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/organizations/${orgId}/members`);
+      if (res.ok) {
+        const body = (await res.json()) as OrgMemberListResponse;
+        setMembers(body.items);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  async function invite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!inviteEmail.trim() || inviting) return;
+    setInviting(true);
+    try {
+      const res = await apiFetch(
+        `/api/organizations/${orgId}/members/invite`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: inviteEmail.trim(),
+            role: inviteRole,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          detail?: string;
+        };
+        toast.error(data.detail || "Invite failed");
+        return;
+      }
+      const body = (await res.json()) as {
+        invited_email: string;
+        status: "added" | "invited";
+      };
+      toast.success(
+        body.status === "added"
+          ? `${body.invited_email} added to the org`
+          : `Invite sent to ${body.invited_email}`,
+      );
+      setInviteEmail("");
+      setInviteRole("member");
+      await reload();
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function changeRole(userId: string, role: "admin" | "member") {
+    if (mutatingUserId === userId) return;
+    setMutatingUserId(userId);
+    try {
+      const res = await apiFetch(
+        `/api/organizations/${orgId}/members/${userId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ role }),
+        },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          detail?: string;
+        };
+        toast.error(data.detail || "Role change failed");
+        return;
+      }
+      toast.success(`Role updated to ${role}`);
+      await reload();
+    } finally {
+      setMutatingUserId(null);
+    }
+  }
+
+  async function remove(userId: string) {
+    if (mutatingUserId === userId) return;
+    if (!confirm("Remove this member from the organization?")) return;
+    setMutatingUserId(userId);
+    try {
+      const res = await apiFetch(
+        `/api/organizations/${orgId}/members/${userId}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          detail?: string;
+        };
+        toast.error(data.detail || "Remove failed");
+        return;
+      }
+      toast.success("Member removed");
+      await reload();
+    } finally {
+      setMutatingUserId(null);
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={<Users className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
+      title="Members"
+    >
+      {isOrgAdmin && (
+        <form
+          onSubmit={invite}
+          aria-label="Invite a new member"
+          className="mb-5 flex flex-wrap items-end gap-2 rounded-md border border-zinc-200 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50"
+        >
+          <div className="flex-1 min-w-[200px]">
+            <Label
+              htmlFor="invite-email"
+              className="text-xs text-zinc-700 dark:text-zinc-300"
+            >
+              Invite by email
+            </Label>
+            <input
+              id="invite-email"
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="colleague@university.edu"
+              disabled={inviting}
+              className="mt-1 block h-9 w-full rounded-md border border-zinc-300 bg-white px-2.5 text-sm text-zinc-900 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
+            />
+          </div>
+          <div>
+            <Label
+              htmlFor="invite-role"
+              className="text-xs text-zinc-700 dark:text-zinc-300"
+            >
+              Role
+            </Label>
+            <select
+              id="invite-role"
+              value={inviteRole}
+              onChange={(e) =>
+                setInviteRole(e.target.value as "admin" | "member")
+              }
+              disabled={inviting}
+              className="mt-1 block h-9 rounded-md border border-zinc-300 bg-white px-2 text-sm text-zinc-900 outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={inviting || !inviteEmail.trim()}
+            className="inline-flex h-9 items-center rounded-md bg-brand px-3 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {inviting ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            Invite
+          </button>
+        </form>
+      )}
+
+      {loading ? (
+        <SkeletonField />
+      ) : members.length === 0 ? (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          You&apos;re the only one here.
+        </p>
+      ) : (
+        <ul role="list" className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          {members.map((m) => (
+            <li
+              key={m.user_id}
+              className="flex flex-wrap items-center justify-between gap-3 py-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-zinc-900 dark:text-white">
+                    {m.full_name}
+                  </span>
+                  {m.user_id === currentUserId && (
+                    <span className="text-xs text-zinc-500">(you)</span>
+                  )}
+                </div>
+                <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                  {m.email}
+                </p>
+                <p className="text-xs text-zinc-500">
+                  MTD: {m.source_checks_mtd} checks ·{" "}
+                  {m.researcher_analyses_mtd} researchers · {m.reports_mtd}{" "}
+                  reports
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isOrgAdmin && m.user_id !== currentUserId ? (
+                  <select
+                    value={m.role}
+                    disabled={mutatingUserId === m.user_id}
+                    onChange={(e) =>
+                      changeRole(m.user_id, e.target.value as "admin" | "member")
+                    }
+                    aria-label={`Role for ${m.full_name}`}
+                    className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-900 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-white"
+                  >
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                ) : (
+                  <span
+                    className={`rounded px-2 py-0.5 text-xs ring-1 ${
+                      m.role === "admin"
+                        ? "bg-emerald-500/15 text-emerald-700 ring-emerald-500/30 dark:text-emerald-300"
+                        : "bg-zinc-500/15 text-zinc-700 ring-zinc-500/30 dark:text-zinc-300"
+                    }`}
+                  >
+                    {m.role}
+                  </span>
+                )}
+                {isOrgAdmin && m.user_id !== currentUserId && (
+                  <button
+                    type="button"
+                    onClick={() => remove(m.user_id)}
+                    disabled={mutatingUserId === m.user_id}
+                    aria-label={`Remove ${m.full_name}`}
+                    className="rounded p-1 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionCard>
+  );
+}
+
+// ─── Billing (Phase D scaffolding) ─────────────────────────────────────────
+
+const SUBSCRIPTION_STATE_LABEL: Record<ProfileResponse["subscription_state"], string> = {
+  none: "No subscription",
+  active: "Active",
+  past_due: "Past due",
+  cancelled: "Cancelled",
+  paused: "Paused",
+};
+
+const SUBSCRIPTION_STATE_TINT: Record<ProfileResponse["subscription_state"], string> = {
+  none: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  active: "bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+  past_due: "bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+  cancelled: "bg-rose-500/15 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+  paused: "bg-sky-500/15 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300",
+};
+
+/**
+ * Billing settings shell. Renders the tier + subscription state badge
+ * for everyone. "Manage subscription" is deliberately disabled — the
+ * payment processor isn't wired yet (Phase D is scaffolding only).
+ *
+ * Once a processor lands, the disabled button becomes a real link to
+ * the processor's customer portal and this component shows next /
+ * last billing dates, invoice history, etc.
+ */
+function BillingSection({ profile }: { profile: ProfileResponse }) {
+  return (
+    <SectionCard
+      icon={<BarChart3 className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />}
+      title="Billing"
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-zinc-500">
+              Current plan
+            </p>
+            <p className="mt-1 text-lg font-semibold capitalize text-zinc-900 dark:text-white">
+              {profile.tier}
+            </p>
+          </div>
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-medium ${SUBSCRIPTION_STATE_TINT[profile.subscription_state]}`}
+          >
+            {SUBSCRIPTION_STATE_LABEL[profile.subscription_state]}
+          </span>
+        </div>
+
+        {profile.next_billing_date && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Next billing date:{" "}
+            <time dateTime={profile.next_billing_date}>
+              {new Date(profile.next_billing_date).toLocaleDateString()}
+            </time>
+          </p>
+        )}
+        {profile.last_billing_date && !profile.next_billing_date && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Last billed:{" "}
+            <time dateTime={profile.last_billing_date}>
+              {new Date(profile.last_billing_date).toLocaleDateString()}
+            </time>
+          </p>
+        )}
+
+        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-400">
+          {profile.subscription_state === "none" ? (
+            <>
+              You&apos;re on the {profile.tier} plan. To upgrade, head
+              to{" "}
+              <Link
+                href="/#pricing"
+                className="text-brand underline-offset-2 hover:underline"
+              >
+                pricing
+              </Link>
+              . Self-serve billing is coming soon.
+            </>
+          ) : (
+            <>
+              Self-serve billing management lands when our payment
+              processor goes live. Until then, contact{" "}
+              <a
+                href="mailto:info@example.invalid"
+                className="text-brand underline-offset-2 hover:underline"
+              >
+                info@example.invalid
+              </a>{" "}
+              for changes to your subscription.
+            </>
+          )}
+        </div>
+
+        <Button variant="outline" disabled className="w-fit">
+          Manage subscription
+        </Button>
+      </div>
     </SectionCard>
   );
 }

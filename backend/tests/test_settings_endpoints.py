@@ -34,9 +34,13 @@ def _user(*, password: str = "hunter22hunter", **overrides):
         institution=None,
         role="researcher",
         tier="free",
+        organization_id=None,
         locale="en",
         hashed_password=bcrypt.hash(password) if password else None,
         notification_preferences=None,
+        analysis_preferences=None,
+        watchlist=None,
+        email_verified_at=None,
         deactivated_at=None,
         deleted_at=None,
         created_at=datetime.now(timezone.utc),
@@ -194,21 +198,26 @@ async def test_notifications_round_trip(override_user):
 
 @pytest.mark.asyncio
 async def test_locale_accepts_supported(override_user):
+    # English is the only supported locale right now — `az` / `ru` were
+    # de-scoped until next-intl ships. Test the round-trip with `en`.
     user = override_user(_user())
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        r = await c.put("/api/auth/me/locale", json={"locale": "az"})
+        r = await c.put("/api/auth/me/locale", json={"locale": "en"})
     assert r.status_code == 200
-    assert user.locale == "az"
+    assert user.locale == "en"
 
 
 @pytest.mark.asyncio
 async def test_locale_rejects_unsupported(override_user):
+    # `az` and `ru` were aspirational and have been removed from
+    # SUPPORTED_LOCALES — they should now 400 alongside any other unknown code.
     override_user(_user())
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        r = await c.put("/api/auth/me/locale", json={"locale": "fr"})
-    assert r.status_code == 400
+        for bad in ("fr", "az", "ru"):
+            r = await c.put("/api/auth/me/locale", json={"locale": bad})
+            assert r.status_code == 400, f"expected 400 for {bad!r}, got {r.status_code}"
 
 
 # ─── Deactivate / delete ───────────────────────────────────────────────────
@@ -298,11 +307,20 @@ async def test_export_returns_zip_with_expected_files(override_user):
             "source_checks.json",
             "researcher_profiles.json",
             "reports.json",
+            "sessions.json",
         }
         # Profile JSON contains the user's email — load it and assert.
         with zf.open("profile.json") as f:
             profile = json.loads(f.read())
         assert profile["email"] == user.email
+        # The expanded export must include analysis preferences and the
+        # watchlist so the GDPR portability contract is honoured.
+        assert "analysis_preferences" in profile
+        assert "watchlist" in profile
+        assert "organization_id" in profile
         # source_checks.json is an empty array since the stub returns nothing.
         with zf.open("source_checks.json") as f:
+            assert json.loads(f.read()) == []
+        # sessions.json is likewise empty for a stub user with no logins.
+        with zf.open("sessions.json") as f:
             assert json.loads(f.read()) == []

@@ -28,6 +28,12 @@ from app.database import get_db
 from app.models.auth_token import AuthToken
 from app.models.session import Session
 from app.models.user import User
+from app.services.email import (
+    is_configured as email_is_configured,
+    render_password_reset,
+    render_verify_email,
+    send_email,
+)
 from app.schemas.auth import (
     EmailVerificationRequestResponse,
     EmailVerificationStatus,
@@ -104,13 +110,18 @@ async def forgot_password(
     await db.refresh(token)
 
     url = _build_reset_url(token.id)
-    if _is_dev_env():
-        logger.info("Password reset URL (dev): %s", url)
-        return ForgotPasswordResponse(dev_reset_url=url)
+    subject, html, text = render_password_reset(
+        name=user.full_name,
+        reset_url=url,
+        ttl_hours=PASSWORD_RESET_TOKEN_TTL_HOURS,
+    )
+    await send_email(to=user.email, subject=subject, html=html, text=text)
 
-    # TODO: wire SMTP in production. For now we just log so devops can
-    # grep audit logs while the email side is being built out.
-    logger.info("Password reset requested for %s", user.email)
+    # In dev (no Resend key) the email lands in logs; surface the URL inline
+    # so the local flow remains testable from the response alone. In
+    # production this stays empty so the URL never appears in API output.
+    if _is_dev_env() and not email_is_configured():
+        return ForgotPasswordResponse(dev_reset_url=url)
     return ForgotPasswordResponse()
 
 
@@ -205,10 +216,14 @@ async def request_email_verification(
         await db.refresh(token)
 
     url = _build_verify_url(token.id)
-    if _is_dev_env():
-        logger.info("Email verify URL (dev): %s", url)
+    subject, html, text = render_verify_email(
+        name=current_user.full_name,
+        verify_url=url,
+        ttl_hours=EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+    )
+    await send_email(to=current_user.email, subject=subject, html=html, text=text)
+    if _is_dev_env() and not email_is_configured():
         return EmailVerificationRequestResponse(dev_verify_url=url)
-    logger.info("Email verification requested for %s", current_user.email)
     return EmailVerificationRequestResponse()
 
 
@@ -494,5 +509,7 @@ async def issue_login_token(
     db.add(session)
     await db.commit()
     await db.refresh(session)
-    token = create_access_token(user.id, user.email, session_id=session.id)
+    token = create_access_token(
+        user.id, user.email, session_id=session.id, tier=user.tier
+    )
     return token, session

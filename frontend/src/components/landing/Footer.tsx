@@ -10,12 +10,15 @@ const navigationLinks = [
   { label: "How it works", href: "/#how-it-works" },
   { label: "Compare", href: "/#compare" },
   { label: "Pricing", href: "/#pricing" },
+  { label: "About", href: "/about" },
+  { label: "Changelog", href: "/changelog" },
   { label: "Contact", href: "mailto:info@example.invalid" },
 ];
 
 const legalLinks = [
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
+  { label: "Security", href: "/security" },
 ];
 
 function BrandMark() {

@@ -24,6 +24,10 @@ class ResearcherProfile(Base, TimestampMixin, SoftDeleteMixin):
     # no "anonymous" profile path today; if/when one is added, relax this and
     # update list/get filters to allow ``user_id IS NULL`` as well.
     user_id = sa.Column(sa.String, sa.ForeignKey("users.id"), nullable=False, index=True)
+    # Org-scoping — see SourceCheck.organization_id for the contract.
+    organization_id = sa.Column(
+        sa.String, sa.ForeignKey("organizations.id"), nullable=True, index=True
+    )
     researcher_name = sa.Column(sa.String, nullable=False)
     scopus_id = sa.Column(sa.String, nullable=True)
     google_scholar_id = sa.Column(sa.String, nullable=True)

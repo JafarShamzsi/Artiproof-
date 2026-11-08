@@ -32,12 +32,16 @@ from app.schemas.source_check import (
     AIDetectionResponse,
     CitationCheckResponse,
 )
+from app.services.source_verification.coverage import build_coverage
 from app.services.source_verification.orchestrator import SourceVerificationOrchestrator
 from app.utils.auth import (
     create_stream_ticket,
     decode_stream_ticket,
     get_current_user,
 )
+from app.utils.ownership import is_owner_or_org_admin
+from app.utils.quota import assert_quota, enforce_quota
+from app.utils.rate_limit import limiter, tier_aware_limit_for_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/source-check", tags=["Source Verification"])
@@ -62,6 +66,7 @@ def _check_to_response(check: SourceCheck, claims=None, ai_detections=None, cita
         completed_at=check.completed_at,
         score_breakdown=check.score_breakdown,
         model_metadata=check.model_metadata,
+        coverage=build_coverage(check.model_metadata),
         share_token=check.share_token,
         claims=[
             ClaimAnalysisResponse(
@@ -93,15 +98,22 @@ def _check_to_response(check: SourceCheck, claims=None, ai_detections=None, cita
 
 
 @router.post("/", response_model=SourceCheckResponse, status_code=201)
+@limiter.limit(tier_aware_limit_for_key)
 async def create_source_check(
+    request: Request,
     data: SourceCheckCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(enforce_quota("source_checks")),
 ):
     """Submit a new source check (URL or text)."""
     user_id = current_user.id
     orchestrator = SourceVerificationOrchestrator(db)
-    check_id = await orchestrator.create_check(user_id, data.input_type, data.input_content)
+    check_id = await orchestrator.create_check(
+        user_id,
+        data.input_type,
+        data.input_content,
+        organization_id=current_user.organization_id,
+    )
 
     # Best-effort enqueue — SSE stream is still the primary trigger; this
     # ensures even abandoned tabs eventually run the pipeline.
@@ -118,10 +130,12 @@ async def create_source_check(
 
 
 @router.post("/upload", response_model=SourceCheckResponse, status_code=201)
+@limiter.limit(tier_aware_limit_for_key)
 async def upload_pdf_source_check(
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(enforce_quota("source_checks")),
 ):
     """Upload a PDF document for source checking."""
     user_id = current_user.id
@@ -155,6 +169,7 @@ async def upload_pdf_source_check(
         input_type="document",
         input_content=file.filename,
         original_pdf_path=pdf_path,
+        organization_id=current_user.organization_id,
     )
 
     try:
@@ -303,7 +318,7 @@ async def get_source_check(
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to view this check")
 
     claims_q = await db.execute(
@@ -338,7 +353,7 @@ async def issue_source_check_stream_ticket(
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to stream this check")
     return {"ticket": create_stream_ticket(current_user.id, "source_check", check_id)}
 
@@ -366,6 +381,10 @@ async def stream_source_check(
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
+    # Stream tickets bind a specific user to a specific check, so the
+    # org-admin override (is_owner_or_org_admin) deliberately does NOT
+    # apply here — a team admin who wants to stream a teammate's pipeline
+    # must issue their own ticket.
     if check.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to stream this check")
     if check.status == "completed":
@@ -401,7 +420,7 @@ async def get_original_pdf(
     check = result.scalar_one_or_none()
     if not check or not check.original_pdf_path:
         raise HTTPException(status_code=404, detail="Original PDF not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to view this check")
     if not os.path.exists(check.original_pdf_path):
         raise HTTPException(status_code=404, detail="PDF file missing from disk")
@@ -423,7 +442,7 @@ async def get_annotated_pdf(
     check = result.scalar_one_or_none()
     if not check or not check.annotated_pdf_path:
         raise HTTPException(status_code=404, detail="Annotated PDF not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to view this check")
     if not os.path.exists(check.annotated_pdf_path):
         raise HTTPException(status_code=404, detail="Annotated PDF file missing from disk")
@@ -445,7 +464,7 @@ async def get_position_map(
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to view this check")
     return JSONResponse(content=check.text_position_map or {"claims": {}, "ai_detections": {}, "citations": {}})
 
@@ -471,7 +490,7 @@ async def delete_source_check(
     check = result.scalar_one_or_none()
     if not check:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized to delete this check")
     check.deleted_at = datetime.now(timezone.utc)
     await db.commit()
@@ -481,7 +500,9 @@ async def delete_source_check(
 
 
 @router.post("/bulk", response_model=BulkSourceCheckResponse, status_code=201)
+@limiter.limit(tier_aware_limit_for_key)
 async def create_bulk_source_checks(
+    request: Request,
     data: BulkSourceCheckCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -495,6 +516,10 @@ async def create_bulk_source_checks(
         raise HTTPException(status_code=400, detail="items must be non-empty")
     if len(data.items) > 50:
         raise HTTPException(status_code=400, detail="At most 50 checks per batch")
+
+    # Bulk consumes N units in one call. Check up front so a user on the
+    # free tier with 8 used can't slip a 5-item batch through.
+    await assert_quota(db, current_user, "source_checks", units=len(data.items))
 
     orchestrator = SourceVerificationOrchestrator(db)
     batch_id = str(uuid.uuid4())[:8]  # cosmetic — for the URL bar
@@ -510,6 +535,7 @@ async def create_bulk_source_checks(
             user_id=current_user.id,
             input_type=item.input_type,
             input_content=item.input_content,
+            organization_id=current_user.organization_id,
         )
         # Best-effort enqueue per row
         try:
@@ -539,7 +565,9 @@ async def create_bulk_source_checks(
 
 
 @router.post("/{check_id}/rerun", response_model=SourceCheckResponse, status_code=201)
+@limiter.limit(tier_aware_limit_for_key)
 async def rerun_source_check(
+    request: Request,
     check_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -558,8 +586,11 @@ async def rerun_source_check(
     src = src_q.scalar_one_or_none()
     if src is None:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if src.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, src):
         raise HTTPException(status_code=403, detail="Not authorized to re-check this")
+
+    # Rerun creates a fresh row → counts against monthly quota.
+    await assert_quota(db, current_user, "source_checks", units=1)
 
     orchestrator = SourceVerificationOrchestrator(db)
     new_id = await orchestrator.create_check(
@@ -567,6 +598,7 @@ async def rerun_source_check(
         input_type=src.input_type,
         input_content=src.input_content,
         original_pdf_path=src.original_pdf_path,
+        organization_id=current_user.organization_id,
     )
     try:
         from app.tasks import celery_app
@@ -603,7 +635,7 @@ async def issue_share_token(
     check = result.scalar_one_or_none()
     if check is None:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     if not check.share_token:
@@ -633,7 +665,7 @@ async def revoke_share_token(
     check = result.scalar_one_or_none()
     if check is None:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized")
     check.share_token = None
     check.updated_at = datetime.now(timezone.utc)
@@ -686,6 +718,7 @@ async def get_shared_source_check(token: str, db: AsyncSession = Depends(get_db)
         created_at=check.created_at,
         completed_at=check.completed_at,
         score_breakdown=check.score_breakdown,
+        coverage=build_coverage(check.model_metadata),
         claims=[
             ClaimAnalysisResponse(
                 id=c.id, claim_text=c.claim_text, verdict=c.verdict,
@@ -744,7 +777,7 @@ async def export_source_check(
     check = result.scalar_one_or_none()
     if check is None:
         raise HTTPException(status_code=404, detail="Source check not found")
-    if check.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, check):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     claims_q = await db.execute(

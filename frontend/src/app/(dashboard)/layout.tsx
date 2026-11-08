@@ -33,7 +33,7 @@ import {
   Eye,
 } from "lucide-react";
 
-const sidebarLinks = [
+const baseSidebarLinks = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/check", label: "Check Source", icon: Search },
   { href: "/researcher", label: "Analyze Researcher", icon: Users },
@@ -42,13 +42,23 @@ const sidebarLinks = [
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
+// /admin is appended at render time only when the session role is admin —
+// non-admins never see the link AND the backend gates the endpoints with
+// `require_admin`, so a curious user typing the URL still hits 403.
+const adminLink = { href: "/admin", label: "Admin", icon: Shield } as const;
+
 function SidebarContent({
   collapsed,
   pathname,
+  showAdmin,
 }: {
   collapsed: boolean;
   pathname: string;
+  showAdmin: boolean;
 }) {
+  const sidebarLinks = showAdmin
+    ? [...baseSidebarLinks, adminLink]
+    : baseSidebarLinks;
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
@@ -109,6 +119,12 @@ export default function DashboardLayout({
         .join("")
         .toUpperCase()
     : "U";
+  // Show the /admin link only to users whose session carries role=admin.
+  // The backend re-validates role on every /api/admin/* call, so this is
+  // purely UX (hides the link from non-admins; admin route remains
+  // typeable, and the page itself short-circuits if 403'd).
+  const sessionRole = (session as { user?: { role?: string } } | null)?.user?.role;
+  const isAdmin = sessionRole === "admin";
 
   return (
     <div className="flex h-[100dvh] bg-zinc-50 dark:bg-zinc-950">
@@ -119,7 +135,7 @@ export default function DashboardLayout({
           collapsed ? "w-16" : "w-64"
         )}
       >
-        <SidebarContent collapsed={collapsed} pathname={pathname} />
+        <SidebarContent collapsed={collapsed} pathname={pathname} showAdmin={isAdmin} />
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
@@ -154,7 +170,7 @@ export default function DashboardLayout({
                 side="left"
                 className="w-64 border-zinc-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-900"
               >
-                <SidebarContent collapsed={false} pathname={pathname} />
+                <SidebarContent collapsed={false} pathname={pathname} showAdmin={isAdmin} />
               </SheetContent>
             </Sheet>
           </div>

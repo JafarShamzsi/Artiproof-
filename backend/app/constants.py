@@ -43,6 +43,21 @@ TIER_LIMITS: dict[str, dict[str, int | None]] = {
     },
 }
 
+# Per-user burst rate limits on expensive endpoints (source check, researcher
+# analysis, report generation). These protect Gemini quota from a single
+# attacker / runaway client; monthly volume is gated separately by TIER_LIMITS
+# above. Anonymous fallback (unauthenticated) gets the strictest cap and uses
+# the IP key bucket. See app.utils.rate_limit.tier_aware_limit_for_key.
+TIER_RATE_LIMITS: dict[str, str] = {
+    "free": "3/minute",
+    "pro": "30/minute",
+    "team": "120/minute",
+}
+# Used when no authenticated user can be resolved (token missing or invalid).
+# Should be strictly tighter than `free` so an unauth caller can never burst
+# more than a free tier user.
+ANONYMOUS_RATE_LIMIT = "1/minute"
+
 # Default notification preferences for newly created users. Keep keys stable —
 # the User.notification_preferences JSON merges with these on read so we can
 # add new keys without backfilling rows.
@@ -53,10 +68,11 @@ DEFAULT_NOTIFICATION_PREFERENCES: dict[str, bool] = {
     "email_product_updates": False,
 }
 
-# Supported UI locales. Frontend renders the selector against this list and
-# stores the user's choice. Translation infrastructure (next-intl) is a
-# separate phase; for now we just persist the preference.
-SUPPORTED_LOCALES = ("en", "az", "ru")
+# Supported UI locales. English only for now — `az` and `ru` were aspirational
+# and have been de-scoped until a real next-intl scaffold ships. The User.locale
+# column stays so we don't have to backfill when i18n returns; the validator
+# below rejects anything else so we don't promise what we don't deliver.
+SUPPORTED_LOCALES = ("en",)
 
 
 # ─── Analysis defaults ────────────────────────────────────────────────────

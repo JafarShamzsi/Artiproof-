@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { backendUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -25,15 +26,94 @@ const ROLES = [
   { value: "faculty", label: "Faculty" },
 ];
 
+// Plans the pricing page can route here as ?plan=. Anything else is
+// ignored — the backend tolerates unknown plans by skipping the
+// audit-row write, but the frontend also tightens the surface.
+const KNOWN_PLANS = new Set(["free", "pro", "team"]);
+
+// Persistence for the plan intent. Stored as a first-party cookie (7d
+// TTL) so a user who reads the pricing page, clicks "Start Pro",
+// closes the tab, then comes back via /register tomorrow still
+// arrives carrying the intent.
+const PLAN_COOKIE = "artiproof_plan_intent";
+const PLAN_COOKIE_MAX_AGE_S = 60 * 60 * 24 * 7;
+
+function readPlanCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${PLAN_COOKIE}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      const val = trimmed.slice(prefix.length);
+      return KNOWN_PLANS.has(val) ? val : null;
+    }
+  }
+  return null;
+}
+
+function writePlanCookie(plan: string): void {
+  if (typeof document === "undefined") return;
+  // Lax so the cookie comes through on a normal pricing-page click;
+  // path=/ so it's visible to the register route regardless of nesting.
+  document.cookie = `${PLAN_COOKIE}=${plan}; Max-Age=${PLAN_COOKIE_MAX_AGE_S}; Path=/; SameSite=Lax`;
+}
+
+function clearPlanCookie(): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${PLAN_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
+}
+
 export default function RegisterPage() {
+  // useSearchParams (inside RegisterPageInner) requires a Suspense
+  // boundary in Next 16's App Router — otherwise the static-build pass
+  // throws. The fallback matches the form's loaded-but-empty look so
+  // the page doesn't flash.
+  return (
+    <Suspense
+      fallback={
+        <Card className="border-zinc-200 bg-white backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/50">
+          <CardHeader className="text-center">
+            <CardTitle>Loading…</CardTitle>
+          </CardHeader>
+        </Card>
+      }
+    >
+      <RegisterPageInner />
+    </Suspense>
+  );
+}
+
+function RegisterPageInner() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [institution, setInstitution] = useState("");
   const [role, setRole] = useState("researcher");
+  const [intentPlan, setIntentPlan] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  const searchParams = useSearchParams();
+
+  // On mount: prefer ?plan=, fall back to a previously-stored cookie,
+  // and write the cookie when we land via query so the intent
+  // survives a tab-close mid-signup. document.cookie is browser-only —
+  // the post-mount setState is the standard "read once on client" path
+  // that the lint rule is conservatively flagging.
+  useEffect(() => {
+    const fromQuery = searchParams?.get("plan");
+    if (fromQuery && KNOWN_PLANS.has(fromQuery)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIntentPlan(fromQuery);
+      writePlanCookie(fromQuery);
+      return;
+    }
+    const fromCookie = readPlanCookie();
+    if (fromCookie) {
+      setIntentPlan(fromCookie);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +134,11 @@ export default function RegisterPage() {
           password,
           institution: institution || undefined,
           role,
+          // Plan intent ships with the signup so the backend can log a
+          // tier_change_audits row with reason="signup_intent" — the
+          // funnel marker. Tier itself stays free until the (future)
+          // payment processor confirms.
+          intent_plan: intentPlan || undefined,
         }),
       });
 
@@ -63,6 +148,10 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
+
+      // Intent has been recorded server-side; clear the cookie so
+      // it doesn't follow the user into the dashboard.
+      clearPlanCookie();
 
       await signIn("credentials", {
         email,
@@ -92,6 +181,17 @@ export default function RegisterPage() {
           {error && (
             <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
               {error}
+            </div>
+          )}
+          {intentPlan && intentPlan !== "free" && (
+            <div
+              role="status"
+              className="rounded-lg border border-brand/30 bg-brand/5 p-3 text-sm text-zinc-700 dark:text-zinc-300"
+            >
+              You&apos;re signing up to start on the{" "}
+              <span className="font-semibold capitalize">{intentPlan}</span>{" "}
+              plan. You&apos;ll stay on the free tier until billing is set
+              up — no surprise charges.
             </div>
           )}
           <div className="space-y-2">

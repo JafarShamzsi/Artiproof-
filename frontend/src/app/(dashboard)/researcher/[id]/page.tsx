@@ -94,6 +94,11 @@ interface ProfileData {
   last_analyzed_at: string | null;
   created_at: string;
   publications: Publication[];
+  disclaimer: {
+    severity: "info" | "warning";
+    headline: string;
+    body: string;
+  } | null;
 }
 
 export default function ResearcherResultPage({
@@ -517,15 +522,26 @@ function ResearcherProfileView({
       {/* Score explanation */}
       <ScoreExplanationCard explanation={explanation} />
 
-      {/* Flags */}
+      {/* Mutual Citation Patterns (formerly "Integrity Flags") with the
+          "patterns, not proof" framing. The disclaimer copy comes from the
+          API response (data.disclaimer); we fall back to inline text so
+          older API responses still surface the warning. */}
       {flags.length > 0 && (
         <Card className="border-amber-500/20 bg-amber-500/5">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="h-4 w-4" /> Integrity Flags ({flags.length})
+              <AlertTriangle className="h-4 w-4" />
+              Mutual Citation Patterns ({flags.length})
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3">
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+              <strong>
+                {data.disclaimer?.headline ?? "Patterns, not proof."}
+              </strong>{" "}
+              {data.disclaimer?.body ??
+                "These are statistical signals from publicly available bibliographic data and warrant human review — they are not evidence of misconduct."}
+            </div>
             {flags.map((flag: string, i: number) => (
               <div key={i} className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />

@@ -45,6 +45,32 @@ class CitationCheckResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CoverageNote(BaseModel):
+    """A single coverage caveat the UI should surface — e.g. text truncation
+    or paragraph capping. Shape stays additive: new caveat types just add
+    new ``kind`` values, frontend renders unknowns generically."""
+
+    kind: str  # "text_truncated" | "claims_capped" | "paragraphs_capped" | "fallback_heuristic" | ...
+    severity: str  # "info" | "warning"
+    headline: str  # short human label, ≤ 60 chars
+    detail: str  # one-sentence explanation, ≤ 200 chars
+
+
+class CoverageSummary(BaseModel):
+    """Derived from model_metadata. Surfaces *what the analysis didn't see*
+    so the user knows the score reflects partial input. Empty `notes` =
+    full-coverage analysis."""
+
+    notes: List[CoverageNote] = []
+    # Headline numbers for the top-of-report band, e.g. "15 of 47 claims".
+    claims_analyzed: Optional[int] = None
+    claims_extracted: Optional[int] = None
+    paragraphs_analyzed: Optional[int] = None
+    paragraphs_total: Optional[int] = None
+    text_chars_analyzed: Optional[int] = None
+    text_chars_total: Optional[int] = None
+
+
 class SourceCheckResponse(BaseModel):
     id: str
     user_id: str
@@ -67,6 +93,10 @@ class SourceCheckResponse(BaseModel):
     score_breakdown: Optional[Any] = None
     # Per-analysis governance record — model used, fallbacks, processing warnings.
     model_metadata: Optional[Any] = None
+    # Coverage caveats derived from model_metadata.processing_warnings — what
+    # the analysis sampled vs the total input. Used by the UI to render
+    # "analyzed N of M claims" / "first 15K of 73K chars" banners.
+    coverage: Optional[CoverageSummary] = None
     # Public share token, when one has been issued (otherwise None). Lets the
     # frontend decide between "Create share link" and "Copy share link" CTAs
     # without needing to call POST /share-token (which would auto-create).
@@ -142,5 +172,6 @@ class SharedSourceCheckResponse(BaseModel):
     ai_detections: List[AIDetectionResponse] = []
     citations: List[CitationCheckResponse] = []
     score_breakdown: Optional[Any] = None
+    coverage: Optional[CoverageSummary] = None
 
     model_config = {"from_attributes": True}

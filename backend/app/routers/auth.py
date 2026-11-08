@@ -4,6 +4,7 @@ import logging
 import uuid
 import zipfile
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -60,16 +61,41 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
 def _user_to_response(user: User) -> UserResponse:
-    return UserResponse.model_validate(user)
+    # ``_org_role`` is a private attr stashed by get_current_user (so the
+    # ownership helper can read it without a DB round-trip). It's
+    # underscore-prefixed which Pydantic's ``from_attributes`` ignores —
+    # explicit copy here so the Settings UI can read it.
+    payload = UserResponse.model_validate(user).model_dump()
+    payload["org_role"] = getattr(user, "_org_role", None)
+    return UserResponse(**payload)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
 @limiter.limit("3/minute")
 async def register(request: Request, data: UserRegister, db: AsyncSession = Depends(get_db)):
-    """Create a new user account and return a JWT so the client can authenticate immediately."""
+    """Create a new user account and return a JWT so the client can authenticate immediately.
+
+    If ``invite_token`` is present in the body, it must decode cleanly
+    (signed by us, not expired, matching email). On success the new user
+    is auto-attached to the encoded organization with the encoded role.
+    """
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
+
+    # Validate the invite up-front so we don't half-create a user and
+    # then 400 on the attach. A bad invite token aborts before any row
+    # is inserted.
+    invite_payload: Optional[dict] = None
+    if data.invite_token:
+        from app.utils.auth import decode_invite_token
+
+        invite_payload = decode_invite_token(data.invite_token)
+        if invite_payload["email"].lower() != data.email.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Invite was issued to a different email address.",
+            )
 
     # New users always start as researchers — admin is privileged and only assignable
     # by an existing admin via a separate admin tool. Ignore role from the public payload.
@@ -86,8 +112,114 @@ async def register(request: Request, data: UserRegister, db: AsyncSession = Depe
     await db.commit()
     await db.refresh(user)
 
+    # Attach to the inviting org if an invite was supplied. Done after
+    # the user row exists so the FK targets a real row.
+    if invite_payload is not None:
+        from app.models.organization_member import OrganizationMember
+
+        org_id = invite_payload["org_id"]
+        # Confirm the org still exists — invites are 7-day; theoretically
+        # the org could have been deleted in between. Treat as expired.
+        from app.models.organization import Organization
+
+        org = await db.get(Organization, org_id)
+        if org is None:
+            raise HTTPException(
+                status_code=400, detail="The inviting organization no longer exists."
+            )
+
+        member = OrganizationMember(
+            organization_id=org_id,
+            user_id=user.id,
+            role=invite_payload["role"],
+            invited_by=invite_payload["invited_by"],
+        )
+        db.add(member)
+        user.organization_id = org_id
+        await db.commit()
+        await db.refresh(user)
+
+    # Phase D: capture the plan the user arrived intending to buy. We
+    # don't auto-upgrade — that happens after the processor confirms
+    # payment — but we record the intent so growth can measure the
+    # conversion funnel. Falls through silently if the plan isn't a
+    # known tier; we shouldn't fail signup because a query param was
+    # garbage.
+    if data.intent_plan:
+        try:
+            from app.constants import TIER_LIMITS as _T
+
+            if data.intent_plan in _T:
+                import uuid as _uuid
+
+                from app.models.tier_change_audit import TierChangeAudit
+
+                db.add(
+                    TierChangeAudit(
+                        id=str(_uuid.uuid4()),
+                        user_id=user.id,
+                        from_tier=user.tier,
+                        # ``to_tier`` records the intent, NOT a real change.
+                        # The user's actual tier stays whatever it was
+                        # (free, since they just signed up). When the
+                        # processor confirms, apply_tier_change writes
+                        # another row with the real transition.
+                        to_tier=data.intent_plan,
+                        changed_by_user_id=None,
+                        reason="signup_intent",
+                    )
+                )
+                await db.commit()
+        except Exception:
+            logger.exception(
+                "signup intent capture failed for user=%s plan=%s",
+                user.id,
+                data.intent_plan,
+            )
+
+    # Fire-and-forget the verification email. We don't block registration
+    # on it because (a) Resend hiccups shouldn't prevent signup and (b) the
+    # user can request a fresh link from /me/email/verify/request anyway.
+    await _send_initial_verification_email(db, user)
+
     token, _ = await issue_login_token(db, user, request)
     return TokenResponse(access_token=token, user=_user_to_response(user))
+
+
+async def _send_initial_verification_email(db: AsyncSession, user: User) -> None:
+    """Issue an email-verify token + send the welcome verification mail.
+
+    Imported lazily to avoid the auth → security → auth import cycle.
+    Errors are logged; registration must not fail if email is unreachable.
+    """
+    try:
+        from datetime import timedelta as _td
+
+        from app.constants import EMAIL_VERIFICATION_TOKEN_TTL_HOURS
+        from app.models.auth_token import AuthToken
+        from app.routers.security import _build_verify_url
+        from app.services.email import render_verify_email, send_email
+
+        token = AuthToken(
+            user_id=user.id,
+            kind="email_verify",
+            expires_at=datetime.now(timezone.utc)
+            + _td(hours=EMAIL_VERIFICATION_TOKEN_TTL_HOURS),
+        )
+        db.add(token)
+        await db.commit()
+        await db.refresh(token)
+
+        subject, html, text = render_verify_email(
+            name=user.full_name,
+            verify_url=_build_verify_url(token.id),
+            ttl_hours=EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+        )
+        await send_email(to=user.email, subject=subject, html=html, text=text)
+    except Exception:
+        logger.exception(
+            "Initial verification email failed for user %s", getattr(user, "id", "?")
+        )
 
 
 @router.post("/login")
@@ -166,6 +298,89 @@ async def login_two_factor(
 
     token, _ = await issue_login_token(db, user, request)
     return TokenResponse(access_token=token, user=_user_to_response(user))
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Revoke the session tied to the calling token.
+
+    Server-side revocation matters because client-side JWT deletion alone
+    leaves a usable token in any place it was copied (browser memory dump,
+    proxy logs, leaked extension). Revoking the matching Session row makes
+    that token reject on the next request via the jti check in
+    ``_validate_session``.
+
+    Tokens without a jti (issued before the sessions table existed) have
+    no row to revoke — we return 204 anyway so the client UX stays the
+    same.
+    """
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.lower().startswith("bearer "):
+        return
+    try:
+        from jose import jwt as _jwt
+
+        payload = _jwt.decode(
+            auth_header[7:],
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+        jti = payload.get("jti")
+    except Exception:
+        return
+    if not jti:
+        return
+    from app.models.session import Session as _Session
+
+    session = await db.get(_Session, jti)
+    if session is None or session.user_id != current_user.id:
+        return
+    if session.revoked_at is None:
+        session.revoked_at = datetime.now(timezone.utc)
+        await db.commit()
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Issue a fresh access token bound to the same Session.
+
+    This is a sliding-session pattern — not a true refresh token. The
+    caller must present a still-valid (and still-revocable) access token,
+    so this lets a long-lived UI session keep going without forcing
+    re-login, while preserving server-side revocation. A proper
+    refresh-token migration (long-lived refresh + short-lived access)
+    is tracked separately; this endpoint is the immediate-relief path.
+    """
+    auth_header = request.headers.get("authorization", "")
+    session_id: Optional[str] = None
+    if auth_header.lower().startswith("bearer "):
+        try:
+            from jose import jwt as _jwt
+
+            payload = _jwt.decode(
+                auth_header[7:],
+                settings.JWT_SECRET,
+                algorithms=[settings.JWT_ALGORITHM],
+            )
+            session_id = payload.get("jti")
+        except Exception:
+            session_id = None
+
+    token = create_access_token(
+        current_user.id,
+        current_user.email,
+        session_id=session_id,
+        tier=current_user.tier,
+    )
+    return TokenResponse(access_token=token, user=_user_to_response(current_user))
 
 
 @router.post("/google", response_model=TokenResponse)
@@ -345,12 +560,23 @@ async def update_locale(
 
 
 @router.get("/me/export")
+@limiter.limit("2/hour")
 async def export_user_data(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Return a zip of the user's data (profile, source checks + children,
-    researcher profiles + publications, reports metadata).
+    researcher profiles + publications, reports metadata, sessions).
+
+    GDPR Article 20 (right to portability) — the user must be able to take
+    their data with them. This endpoint serialises every record we hold
+    that belongs to the user into a portable JSON-in-ZIP archive. PDFs are
+    re-generatable from the JSON, so they're not included.
+
+    Rate-limited to 2 per hour per user — building the zip is read-heavy
+    on the DB and a stray double-click from a noisy UI shouldn't be able
+    to thrash the connection pool.
 
     Implementation note: streams a fully-formed zip from memory because the
     free-tier limits cap total size well below a few MB. If the team tier
@@ -367,12 +593,21 @@ async def export_user_data(
         "institution": current_user.institution,
         "role": current_user.role,
         "tier": current_user.tier,
+        "organization_id": current_user.organization_id,
         "locale": current_user.locale,
         "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        "email_verified_at": current_user.email_verified_at.isoformat() if current_user.email_verified_at else None,
         "notification_preferences": {
             **DEFAULT_NOTIFICATION_PREFERENCES,
             **(current_user.notification_preferences or {}),
         },
+        # GDPR completeness — analysis preferences shape what gets run
+        # on each submission and is therefore part of the user's data.
+        "analysis_preferences": {
+            **DEFAULT_ANALYSIS_PREFERENCES,
+            **(current_user.analysis_preferences or {}),
+        },
+        "watchlist": list(current_user.watchlist or []),
     }
 
     # Source checks (live + soft-deleted, excluding hard-deleted descendants)
@@ -475,6 +710,25 @@ async def export_user_data(
             ],
         })
 
+    # Sessions — every authentication session ever issued for this
+    # account (live + revoked). Useful for the user to audit their own
+    # login history, and required for GDPR completeness.
+    from app.models.session import Session as SessionModel
+
+    sess_q = await db.execute(select(SessionModel).where(SessionModel.user_id == user_id))
+    sessions = [
+        {
+            "id": s.id,
+            "user_agent": s.user_agent,
+            "ip_address": s.ip_address,
+            "label": s.label,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "last_used_at": s.last_used_at.isoformat() if s.last_used_at else None,
+            "revoked_at": s.revoked_at.isoformat() if s.revoked_at else None,
+        }
+        for s in sess_q.scalars().all()
+    ]
+
     # Reports (metadata only — PDFs are large and re-generatable)
     rpt_q = await db.execute(select(Report).where(Report.user_id == user_id))
     reports = [
@@ -499,6 +753,7 @@ async def export_user_data(
         zf.writestr("source_checks.json", json.dumps(source_checks, indent=2))
         zf.writestr("researcher_profiles.json", json.dumps(researchers, indent=2))
         zf.writestr("reports.json", json.dumps(reports, indent=2))
+        zf.writestr("sessions.json", json.dumps(sessions, indent=2))
 
     buf.seek(0)
     filename = f"artiproof-export-{current_user.id[:8]}-{datetime.now(timezone.utc):%Y%m%d}.zip"
@@ -515,16 +770,29 @@ _EXPORT_README = """ArtiProof data export
 This archive contains every record we hold for your account at the time
 of export. Files are JSON for portability:
 
-- profile.json              account info, role, tier, locale, notification prefs
-- source_checks.json        all source verifications, including claims, AI detection
-                            results, citation analysis, and per-deduction scoring
-- researcher_profiles.json  every researcher integrity analysis you've run
-                            (publications + adjusted metrics + ring detection)
-- reports.json              metadata for generated PDF reports — the PDFs
-                            themselves are re-generatable from the source data
+- profile.json              account info, role, tier, organization,
+                            locale, notification prefs, analysis prefs,
+                            watchlist
+- source_checks.json        all source verifications, including claims,
+                            AI detection results, citation analysis,
+                            score breakdown, and model_metadata (the
+                            governance record — model name, prompt
+                            version + hashes, formula version)
+- researcher_profiles.json  every researcher integrity analysis you've
+                            run (publications + adjusted metrics + ring
+                            detection + model_metadata)
+- reports.json              metadata for generated PDF reports — the
+                            PDFs themselves are re-generatable from the
+                            source data
+- sessions.json             every authentication session ever issued
+                            for the account (live + revoked) so the
+                            login history is auditable
 
-To request deletion of this data, use Settings → Danger zone → Delete
-account in the app, or contact support.
+This export covers GDPR Article 20 (right to portability). For
+deletion (Article 17), use Settings → Danger zone → Delete account in
+the app, or contact support. The deletion follows a 30-day grace
+period before the data is hard-deleted — see /security on the website
+for the disclosure surface.
 """
 
 

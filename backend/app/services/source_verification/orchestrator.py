@@ -40,8 +40,21 @@ from app.services.source_verification.fact_checker import verify_claim
 from app.services.source_verification.ai_detector import detect_ai_content
 from app.services.source_verification.citation_analyzer import analyze_all_citations
 from app.services.source_verification.origin_tracer import trace_origin
+from app.utils.retry import HTTP_RETRY_EXCEPTIONS
 
 logger = logging.getLogger(__name__)
+
+
+# The step-level except blocks below split into two paths so the log
+# level reflects what actually happened:
+#   - HTTP_RETRY_EXCEPTIONS  → logger.warning (network blip / upstream
+#     flaked even after the retry decorator); pipeline continues with
+#     a warning recorded.
+#   - everything else → logger.exception (real bug); pipeline still
+#     continues — partial-failure tolerance is intentional, see the
+#     module docstring above — but the stack trace lands in Sentry.
+#
+# Both paths still append to self._warnings so the UI shows the caveat.
 
 
 # Scoring weights — bumping these requires bumping FORMULA_VERSION
@@ -74,11 +87,19 @@ class SourceVerificationOrchestrator:
         input_type: str,
         input_content: str,
         original_pdf_path: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ) -> str:
-        """Create a new SourceCheck record and return its ID."""
+        """Create a new SourceCheck record and return its ID.
+
+        ``organization_id`` is propagated from the caller (route layer
+        reads it off ``current_user.organization_id``) so org admins can
+        eventually surface their team's analyses. NULL means private to
+        the user — see app/models/source_check.py docstring.
+        """
         check = SourceCheck(
             id=str(uuid.uuid4()),
             user_id=user_id,
+            organization_id=organization_id,
             input_type=input_type,
             input_content=input_content,
             original_pdf_path=original_pdf_path,
@@ -100,6 +121,28 @@ class SourceVerificationOrchestrator:
         self._apis_used = []
         self._fallback_used = False
         self._text_was_truncated = False
+
+        # ── Governance: snapshot the prompt bundle at pipeline start ──
+        # Live hashes are written into model_metadata at save time so
+        # disputes can be replayed against the exact prompt revision
+        # that produced the score. Drift (a prompt edited without a
+        # PROMPT_VERSION bump) fires a Sentry warning via the helper.
+        # Deferred import: src_verification/__init__.py imports from
+        # this module, so a top-level import here would be circular.
+        from app.services.source_verification import (
+            PROMPT_HASHES,
+            PROMPT_VERSION,
+            compute_live_prompt_hashes,
+        )
+        from app.governance import check_prompt_drift
+
+        self._prompt_version = PROMPT_VERSION
+        self._prompt_hashes_live = compute_live_prompt_hashes()
+        self._prompt_drift_detected = check_prompt_drift(
+            engine="source_verification",
+            expected=PROMPT_HASHES,
+            live=self._prompt_hashes_live,
+        )
 
         result = await self.db.execute(select(SourceCheck).where(SourceCheck.id == check_id))
         check = result.scalar_one_or_none()
@@ -144,6 +187,10 @@ class SourceVerificationOrchestrator:
                     check.input_title = scraped["title"]
                 citations_from_scraper = scraped.get("citations", [])
                 yield {"step": "scraping", "status": "done", "detail": f"Extracted {len(text)} chars", "progress": 0.15}
+            except HTTP_RETRY_EXCEPTIONS as e:
+                logger.warning("Scraping transient failure: %s", e)
+                self._warnings.append({"type": "scraping_failed", "error": type(e).__name__, "transient": True})
+                yield {"step": "scraping", "status": "error", "detail": str(e), "progress": 0.15}
             except Exception as e:
                 logger.exception("Scraping failed")
                 self._warnings.append({"type": "scraping_failed", "error": type(e).__name__})
@@ -164,6 +211,11 @@ class SourceVerificationOrchestrator:
             claims = await extract_claims(text, warnings=self._warnings)
             self._track_api("gemini")
             yield {"step": "extracting_claims", "status": "done", "detail": f"Found {len(claims)} claims", "progress": 0.3}
+        except HTTP_RETRY_EXCEPTIONS as e:
+            logger.warning("Claim extraction transient failure: %s", e)
+            claims = []
+            self._warnings.append({"type": "claim_extraction_failed", "error": type(e).__name__, "transient": True})
+            yield {"step": "extracting_claims", "status": "error", "detail": str(e), "progress": 0.3}
         except Exception as e:
             logger.exception("Claim extraction failed")
             claims = []
@@ -189,6 +241,12 @@ class SourceVerificationOrchestrator:
                 self._track_api("google_factcheck")
             if any(r.get("detection_method") == "heuristic-fallback" for r in ai_results):
                 self._fallback_used = True
+        except HTTP_RETRY_EXCEPTIONS as e:
+            logger.warning("Parallel analysis transient failure: %s", e)
+            fact_check_results = []
+            ai_results = []
+            self._warnings.append({"type": "parallel_analysis_failed", "error": type(e).__name__, "transient": True})
+            yield {"step": "analyzing", "status": "error", "detail": str(e), "progress": 0.6}
         except Exception as e:
             logger.exception("Parallel analysis failed")
             fact_check_results = []
@@ -204,8 +262,16 @@ class SourceVerificationOrchestrator:
         try:
             citation_results = await analyze_all_citations(citations_from_scraper, warnings=self._warnings)
             if citations_from_scraper:
+                # Both retraction APIs are queried per citation; record both
+                # so users can see the analysis hit independent sources.
                 self._track_api("crossref")
+                self._track_api("openalex")
             yield {"step": "citations", "status": "done", "detail": f"Checked {len(citation_results)} citations", "progress": 0.7}
+        except HTTP_RETRY_EXCEPTIONS as e:
+            logger.warning("Citation analysis transient failure: %s", e)
+            citation_results = []
+            self._warnings.append({"type": "citation_analysis_failed", "error": type(e).__name__, "transient": True})
+            yield {"step": "citations", "status": "error", "detail": str(e), "progress": 0.7}
         except Exception as e:
             logger.exception("Citation analysis failed")
             citation_results = []
@@ -220,6 +286,9 @@ class SourceVerificationOrchestrator:
                 trace = await trace_origin(claim_data["claim_text"], claim_data["verdict"], claim_data.get("explanation", ""))
                 if trace:
                     claim_data["origin_trace"] = trace
+            except HTTP_RETRY_EXCEPTIONS as e:
+                logger.warning("Origin trace transient failure: %s", e)
+                self._warnings.append({"type": "origin_trace_failed", "transient": True})
             except Exception:
                 logger.exception("Origin trace failed for claim")
                 self._warnings.append({"type": "origin_trace_failed"})
@@ -479,21 +548,29 @@ class SourceVerificationOrchestrator:
         check.ai_content_percentage = round(ai_percentage, 1)
         check.misinfo_claims_found = misinfo_count
         check.score_breakdown = breakdown
-        check.model_metadata = {
-            "model_provider": "google",
-            "model_name": settings.GEMINI_MODEL,
-            "apis_used": list(self._apis_used),
-            "fallback_used": self._fallback_used,
-            "processing_warnings": list(self._warnings),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "formula_version": FORMULA_VERSION,
-            "context": {
+        # All metadata goes through the Pydantic governance schema so
+        # a typo or missing field surfaces at save time, not at audit
+        # time three months later when someone tries to reproduce a
+        # disputed score.
+        from app.schemas.governance import build_model_metadata
+
+        check.model_metadata = build_model_metadata(
+            model_provider="google",
+            model_name=settings.GEMINI_MODEL,
+            formula_version=FORMULA_VERSION,
+            prompt_version=self._prompt_version,
+            prompt_hashes=self._prompt_hashes_live,
+            prompt_drift_detected=self._prompt_drift_detected,
+            apis_used=self._apis_used,
+            fallback_used=self._fallback_used,
+            processing_warnings=self._warnings,
+            context={
                 "text_length": text_length,
                 "text_truncated": self._text_was_truncated,
                 "claims_extracted": len(fact_check_results),
                 "paragraphs_analyzed": len(ai_results),
             },
-        }
+        )
         check.status = "completed"
         check.completed_at = datetime.now(timezone.utc)
         await self.db.commit()

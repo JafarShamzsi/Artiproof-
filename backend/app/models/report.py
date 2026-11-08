@@ -23,6 +23,10 @@ class Report(Base, TimestampMixin, SoftDeleteMixin):
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = sa.Column(sa.String, sa.ForeignKey("users.id"), nullable=False, index=True)
+    # Org-scoping — see SourceCheck.organization_id for the contract.
+    organization_id = sa.Column(
+        sa.String, sa.ForeignKey("organizations.id"), nullable=True, index=True
+    )
     source_check_id = sa.Column(sa.String, sa.ForeignKey("source_checks.id", ondelete="SET NULL"), nullable=True)
     researcher_profile_id = sa.Column(sa.String, sa.ForeignKey("researcher_profiles.id", ondelete="SET NULL"), nullable=True)
     report_type = sa.Column(sa.String, nullable=False)  # source_verification, researcher_integrity

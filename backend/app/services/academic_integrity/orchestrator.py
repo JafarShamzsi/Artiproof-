@@ -60,6 +60,24 @@ class AcademicIntegrityOrchestrator:
         self._apis_used = []
         self._fallback_used = False
 
+        # Governance snapshot — same contract as the source-verification
+        # orchestrator. Deferred import to avoid the package <-> module
+        # circular at top-level.
+        from app.services.academic_integrity import (
+            PROMPT_HASHES,
+            PROMPT_VERSION,
+            compute_live_prompt_hashes,
+        )
+        from app.governance import check_prompt_drift
+
+        self._prompt_version = PROMPT_VERSION
+        self._prompt_hashes_live = compute_live_prompt_hashes()
+        self._prompt_drift_detected = check_prompt_drift(
+            engine="academic_integrity",
+            expected=PROMPT_HASHES,
+            live=self._prompt_hashes_live,
+        )
+
         result = await self.db.execute(
             select(ResearcherProfile).where(ResearcherProfile.id == profile_id)
         )
@@ -358,21 +376,25 @@ class AcademicIntegrityOrchestrator:
             },
         }
         profile.integrity_breakdown = adjusted.get("breakdown")
-        profile.model_metadata = {
-            "model_provider": "google",
-            "model_name": settings.GEMINI_MODEL,
-            "apis_used": list(self._apis_used),
-            "fallback_used": self._fallback_used,
-            "processing_warnings": list(self._warnings),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "formula_version": FORMULA_VERSION,
-            "context": {
+        from app.schemas.governance import build_model_metadata
+
+        profile.model_metadata = build_model_metadata(
+            model_provider="google",
+            model_name=settings.GEMINI_MODEL,
+            formula_version=FORMULA_VERSION,
+            prompt_version=self._prompt_version,
+            prompt_hashes=self._prompt_hashes_live,
+            prompt_drift_detected=self._prompt_drift_detected,
+            apis_used=self._apis_used,
+            fallback_used=self._fallback_used,
+            processing_warnings=self._warnings,
+            context={
                 "publications_count": len(publications),
                 "citations_checked": graph_data.get("total_citations_checked", 0),
                 "field_used": ring_data.get("field_used"),
                 "thresholds_used": ring_data.get("thresholds_used"),
             },
-        }
+        )
         profile.analysis_status = "completed"
         profile.last_analyzed_at = datetime.now(timezone.utc)
 

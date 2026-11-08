@@ -6,6 +6,7 @@ import SessionProvider from "@/components/shared/SessionProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { ColorModeProvider } from "@/contexts/ColorModeContext";
+import { CookieBanner } from "@/components/cookie-banner";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -107,6 +108,11 @@ export default function RootLayout({
             className: "font-sans",
           }}
         />
+        {/* Cookie consent — defaults to essential-only, opt-in for
+            analytics/marketing. Honours Global Privacy Control. The
+            banner is hidden after the user makes a choice (or if GPC
+            is on). Persistence in localStorage with a 12-month TTL. */}
+        <CookieBanner />
       </body>
     </html>
   );

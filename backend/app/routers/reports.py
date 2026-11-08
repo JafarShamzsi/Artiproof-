@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,9 @@ from app.services.report_engine.narrative_generator import (
 )
 from app.services.report_engine.pdf_generator import html_to_pdf, save_pdf
 from app.utils.auth import get_current_user
+from app.utils.ownership import is_owner_or_org_admin
+from app.utils.quota import enforce_quota
+from app.utils.rate_limit import limiter, tier_aware_limit_for_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
@@ -225,10 +228,12 @@ def _report_response(r: Report) -> ReportResponse:
 
 
 @router.post("/generate", response_model=ReportResponse, status_code=201)
+@limiter.limit(tier_aware_limit_for_key)
 async def generate_report(
+    request: Request,
     data: ReportGenerateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(enforce_quota("reports")),
 ):
     """Generate a PDF report.
 
@@ -277,7 +282,7 @@ async def generate_report(
         if len(checks) != len(set(data.source_check_ids)):
             raise HTTPException(status_code=404, detail="One or more source checks not found")
         for c in checks:
-            if c.user_id != user_id:
+            if not is_owner_or_org_admin(current_user, c):
                 raise HTTPException(status_code=403, detail="Not authorized to use one of the source checks")
         items = await _load_check_summaries_batched(checks, db)
         narrative = ""
@@ -302,7 +307,7 @@ async def generate_report(
         if len(profiles) != len(set(data.researcher_profile_ids)):
             raise HTTPException(status_code=404, detail="One or more researcher profiles not found")
         for p in profiles:
-            if p.user_id != user_id:
+            if not is_owner_or_org_admin(current_user, p):
                 raise HTTPException(
                     status_code=403,
                     detail="Not authorized to use one of the researcher profiles",
@@ -325,7 +330,7 @@ async def generate_report(
         check = result.scalar_one_or_none()
         if not check:
             raise HTTPException(status_code=404, detail="Source check not found")
-        if check.user_id != user_id:
+        if not is_owner_or_org_admin(current_user, check):
             raise HTTPException(status_code=403, detail="Not authorized to use this source check")
         check_data = await _load_check_data(check, db)
         narrative = await generate_source_check_narrative(check_data)
@@ -351,7 +356,7 @@ async def generate_report(
         profile = result.scalar_one_or_none()
         if not profile:
             raise HTTPException(status_code=404, detail="Researcher profile not found")
-        if profile.user_id != user_id:
+        if not is_owner_or_org_admin(current_user, profile):
             raise HTTPException(
                 status_code=403, detail="Not authorized to use this researcher profile"
             )
@@ -382,6 +387,7 @@ async def generate_report(
 
     report = Report(
         user_id=user_id,
+        organization_id=current_user.organization_id,
         source_check_id=source_check_id,
         researcher_profile_id=researcher_profile_id,
         source_check_ids=source_check_ids,
@@ -496,7 +502,7 @@ async def get_report(
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, report):
         raise HTTPException(status_code=403, detail="Not authorized to view this report")
     return _report_response(report)
 
@@ -516,7 +522,7 @@ async def rotate_share_token(
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, report):
         raise HTTPException(status_code=403, detail="Not authorized to rotate this token")
     report.share_token = secrets.token_urlsafe(32)
     report.share_expires_at = _default_share_expires_at()
@@ -544,7 +550,7 @@ async def update_report_annotations(
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, report):
         raise HTTPException(status_code=403, detail="Not authorized to annotate this report")
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -693,7 +699,7 @@ async def download_report(
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.user_id != current_user.id:
+    if not is_owner_or_org_admin(current_user, report):
         raise HTTPException(status_code=403, detail="Not authorized to download this report")
     return await _serve_report_pdf(report, db)
 

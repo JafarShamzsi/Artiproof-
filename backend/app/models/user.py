@@ -69,3 +69,28 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     # Researcher watchlist — list of {researcher_id, added_at}. Capped at
     # constants.MAX_WATCHLIST at the route layer.
     watchlist = sa.Column(sa.JSON, nullable=True)
+    # ─── Billing (Phase D scaffolding) ────────────────────────────────
+    # Payment processor state. The webhook updates these via
+    # apply_tier_change; the route layer only reads. ``subscription_state``
+    # drives the UI badge in Settings → Billing.
+    subscription_state = sa.Column(
+        ENUM(
+            "none",
+            "active",
+            "past_due",
+            "cancelled",
+            "paused",
+            name="subscription_state_enum",
+            create_type=False,
+        ),
+        nullable=False,
+        server_default="none",
+    )
+    # Opaque id from the payment processor — used to match webhook events
+    # back to this user. Indexed for that lookup.
+    subscription_id = sa.Column(sa.String, nullable=True, index=True)
+    next_billing_date = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    last_billing_date = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    # Receipts may go to a different inbox than login (e.g. finance@
+    # institution while the user logs in as alice@institution).
+    billing_email = sa.Column(sa.String, nullable=True)

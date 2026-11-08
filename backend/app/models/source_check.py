@@ -23,6 +23,13 @@ class SourceCheck(Base, TimestampMixin, SoftDeleteMixin):
 
     id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = sa.Column(sa.String, sa.ForeignKey("users.id"), nullable=False, index=True)
+    # Org-scoping: when the owner is on the team tier with an organization,
+    # this is backfilled to user.organization_id at insert time so org
+    # admins can query their org's analyses. NULL means "private to user"
+    # (free/pro tier, or team users not yet in an org).
+    organization_id = sa.Column(
+        sa.String, sa.ForeignKey("organizations.id"), nullable=True, index=True
+    )
     input_type = sa.Column(sa.String, nullable=False)  # url, text, document
     input_content = sa.Column(sa.Text, nullable=False)
     input_title = sa.Column(sa.String, nullable=True)

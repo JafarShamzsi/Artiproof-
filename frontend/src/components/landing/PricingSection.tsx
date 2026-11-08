@@ -85,7 +85,7 @@ const plans: PricingPlan[] = [
       { text: "On-premise deployment", included: true },
     ],
     cta: "Contact the editors",
-    ctaHref: "mailto:info@example.invalid",
+    ctaHref: "/contact-sales",
     riskReducer: "Custom pricing · 30-day pilot",
   },
 ];
