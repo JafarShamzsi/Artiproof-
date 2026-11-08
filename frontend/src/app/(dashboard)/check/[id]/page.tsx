@@ -131,22 +131,67 @@ export default function SourceCheckResultPage({
   };
 
   if (loading) {
+    // Skeleton mirroring the FullWidthView layout — score card, claims
+    // card, citations card. Feels less jarring than a single spinner and
+    // hints at the report structure before it loads.
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-brand dark:text-brand-fg" />
+      <div className="space-y-6" aria-busy="true" aria-label="Loading source check">
+        <div className="h-7 w-48 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+          <CardContent className="flex flex-col items-center gap-6 py-8 md:flex-row">
+            <div className="h-28 w-28 shrink-0 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-800" />
+            <div className="flex flex-1 flex-col gap-3">
+              <div className="h-5 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="flex gap-2">
+                <div className="h-6 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+                <div className="h-6 w-20 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+                <div className="h-6 w-24 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        {[0, 1, 2].map((i) => (
+          <Card key={i} className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+            <CardContent className="space-y-3 py-6">
+              <div className="h-4 w-32 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-3 w-full animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-3 w-5/6 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+            </CardContent>
+          </Card>
+        ))}
       </div>
     );
   }
 
   if (error || !data) {
+    // Recoverable error state — back to /check (the list), plus a retry
+    // that re-runs the same fetch. The previous "not found" message left
+    // the user no path forward when a transient 5xx blew up the fetch.
     return (
       <div className="space-y-4">
         <Link href="/check" className="flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
-          <ArrowLeft className="h-4 w-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> Back to checks
         </Link>
         <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardContent className="py-12 text-center">
-            <p className="text-red-700 dark:text-red-400">Source check not found.</p>
+            <AlertTriangle className="mx-auto h-10 w-10 text-amber-600 dark:text-amber-400" />
+            <h2 className="mt-3 text-base font-semibold text-zinc-900 dark:text-white">
+              Couldn&rsquo;t load this source check
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              {error === "Not found"
+                ? "The check may have been deleted, or you may not have permission to view it."
+                : "Something went wrong fetching this report. The error has been logged."}
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <Button onClick={() => window.location.reload()} variant="outline">
+                <RefreshCw className="mr-2 h-4 w-4" /> Try again
+              </Button>
+              <Link href="/check">
+                <Button>Browse past checks</Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
       </div>

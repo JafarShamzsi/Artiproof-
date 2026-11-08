@@ -227,22 +227,61 @@ export default function ResearcherResultPage({
   }, [id, inWatchlist]);
 
   if (loading) {
+    // Skeleton mirroring the integrity-score + publications layout.
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-accent-amber" />
+      <div className="space-y-6" aria-busy="true" aria-label="Loading researcher profile">
+        <div className="h-7 w-64 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+        <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+          <CardContent className="flex flex-col items-center gap-6 py-8 md:flex-row">
+            <div className="h-28 w-28 shrink-0 animate-pulse rounded-full bg-zinc-200 dark:bg-zinc-800" />
+            <div className="flex flex-1 flex-col gap-3">
+              <div className="h-5 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="h-14 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        {[0, 1].map((i) => (
+          <Card key={i} className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
+            <CardContent className="space-y-3 py-6">
+              <div className="h-4 w-40 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-3 w-full animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-3 w-5/6 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+            </CardContent>
+          </Card>
+        ))}
       </div>
     );
   }
 
   if (error || !data) {
+    // Recoverable error with retry + browse fallback — same pattern as /check/[id].
     return (
       <div className="space-y-4">
         <Link href="/researcher" className="flex items-center gap-1 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
-          <ArrowLeft className="h-4 w-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> Back to researchers
         </Link>
         <Card className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/50">
           <CardContent className="py-12 text-center">
-            <p className="text-red-700 dark:text-red-400">Researcher profile not found.</p>
+            <AlertTriangle className="mx-auto h-10 w-10 text-amber-600 dark:text-amber-400" />
+            <h2 className="mt-3 text-base font-semibold text-zinc-900 dark:text-white">
+              Couldn&rsquo;t load this researcher profile
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              The profile may have been deleted, or you may not have permission to view it.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <Button onClick={() => window.location.reload()} variant="outline">
+                <RefreshCw className="mr-2 h-4 w-4" /> Try again
+              </Button>
+              <Link href="/researcher">
+                <Button>Browse researchers</Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
       </div>
