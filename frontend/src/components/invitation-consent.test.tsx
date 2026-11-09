@@ -4,7 +4,7 @@ import RegisterPage from "@/app/(auth)/register/page";
 
 const { apiFetch, signIn, session, update } = vi.hoisted(() => {
   const update = vi.fn();
-  return { apiFetch: vi.fn(), signIn: vi.fn(), update, session: { status: "authenticated", update } };
+  return { apiFetch: vi.fn(), signIn: vi.fn(), update, session: { data: { user: { id: "recipient" } }, status: "authenticated", update } };
 });
 vi.mock("@/lib/api", () => ({ apiFetch, backendUrl: (path: string) => path }));
 vi.mock("next-auth/react", () => ({ signIn, useSession: () => session }));
@@ -32,13 +32,15 @@ it("opening an invitation does not accept; review and join are explicit actions"
   }));
 });
 
-it.each(["reject", "null", "wrong-org", "typed-error"])("does not claim success or navigate if session synchronization fails (%s)", async (failure) => {
+it.each(["reject", "null", "wrong-org", "wrong-account", "missing-id", "typed-error"])("does not claim success or navigate if session synchronization fails (%s)", async (failure) => {
   apiFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ organization_id: "org", name: "Test Lab", role: "member" }) });
   apiFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "accepted" }) });
   if (failure === "reject") update.mockRejectedValueOnce(new Error("Session refresh failed"));
-  else update.mockResolvedValueOnce(failure === "null" ? null : failure === "typed-error"
-    ? { user: { organizationId: "org" }, accountRefreshError: "ACCOUNT_REFRESH_FAILED" }
-    : { user: { organizationId: "old-org" } });
+  else update.mockResolvedValueOnce(failure === "null" ? null : failure === "wrong-account"
+    ? { user: { id: "different-account", organizationId: "org" } } : failure === "missing-id"
+    ? { user: { organizationId: "org" } } : failure === "typed-error"
+    ? { user: { id: "recipient", organizationId: "org" }, accountRefreshError: "ACCOUNT_REFRESH_FAILED" }
+    : { user: { id: "recipient", organizationId: "old-org" } });
   render(<RegisterPage />);
   fireEvent.click(screen.getByRole("button", { name: "Review invitation" }));
   fireEvent.click(await screen.findByRole("button", { name: "Accept invitation and join team" }));
