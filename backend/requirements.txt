@@ -16,12 +16,13 @@ psycopg2-binary>=2.9.9,<3.0
 alembic>=1.14.1,<2.0
 
 # Task queue
-# Retain the verified Celery 5.4 / redis-py 5 runtime. Kombu 5.7 requires
-# redis-py >=6.1 at runtime (>=6.4 in its Redis extra), incompatible with it.
-# Select the Redis extra explicitly so pip also checks transport dependencies.
-celery[redis]>=5.4.0,<5.5
-kombu[redis]>=5.6.2,<5.7
-redis>=5.2.1,<6.0
+# Review/upgrade this group together; bounded to the tested minor series.
+# Kombu 5.7's Redis extra requires redis-py >=6.4,<9. Select both extras
+# so the resolver checks transport metadata as well as the runtime guard.
+# Dependency advisory guards do not establish a clean security audit.
+celery[redis]>=5.7.0,<5.8
+kombu[redis]>=5.7.0,<5.8
+redis>=8.1.0,<8.2
 
 # AI / LLM clients
 # Each provider's client SDK is optional — the abstraction in
