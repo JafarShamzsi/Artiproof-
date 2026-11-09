@@ -1,0 +1,74 @@
+[
+  {
+    "tag": "DATA-01",
+    "slug": "data-01",
+    "issue": 32,
+    "title": "Legacy metadata inventory and reversible remediation design",
+    "paths": "docs/LEGACY-DATA-PLAN.md; backend/tools/legacy_data_audit/ (new offline tools only); backend/tests/test_legacy_data_audit.py; backend/tests/fixtures/legacy_data_audit/ (new synthetic fixtures).",
+    "goal": "Trace actual migrations/models/consent/report/share provenance. Build an OFFLINE metadata-only classifier taking explicit synthetic JSON input, with no DB connection or production-write mode. Failing regressions for ambiguous provenance, no inference from current organization pointer, no customer text or tokens in output. Propose quarantining/re-consent and explicit reversible mappings rather than silently restamping/deleting. Include required inventory fields, backup/restore prerequisites, dry-run review and manual approval gates. Test synthetic upgrade-shaped cases. Real historical audit remains blocked on separate access approval; do not imply performed. Coordinate with OPS01: you own record remediation logic; OPS owns environment recovery rehearsal.",
+    "branch": "agent/data-01/pilot-readiness",
+    "worktree": "D:/Developer/ArtiProof-worktrees/data-01",
+    "ports": "frontend 3201, backend 8201; optional disposable Postgres 55441, Redis 56441; verify ports unused before binding. Only stop processes/resources you create.",
+    "brief": "D:/Developer/ArtiProof-worktrees/manager/docs/tasks/DATA-01.md"
+  },
+  {
+    "tag": "DEPENDENCIES-01",
+    "slug": "dependencies-01",
+    "issue": 26,
+    "title": "Maintained queue dependencies and exposure-ranked audit",
+    "paths": "backend/requirements.txt; backend/requirements-dev.txt; backend/tests/test_queue_dependency_compatibility.py; backend/tests/test_dependency_security.py (new); frontend/package.json; frontend/package-lock.json; docs/DEPENDENCY-SECURITY.md.",
+    "goal": "First bounded implementation slice is a maintained compatible Celery/Kombu/redis group, reconcile Dependabot PR9 without merging it. Verify CURRENT upstream support/security guidance from primary sources and actual resolved versions. Reproduce compatibility guards, run full backend and real Redis delivery acceptance via existing hosted suites. Separately inventory current Python/npm advisories and exposure with precise package/advisory IDs; do not pretend every alert exploitable or fixed. Frontend manifests exclusively yours but defer unrelated upgrades until first queue slice is verified. Never weaken tests/gates; no app edits for API incompatibility without manager scope. Own isolated venv, never modify shared audit venv. Report residual critical/high advisories explicitly; partial upgrade is not release clearance.",
+    "branch": "agent/dependencies-01/pilot-readiness",
+    "worktree": "D:/Developer/ArtiProof-worktrees/dependencies-01",
+    "ports": "frontend 3202, backend 8202; optional disposable Postgres 55442, Redis 56442; verify ports unused before binding. Only stop processes/resources you create.",
+    "brief": "D:/Developer/ArtiProof-worktrees/manager/docs/tasks/DEPENDENCIES-01.md"
+  },
+  {
+    "tag": "QA-01",
+    "slug": "qa-01",
+    "issue": 34,
+    "title": "[QA-01] Exercise authenticated pilot browser journeys",
+    "paths": "frontend/e2e-auth/ (new suite and fixtures); frontend/playwright.auth.config.ts (new separate config); backend/tests/test_pilot_auth_journeys.py (new); scripts/qa_auth/ (new isolated fixture/setup utilities); docs/AUTHENTICATED-QA.md.",
+    "goal": "Trace real signup/verification/login/invite acceptance/removal/session revocation then analysis/report access. Build one real UI-to-backend authenticated tracer before expanding. Use migrated disposable local PostgreSQL/Redis and synthetic users, real auth/session/membership logic; mock only external paid models/email delivery, never route authorization. Existing default smoke config/suite unchanged. Own config must specify e2e-auth testDir so default smoke does not accidentally collect service tests. If services unavailable, deliver executable harness plus exact blocked acceptance and run all feasible checks; do not call mocked browser routes end-to-end. No production application edits: file reproducible defects with exact routes/assertions for manager assignment. No OAuth real account/credentials or paid provider calls. Explicitly classify Google-only/2FA/external verification untested where needed.",
+    "branch": "agent/qa-01/pilot-readiness",
+    "worktree": "D:/Developer/ArtiProof-worktrees/qa-01",
+    "ports": "frontend 3203, backend 8203; optional disposable Postgres 55443, Redis 56443; verify ports unused before binding. Only stop processes/resources you create.",
+    "brief": "D:/Developer/ArtiProof-worktrees/manager/docs/tasks/QA-01.md"
+  },
+  {
+    "tag": "UX-01",
+    "slug": "ux-01",
+    "issue": 33,
+    "title": "Mobile usability and measurable font-delivery acceptance",
+    "paths": "frontend/src/components/cookie-banner.tsx; frontend/src/components/cookie-banner.test.tsx; frontend/src/components/landing/ComparisonSection.tsx; frontend/src/components/landing/ComparisonSection.test.tsx (new if needed); frontend/e2e/ux-mobile.spec.ts (new); docs/MOBILE-PERFORMANCE.md; scripts/ux_measure/ (new).",
+    "goal": "Measure public landing at375/1440 CSSpx with local production server, isolated browser, real font requests and repeatable cold conditions. Record actual wire vs decoded transfer; use supported browser tooling for LCP/CLS and throttle when available, report unsupported metrics honestly. Inspect mobile comparison table reachability/keyboard scrolling and cookie banner dismissal/readability. Only fix reproduced usability defects in owned components, regression-first and no redesign/copy/legal-consent semantics changes. Layout/font binaries/manifests are READ-ONLY this slice: request measured optimization scope later. Existing font acceptance assets in Hermes scratch build02-acceptance may be read. Preserve Azerbaijani glyph coverage. No dependency/CI/auth edits.",
+    "branch": "agent/ux-01/pilot-readiness",
+    "worktree": "D:/Developer/ArtiProof-worktrees/ux-01",
+    "ports": "frontend 3204, backend 8204; optional disposable Postgres 55444, Redis 56444; verify ports unused before binding. Only stop processes/resources you create.",
+    "brief": "D:/Developer/ArtiProof-worktrees/manager/docs/tasks/UX-01.md"
+  },
+  {
+    "tag": "QUALITY-01",
+    "slug": "quality-01",
+    "issue": 35,
+    "title": "[QUALITY-01] Verify evidence-grounded analysis and assess PR16",
+    "paths": "backend/tests/test_pilot_evidence_acceptance.py (new); backend/tests/fixtures/pilot_evidence/ (new); docs/ANALYSIS-ACCEPTANCE.md.",
+    "goal": "Current-source audit plus executable offline acceptance probes for unsupported model verdicts, empty sources, contradictory citations, insufficient evidence, researcher identity/ORCID ambiguity, provider routing and report provenance. Historical audit claims are hypotheses: independently reproduce current paths and distinguish concrete bug, source-derived risk and untested provider behavior. Inspect PR16 diff/migrations read-only against current main; do not checkout into another lane or merge/cherry-pick it. Prioritize findings with file:line and minimal reproducer. No service/model/router/migration implementation edits in first slice; manager will assign concrete fixes without overlap. Model fixture output is intentionally synthetic and must be labeled, never live-provider evidence. Run tests; if acceptance fails publish bounded draft with failures rather than weakening assertions. No network scraping/paid-provider calls/customer data.",
+    "branch": "agent/quality-01/pilot-readiness",
+    "worktree": "D:/Developer/ArtiProof-worktrees/quality-01",
+    "ports": "frontend 3205, backend 8205; optional disposable Postgres 55445, Redis 56445; verify ports unused before binding. Only stop processes/resources you create.",
+    "brief": "D:/Developer/ArtiProof-worktrees/manager/docs/tasks/QUALITY-01.md"
+  },
+  {
+    "tag": "OPS-01",
+    "slug": "ops-01",
+    "issue": 36,
+    "title": "[OPS-01] Prepare isolated pilot release and recovery rehearsal",
+    "paths": "docs/PILOT-RELEASE-RUNBOOK.md; scripts/pilot_rehearsal/ (new); backend/tests/test_pilot_rehearsal_safety.py (new).",
+    "goal": "Trace deploy entrypoints, migrations, artifacts, worker scheduling/health and monitoring from repository only. Build offline preflight/checklist and an isolated synthetic backup/restore rehearsal if local tooling permits, no root docker-compose invocation (contains env_file/shared volumes). Use dedicated explicit test-only names/ports, reject non-loopback/live endpoints and unknown databases, never destructive cleanup of preexisting resources. Evidence must separate tested local recovery from proposed hosting commands. Require recoverable DB plus artifact backups, migration-head verification, rollback rehearsal, observability/alerts, cohort limits, support ownership and explicit manual go/no-go. DATA01 owns provenance/remediation; you own environment and recovery. No actual deployment/cloud/production access or migration edits. Stage runbook can list required owner decisions without guessing credentials or live topology.",
+    "branch": "agent/ops-01/pilot-readiness",
+    "worktree": "D:/Developer/ArtiProof-worktrees/ops-01",
+    "ports": "frontend 3206, backend 8206; optional disposable Postgres 55446, Redis 56446; verify ports unused before binding. Only stop processes/resources you create.",
+    "brief": "D:/Developer/ArtiProof-worktrees/manager/docs/tasks/OPS-01.md"
+  }
+]

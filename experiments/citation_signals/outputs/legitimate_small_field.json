@@ -1,0 +1,395 @@
+{
+  "abstentions": [],
+  "author_edges": [
+    {
+      "authors": [
+        "A",
+        "B"
+      ],
+      "mass": "1",
+      "work_pairs": [
+        [
+          "A1",
+          "B0"
+        ]
+      ]
+    },
+    {
+      "authors": [
+        "B",
+        "C"
+      ],
+      "mass": "1",
+      "work_pairs": [
+        [
+          "B1",
+          "C0"
+        ]
+      ]
+    },
+    {
+      "authors": [
+        "C",
+        "A"
+      ],
+      "mass": "1",
+      "work_pairs": [
+        [
+          "C1",
+          "A0"
+        ]
+      ]
+    }
+  ],
+  "candidate_annotation": "signal_observed",
+  "coauthor_citation": {
+    "coauthored_work_support": [],
+    "denominator_work_pairs": 3,
+    "nonself_mass": "0",
+    "work_pairs": []
+  },
+  "concentration": [
+    {
+      "author": "A",
+      "observed_outgoing_mass": "1",
+      "recipients": [
+        {
+          "author": "B",
+          "mass": "1",
+          "share": "1",
+          "work_pairs": [
+            [
+              "A1",
+              "B0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "author": "B",
+      "observed_outgoing_mass": "1",
+      "recipients": [
+        {
+          "author": "C",
+          "mass": "1",
+          "share": "1",
+          "work_pairs": [
+            [
+              "B1",
+              "C0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "author": "C",
+      "observed_outgoing_mass": "1",
+      "recipients": [
+        {
+          "author": "A",
+          "mass": "1",
+          "share": "1",
+          "work_pairs": [
+            [
+              "C1",
+              "A0"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "abstained_work_pairs": 0,
+    "eligible_work_pairs": 3,
+    "observed_work_pairs": 3,
+    "outside_window_work_pairs": 0,
+    "reference_assertions": 3
+  },
+  "coverage": {
+    "absence_established": null,
+    "limitation": "Observed sample only; limits and direction do not establish population completeness.",
+    "population_denominator": null,
+    "runs": [
+      {
+        "as_of": "2024-02-01",
+        "direction": "both",
+        "id": "run1",
+        "lineage": "fictional-upstream",
+        "provider": "fictional-provider",
+        "reference_limit": 512,
+        "truncated": false,
+        "work_limit": 128
+      }
+    ]
+  },
+  "experiment_version": "citation-signals/1",
+  "features_sha256": "6248d32b1168a5c1deefe447b92a66f1fa28f2b8576b7a95f23e216b5bca6de2",
+  "fixture_version": 1,
+  "fraud_verdict": "not_assessed",
+  "identity_assertions": [
+    {
+      "id": "A",
+      "identifiers": [
+        "fictional:A"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "B",
+      "identifiers": [
+        "fictional:B"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "C",
+      "identifiers": [
+        "fictional:C"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    }
+  ],
+  "input_sha256": "d9169898a3aa295a9fca01a48bc827c1278bb9d3dc1b641f88fa0af8b0cfdf98",
+  "motifs": {
+    "absence_established": null,
+    "directed_three_author_cycles": [
+      {
+        "authors": [
+          "A",
+          "B",
+          "C"
+        ],
+        "distinct_work_pair_witnesses": [
+          [
+            "A1",
+            "B0"
+          ],
+          [
+            "B1",
+            "C0"
+          ],
+          [
+            "C1",
+            "A0"
+          ]
+        ],
+        "evidence_author_arcs": [
+          [
+            "A",
+            "B"
+          ],
+          [
+            "B",
+            "C"
+          ],
+          [
+            "C",
+            "A"
+          ]
+        ]
+      }
+    ],
+    "enumeration_truncated": false,
+    "group_closure": "unavailable",
+    "status": "signal_observed"
+  },
+  "outside_window": [],
+  "paper_evidence": [
+    {
+      "assertions": [
+        {
+          "cited": "B0",
+          "citing": "A1",
+          "id": "e0",
+          "observed_on": "2024-01-01",
+          "run": "run1",
+          "source_evidence_id": "source:0"
+        }
+      ],
+      "eligible": true,
+      "lineages": [
+        "fictional-upstream"
+      ],
+      "projection_supporting_assertion_ids": [
+        "e0"
+      ],
+      "reason": null,
+      "work_pair": [
+        "A1",
+        "B0"
+      ]
+    },
+    {
+      "assertions": [
+        {
+          "cited": "C0",
+          "citing": "B1",
+          "id": "e1",
+          "observed_on": "2024-01-01",
+          "run": "run1",
+          "source_evidence_id": "source:1"
+        }
+      ],
+      "eligible": true,
+      "lineages": [
+        "fictional-upstream"
+      ],
+      "projection_supporting_assertion_ids": [
+        "e1"
+      ],
+      "reason": null,
+      "work_pair": [
+        "B1",
+        "C0"
+      ]
+    },
+    {
+      "assertions": [
+        {
+          "cited": "A0",
+          "citing": "C1",
+          "id": "e2",
+          "observed_on": "2024-01-01",
+          "run": "run1",
+          "source_evidence_id": "source:2"
+        }
+      ],
+      "eligible": true,
+      "lineages": [
+        "fictional-upstream"
+      ],
+      "projection_supporting_assertion_ids": [
+        "e2"
+      ],
+      "reason": null,
+      "work_pair": [
+        "C1",
+        "A0"
+      ]
+    }
+  ],
+  "projection": "fractional_1_over_source_authors_times_target_authors",
+  "reciprocity": {
+    "absence_established": null,
+    "pairs": [],
+    "status": "insufficient_evidence"
+  },
+  "self_citation": {
+    "denominator_work_pairs": 3,
+    "mass": "0",
+    "share": "0",
+    "work_pairs": []
+  },
+  "shared_author_overlap": {
+    "denominator_work_pairs": 3,
+    "work_pair_count": 0,
+    "work_pairs": []
+  },
+  "temporal_burst": {
+    "reason": "no_time_series_or_cohort_baseline",
+    "status": "unavailable"
+  },
+  "window": {
+    "as_of": "2024-02-01",
+    "end": "2024-01-01",
+    "start": "2020-01-01"
+  },
+  "work_assertions": [
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:A0:A",
+          "author_id": "A",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "A0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:A1:A",
+          "author_id": "A",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "A1",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2022-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:B0:B",
+          "author_id": "B",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "B0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:B1:B",
+          "author_id": "B",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "B1",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2022-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:C0:C",
+          "author_id": "C",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "C0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:C1:C",
+          "author_id": "C",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "C1",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2022-01-01"
+      }
+    }
+  ]
+}

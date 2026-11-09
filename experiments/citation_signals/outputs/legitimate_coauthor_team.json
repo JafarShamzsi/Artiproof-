@@ -1,0 +1,289 @@
+{
+  "abstentions": [],
+  "author_edges": [
+    {
+      "authors": [
+        "A",
+        "A"
+      ],
+      "mass": "1/4",
+      "work_pairs": [
+        [
+          "team1",
+          "team0"
+        ]
+      ]
+    },
+    {
+      "authors": [
+        "A",
+        "B"
+      ],
+      "mass": "1/4",
+      "work_pairs": [
+        [
+          "team1",
+          "team0"
+        ]
+      ]
+    },
+    {
+      "authors": [
+        "B",
+        "A"
+      ],
+      "mass": "1/4",
+      "work_pairs": [
+        [
+          "team1",
+          "team0"
+        ]
+      ]
+    },
+    {
+      "authors": [
+        "B",
+        "B"
+      ],
+      "mass": "1/4",
+      "work_pairs": [
+        [
+          "team1",
+          "team0"
+        ]
+      ]
+    }
+  ],
+  "candidate_annotation": "signal_observed",
+  "coauthor_citation": {
+    "coauthored_work_support": [
+      "team0",
+      "team1"
+    ],
+    "denominator_work_pairs": 1,
+    "nonself_mass": "1/2",
+    "work_pairs": [
+      [
+        "team1",
+        "team0"
+      ]
+    ]
+  },
+  "concentration": [
+    {
+      "author": "A",
+      "observed_outgoing_mass": "1/2",
+      "recipients": [
+        {
+          "author": "A",
+          "mass": "1/4",
+          "share": "1/2",
+          "work_pairs": [
+            [
+              "team1",
+              "team0"
+            ]
+          ]
+        },
+        {
+          "author": "B",
+          "mass": "1/4",
+          "share": "1/2",
+          "work_pairs": [
+            [
+              "team1",
+              "team0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "author": "B",
+      "observed_outgoing_mass": "1/2",
+      "recipients": [
+        {
+          "author": "A",
+          "mass": "1/4",
+          "share": "1/2",
+          "work_pairs": [
+            [
+              "team1",
+              "team0"
+            ]
+          ]
+        },
+        {
+          "author": "B",
+          "mass": "1/4",
+          "share": "1/2",
+          "work_pairs": [
+            [
+              "team1",
+              "team0"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "abstained_work_pairs": 0,
+    "eligible_work_pairs": 1,
+    "observed_work_pairs": 1,
+    "outside_window_work_pairs": 0,
+    "reference_assertions": 1
+  },
+  "coverage": {
+    "absence_established": null,
+    "limitation": "Observed sample only; limits and direction do not establish population completeness.",
+    "population_denominator": null,
+    "runs": [
+      {
+        "as_of": "2024-02-01",
+        "direction": "both",
+        "id": "run1",
+        "lineage": "fictional-upstream",
+        "provider": "fictional-provider",
+        "reference_limit": 512,
+        "truncated": false,
+        "work_limit": 128
+      }
+    ]
+  },
+  "experiment_version": "citation-signals/1",
+  "features_sha256": "5b65be21d33e0b8aadfd6f9d06bbce5f7965d0abc19616fce64bdbcdd82bd01e",
+  "fixture_version": 1,
+  "fraud_verdict": "not_assessed",
+  "identity_assertions": [
+    {
+      "id": "A",
+      "identifiers": [
+        "fictional:A"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "B",
+      "identifiers": [
+        "fictional:B"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    }
+  ],
+  "input_sha256": "2a0cbb01e1efafaf45455ba89c04b2dc453993d013fde1032e11f8cad4c66cc2",
+  "motifs": {
+    "absence_established": null,
+    "directed_three_author_cycles": [],
+    "enumeration_truncated": false,
+    "group_closure": "unavailable",
+    "status": "insufficient_evidence"
+  },
+  "outside_window": [],
+  "paper_evidence": [
+    {
+      "assertions": [
+        {
+          "cited": "team0",
+          "citing": "team1",
+          "id": "e0",
+          "observed_on": "2024-01-01",
+          "run": "run1",
+          "source_evidence_id": "source:0"
+        }
+      ],
+      "eligible": true,
+      "lineages": [
+        "fictional-upstream"
+      ],
+      "projection_supporting_assertion_ids": [
+        "e0"
+      ],
+      "reason": null,
+      "work_pair": [
+        "team1",
+        "team0"
+      ]
+    }
+  ],
+  "projection": "fractional_1_over_source_authors_times_target_authors",
+  "reciprocity": {
+    "absence_established": null,
+    "pairs": [],
+    "status": "insufficient_evidence"
+  },
+  "self_citation": {
+    "denominator_work_pairs": 1,
+    "mass": "1/2",
+    "share": "1/2",
+    "work_pairs": [
+      [
+        "team1",
+        "team0"
+      ]
+    ]
+  },
+  "shared_author_overlap": {
+    "denominator_work_pairs": 1,
+    "work_pair_count": 1,
+    "work_pairs": [
+      [
+        "team1",
+        "team0"
+      ]
+    ]
+  },
+  "temporal_burst": {
+    "reason": "no_time_series_or_cohort_baseline",
+    "status": "unavailable"
+  },
+  "window": {
+    "as_of": "2024-02-01",
+    "end": "2024-01-01",
+    "start": "2020-01-01"
+  },
+  "work_assertions": [
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:team0:A",
+          "author_id": "A",
+          "resolution_version": "v1"
+        },
+        {
+          "assertion_id": "au:team0:B",
+          "author_id": "B",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "team0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:team1:A",
+          "author_id": "A",
+          "resolution_version": "v1"
+        },
+        {
+          "assertion_id": "au:team1:B",
+          "author_id": "B",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "team1",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2022-01-01"
+      }
+    }
+  ]
+}

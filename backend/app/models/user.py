@@ -1,0 +1,96 @@
+import uuid
+
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM
+
+from app.models.base import Base
+from app.models.mixins import SoftDeleteMixin, TimestampMixin
+
+# Prisma created the UserRole enum type. Reference it without re-creating.
+user_role_enum = ENUM("researcher", "faculty", "admin", name="UserRole", create_type=False)
+
+
+class User(Base, TimestampMixin, SoftDeleteMixin):
+    __tablename__ = "users"
+
+    id = sa.Column(sa.String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = sa.Column(sa.String, unique=True, nullable=False, index=True)
+    hashed_password = sa.Column(sa.String, nullable=True)
+    full_name = sa.Column(sa.String, nullable=False)
+    institution = sa.Column(sa.String, nullable=True)
+    role = sa.Column(user_role_enum, nullable=False, server_default="researcher")
+    # Plan tier — see app.constants.TIER_LIMITS for quotas.
+    tier = sa.Column(sa.String, nullable=False, server_default="free", index=True)
+    # Per-user notification toggles. Merged with DEFAULT_NOTIFICATION_PREFERENCES on read
+    # so adding a new key doesn't require a backfill of existing rows.
+    notification_preferences = sa.Column(sa.JSON, nullable=True)
+    # ISO 639-1 code from constants.SUPPORTED_LOCALES. Persists the user's
+    # chosen UI language; actual content translation is handled separately.
+    locale = sa.Column(sa.String(8), nullable=False, server_default="en")
+    # When set, the account is suspended — get_current_user blocks all routes
+    # except /api/auth/reactivate. User can self-reactivate. Distinct from
+    # `deleted_at` (account deletion).
+    deactivated_at = sa.Column(sa.DateTime(timezone=True), nullable=True, index=True)
+    # Email verification: NULL = unverified. Migration 0005 grandfathers existing
+    # users to created_at so they don't see a verification banner retroactively.
+    email_verified_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    # TOTP shared secret. Stored plaintext for now — encryption-at-rest is a
+    # KMS concern noted in the migration. Only populated after 2FA setup.
+    totp_secret = sa.Column(sa.String, nullable=True)
+    totp_enabled = sa.Column(sa.Boolean, nullable=False, server_default="false")
+    # JSON list of bcrypt-hashed backup codes. Each single-use; consuming one
+    # rotates the array (drops the matched hash) before responding.
+    totp_backup_codes = sa.Column(sa.JSON, nullable=True)
+    # OAuth providers linked to this account. Shape:
+    #   {"google": {"sub": str, "email": str, "linked_at": iso8601}}
+    linked_providers = sa.Column(sa.JSON, nullable=True)
+    # Per-user defaults for analysis pipelines. Merged with
+    # constants.DEFAULT_ANALYSIS_PREFERENCES on read.
+    analysis_preferences = sa.Column(sa.JSON, nullable=True)
+    # Pinned items for the dashboard. Shape: list of
+    #   {"kind": "source_check"|"researcher"|"report", "id": str, "pinned_at": iso}
+    # Capped at constants.MAX_PINNED_ITEMS at the route level.
+    pinned_items = sa.Column(sa.JSON, nullable=True)
+    # Team membership. NULL for free/pro accounts. Required for team-tier
+    # features (team activity feed). Org rows are seeded out-of-band today;
+    # a self-serve invite flow is a later phase.
+    organization_id = sa.Column(
+        sa.String,
+        sa.ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Privacy toggle for team activity. Default true so team-tier users
+    # opt out actively rather than discovering after the fact that their
+    # work is invisible to the rest of the org.
+    share_activity_with_team = sa.Column(
+        sa.Boolean, nullable=False, server_default="true"
+    )
+    # Researcher watchlist — list of {researcher_id, added_at}. Capped at
+    # constants.MAX_WATCHLIST at the route layer.
+    watchlist = sa.Column(sa.JSON, nullable=True)
+    # ─── Billing (Phase D scaffolding) ────────────────────────────────
+    # Payment processor state. The webhook updates these via
+    # apply_tier_change; the route layer only reads. ``subscription_state``
+    # drives the UI badge in Settings → Billing.
+    subscription_state = sa.Column(
+        ENUM(
+            "none",
+            "active",
+            "past_due",
+            "cancelled",
+            "paused",
+            name="subscription_state_enum",
+            create_type=False,
+        ),
+        nullable=False,
+        server_default="none",
+    )
+    # Opaque id from the payment processor — used to match webhook events
+    # back to this user. Indexed for that lookup.
+    subscription_id = sa.Column(sa.String, nullable=True, index=True)
+    next_billing_date = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    last_billing_date = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    # Receipts may go to a different inbox than login (e.g. finance@
+    # institution while the user logs in as alice@institution).
+    billing_email = sa.Column(sa.String, nullable=True)

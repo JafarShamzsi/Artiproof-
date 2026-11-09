@@ -1,0 +1,118 @@
+{
+  "authors": [
+    {
+      "id": "A",
+      "identifiers": [
+        "fictional:A"
+      ],
+      "resolution_version": "pending-split-v2",
+      "status": "ambiguous"
+    },
+    {
+      "id": "B",
+      "identifiers": [
+        "fictional:B"
+      ],
+      "resolution_version": "pending-split-v2",
+      "status": "ambiguous"
+    }
+  ],
+  "references": [
+    {
+      "cited": "b0",
+      "citing": "a1",
+      "id": "e0",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:0"
+    },
+    {
+      "cited": "a0",
+      "citing": "b1",
+      "id": "e1",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:1"
+    }
+  ],
+  "runs": [
+    {
+      "as_of": "2024-02-01",
+      "direction": "both",
+      "id": "run1",
+      "lineage": "fictional-upstream",
+      "provider": "fictional-provider",
+      "reference_limit": 512,
+      "truncated": false,
+      "work_limit": 128
+    }
+  ],
+  "version": 1,
+  "window": {
+    "as_of": "2024-02-01",
+    "end": "2024-01-01",
+    "start": "2020-01-01"
+  },
+  "works": [
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:a0:A",
+          "author_id": "A",
+          "resolution_version": "pending-split-v2"
+        }
+      ],
+      "id": "a0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:b0:B",
+          "author_id": "B",
+          "resolution_version": "pending-split-v2"
+        }
+      ],
+      "id": "b0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-02-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:a1:A",
+          "author_id": "A",
+          "resolution_version": "pending-split-v2"
+        }
+      ],
+      "id": "a1",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2022-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:b1:B",
+          "author_id": "B",
+          "resolution_version": "pending-split-v2"
+        }
+      ],
+      "id": "b1",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2023-01-01"
+      }
+    }
+  ]
+}

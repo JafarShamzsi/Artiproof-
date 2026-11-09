@@ -1,0 +1,161 @@
+{
+  "ledger_version": "cite03-sources-v1",
+  "accessed_on": "2026-11-08",
+  "scope": "Bounded primary-source review; not an exhaustive literature/correction search. No paper is a case dataset.",
+  "grounding_tool": "grounded-citations discovery returned no tool; manual full-relevant-content inspection",
+  "sources": [
+    {
+      "id": "S1",
+      "title": "Detecting anomalous citation groups in journal networks",
+      "authors": "Kojaku, Livan and Masuda",
+      "year": 2021,
+      "doi": "10.1038/s41598-021-93572-3",
+      "url": "https://www.nature.com/articles/s41598-021-93572-3",
+      "retrieved": "Full publisher HTML; relevant Results, Discussion and Methods read",
+      "anchors": ["Results / Data", "Results / Overlap with the journal groups suspended from JCR / Figure 2", "Discussion", "Methods / Detection of anomalous citation groups / equations 1-3", "Methods / Null model / equations 4-6", "Change history"],
+      "supports": "Journal-level conditional degree/block null; donor OR recipient roles; BH adjustment; selected JCR comparator; imperfect coverage and manual judgment limits.",
+      "limitation": "Not author-fraud accuracy. Blocks fitted on 2000-2019 aggregate cannot establish prospective earlier-year knowledge-only detection. Additional anomalies not all verified cartels.",
+      "correction": "S2 explicitly linked by original article; both read. No claim of exhaustive future correction discovery."
+    },
+    {
+      "id": "S2",
+      "title": "Author Correction: Detecting anomalous citation groups in journal networks",
+      "authors": "Kojaku, Livan and Masuda",
+      "year": 2022,
+      "doi": "10.1038/s41598-022-19033-7",
+      "url": "https://www.nature.com/articles/s41598-022-19033-7",
+      "retrieved": "Full publisher correction text and figure caption read",
+      "anchors": ["Correction text", "Figure 2 caption"],
+      "supports": "Corrects Figure 2(a) yearly versus bi-yearly x-axis labels; omitted y-axis/JCR legend in panel c. Caption: 11 of 22 suspended journal groups in suspension year or earlier.",
+      "limitation": "Figure presentation correction, not a new author-level validation."
+    },
+    {
+      "id": "S3",
+      "title": "Toward the Discovery of Citation Cartels in Citation Networks",
+      "authors": "Fister Jr., Fister and Perc",
+      "year": 2016,
+      "doi": "10.3389/fphy.2016.00049",
+      "url": "https://www.frontiersin.org/journals/physics/articles/10.3389/fphy.2016.00049/full",
+      "retrieved": "Full publisher HTML; Perspective sections 1-5 read",
+      "anchors": ["3. Citation cartels", "4. Discovering the cartels", "5. Concluding remarks"],
+      "supports": "Conceptual multilayer author/paper representation and artificial RDF/SPARQL demonstration; caution that real-world indictment requires detailed analysis.",
+      "limitation": "Not empirical population author detection validation. Do not adopt example threshold, probability wording or intent-from-coauthorship assumption. Publisher HTML equations incompletely rendered; not used to reproduce formulas."
+    },
+    {
+      "id": "S4",
+      "title": "Random graph models for directed acyclic networks",
+      "authors": "Karrer and Newman",
+      "year": 2009,
+      "version": "arXiv:0907.4346v1",
+      "url": "https://arxiv.org/html/0907.4346v1",
+      "retrieved": "Full arXiv HTML retrieved; sections II, III and V-VI inspected",
+      "anchors": ["II Acyclic graphs and ordered graphs", "III.2 Definition of the model", "III.4 Expected number of edges", "V Comparison with empirical data", "VI Conclusions"],
+      "supports": "Degree sequence plus temporal ordering in citation null models; ensemble definition and unequal topology probabilities with multiedges; empirical discrepancies.",
+      "limitation": "Not a fraud detector; ideal ordered graph does not license deleting uncertain version/date evidence."
+    },
+    {
+      "id": "S5",
+      "title": "Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testing",
+      "authors": "Benjamini and Hochberg",
+      "year": 1995,
+      "url": "https://www.math.tau.ac.il/~ybenja/MyPapers/benjamini_hochberg1995.pdf",
+      "retrieved_pdf_sha256": "f3f7e2352a941403e812b7b5afee6094c9a31002d725dfcc25fc60ca3c240eab",
+      "retrieved": "Full author-hosted scanned PDF; 13 rendered pages inspected (pdftotext has no text layer)",
+      "anchors": ["p.291 section 2.1", "p.293 section 3.1 equation 1 and Theorem 1"],
+      "supports": "FDR is expected false-discovery fraction; original step-up guarantee has independence assumptions.",
+      "limitation": "No automatic guarantee for dependent fitted network tests; no author-guilt probability or per-case guarantee."
+    },
+    {
+      "id": "S6",
+      "title": "Learning Classifiers from Only Positive and Unlabeled Data",
+      "authors": "Elkan and Noto",
+      "year": 2008,
+      "doi": "10.1145/1401890.1401920",
+      "url": "https://cseweb.ucsd.edu/~elkan/posonly.pdf",
+      "retrieved_pdf_sha256": "566e651732d5a6af47e11969740176d74b3fe488b8c083e7631f7492f46c5f32",
+      "retrieved": "Full author-hosted PDF downloaded to task scratch and extracted; sections 2-3 and 7 read",
+      "anchors": ["section 2 equations 1-2 and Lemma 1", "section 3", "section 7"],
+      "supports": "Unlabeled includes positives and negatives; probability rescaling assumes positives selected completely at random.",
+      "limitation": "Investigation selection cannot be presumed random; no PU estimator implemented or validated here."
+    },
+    {
+      "id": "S7",
+      "title": "The Precision-Recall Plot Is More Informative than the ROC Plot When Evaluating Binary Classifiers on Imbalanced Datasets",
+      "authors": "Saito and Rehmsmeier",
+      "year": 2015,
+      "doi": "10.1371/journal.pone.0118432",
+      "url": "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0118432",
+      "retrieved": "Full publisher HTML; Theoretical Background and relevant Results inspected",
+      "anchors": ["Theoretical Background / ROC combinations of four outcomes", "PRC: Precision is an intuitive measure", "PRC: baseline moves with class distribution", "Results / Simulation"],
+      "supports": "Precision exposes false-alert burden and depends on class distribution; accuracy/ROC alone can mislead on imbalanced data.",
+      "limitation": "General metrics/biological experiments, not citation manipulation validation."
+    },
+    {
+      "id": "S8",
+      "title": "Leakage and the Reproducibility Crisis in ML-based Science",
+      "authors": "Kapoor and Narayanan",
+      "year": 2022,
+      "version": "arXiv:2207.07048v1 preprint",
+      "url": "https://arxiv.org/html/2207.07048v1",
+      "retrieved": "Full arXiv HTML; taxonomy, info-sheet arguments/limitations and own study scope read",
+      "anchors": ["2.4 Towards a solution: A taxonomy of data leakage", "3.2 Scientific arguments", "3.4 Limitations", "4 A case study of civil war prediction"],
+      "supports": "Duplicate, preprocessing, temporal, nonindependence and sampling leakage distinctions and requirements for explicit claim-population arguments.",
+      "limitation": "Pinned preprint, not presented as latest edition; own civil-war reanalysis is not citation-fraud empirical evidence."
+    },
+    {
+      "id": "S9",
+      "title": "On Calibration of Modern Neural Networks",
+      "authors": "Guo, Pleiss, Sun and Weinberger",
+      "year": 2017,
+      "version": "arXiv:1706.04599v2 main text plus supplementary materials",
+      "url": "https://arxiv.org/html/1706.04599v2",
+      "retrieved": "Full arXiv HTML; sections 2 and 4-6 inspected",
+      "anchors": ["2 Definitions / equation 1", "4 Calibration Methods", "5 Results", "6 Conclusion"],
+      "supports": "Calibration definition, bin-count limitations, held-out calibration and same-distribution assumption; accuracy does not imply calibrated confidence.",
+      "limitation": "Image/text experiments do not validate citation models or an individual's fraud probability; no calibrator implemented."
+    },
+    {
+      "id": "S10",
+      "title": "OpenAlex author disambiguation",
+      "url": "https://help.openalex.org/data/authors/disambiguation",
+      "version": "First-party page last updated 2026-10-27",
+      "retrieved": "Full documentation page read; no author data endpoint queried",
+      "anchors": ["The signals", "The July 2023 upgrade", "Special author IDs", "Known failure modes"],
+      "supports": "Matching signals include citation patterns; merges/splits and identifier changes occur.",
+      "limitation": "Provider documentation is not independent matching-accuracy evidence; IDs are not unquestionable identity proof."
+    },
+    {
+      "id": "S11",
+      "title": "Crossref documentation: Retraction Watch",
+      "url": "https://www.crossref.org/documentation/retrieve-metadata/retraction-watch/",
+      "version": "First-party page last updated 2025-01-19",
+      "retrieved": "Full documentation page read; no API or dataset collected",
+      "anchors": ["Retraction Watch", "Accessing the Retraction Watch Database", "CSV dataset field descriptions / RetractionNature and Reason"],
+      "supports": "Multiple notice types/reasons and unequal completeness of correction/expression-of-concern coverage.",
+      "limitation": "A notice index is not an exhaustively adjudicated manipulation label set; no blanket full-text license inferred."
+    },
+    {
+      "id": "S12",
+      "title": "Interval Estimation for a Binomial Proportion",
+      "authors": "Brown, Cai and DasGupta",
+      "year": 2001,
+      "doi": "10.1214/ss/1009213286",
+      "url": "https://projecteuclid.org/journalArticle/Download?urlId=10.1214%2Fss%2F1009213286",
+      "retrieved_pdf_sha256": "626d61d966ec920bb54e825399383cd0759450cae310c980298fac9beb0b76e0",
+      "retrieved": "Full public publisher PDF downloaded/extracted; introduction and Wilson score section inspected",
+      "anchors": ["section 3.1.1 The Wilson interval / equation 4, pp.107-108", "Introduction / binomial scope and coverage limits"],
+      "supports": "Wilson binomial score interval and finite-sample interval considerations.",
+      "limitation": "No network/dependent-case coverage guarantee; implemented intervals explicitly iid and nominal."
+    },
+    {
+      "id": "S13",
+      "title": "OpenAlex access overview",
+      "url": "https://help.openalex.org/access/overview",
+      "version": "First-party page last updated 2026-11-03",
+      "retrieved": "Full documentation page read (redirect from /license); no acquisition",
+      "anchors": ["Picking a product / data and service distinction"],
+      "supports": "OpenAlex states data is CC0 while service may cost money.",
+      "limitation": "Use as metadata proposal only; do not infer blanket full-text/third-party copyright rights or authorize paid services."
+    }
+  ]
+}

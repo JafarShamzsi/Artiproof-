@@ -1,0 +1,20 @@
+{
+  "mcp": {
+    "servers": {
+      "playwright": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "@playwright/mcp@0.0.84",
+          "--browser",
+          "firefox",
+          "--headless",
+          "--isolated",
+          "--no-webmcp",
+          "--block-service-workers"
+        ]
+      }
+    }
+  }
+}

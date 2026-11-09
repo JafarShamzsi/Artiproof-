@@ -1,0 +1,64 @@
+version: 2
+
+# Weekly dependency scans across the three ecosystems we ship from. Updates
+# land as PRs against `main` and gate on the same CI as everything else.
+# Group security patches into a single PR per ecosystem so the queue stays
+# scannable; minor/major bumps still come in one PR each.
+
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Baku
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - backend
+    groups:
+      backend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Baku
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - frontend
+    groups:
+      frontend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    # Pinning major framework bumps to PR-but-don't-auto-merge — we want
+    # eyes on Next.js / React / Tailwind major upgrades.
+    ignore:
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: tailwindcss
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Baku
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - ci

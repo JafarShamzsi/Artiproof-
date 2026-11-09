@@ -1,0 +1,85 @@
+# Pin every dep with both a lower and an upper bound.
+# Lower bound: tested-against version. Upper bound: next major, so a
+# transitive upgrade can't ship a breaking change into prod silently.
+
+# Web framework
+fastapi>=0.115.6,<1.0
+uvicorn[standard]>=0.34.0,<1.0
+pydantic>=2.10.4,<3.0
+pydantic-settings>=2.7.1,<3.0
+email-validator>=2.1.0,<3.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.36,<2.1
+asyncpg>=0.30.0,<1.0
+psycopg2-binary>=2.9.9,<3.0
+alembic>=1.14.1,<2.0
+
+# Task queue
+# Review/upgrade this group together; bounded to the tested minor series.
+# Kombu 5.7's Redis extra requires redis-py >=6.4,<9. Select both extras
+# so the resolver checks transport metadata as well as the runtime guard.
+# Support-policy caveats, exposure inventory and rollback: docs/DEPENDENCY-SECURITY.md.
+celery[redis]>=5.7.0,<5.8
+kombu[redis]>=5.7.0,<5.8
+redis>=8.1.0,<8.2
+
+# AI / LLM clients
+# Each provider's client SDK is optional — the abstraction in
+# app/services/llm gracefully degrades to an empty response when the
+# vendor's package is absent. Pin upper bounds to next major so a
+# transitive upgrade can't ship a breaking change silently.
+google-genai>=1.0,<2.0
+openai>=1.50.0,<2.0
+anthropic>=0.40.0,<1.0
+httpx>=0.28.1,<1.0
+httpcore>=1.0.9,<1.1  # Public network backend API for DNS-pinned untrusted fetches
+Pillow>=13.0,<14.0  # Decode/re-encode bounded raster report logos
+boto3>=1.43,<2.0  # Private shared PDF artifacts across API/worker instances
+
+# Web scraping
+beautifulsoup4>=4.13.3,<5.0
+
+# SSE
+sse-starlette>=2.2.1,<3.0
+
+# PDF processing & generation
+PyMuPDF>=1.24.0,<2.0
+weasyprint>=63.0,<70
+
+# Auth
+# bcrypt<5 — passlib 1.7.4's wrap-bug probe exceeds the 72-byte limit bcrypt 5 enforces.
+passlib[bcrypt]>=1.7.4,<2.0
+bcrypt>=4.2.1,<5
+python-jose[cryptography]>=3.3.0,<4.0
+google-auth>=2.38.0,<3.0
+# TOTP / 2FA — RFC 6238 codes + provisioning URI for the QR.
+pyotp>=2.9.0,<3.0
+
+# Rate limiting
+slowapi>=0.1.9,<1.0
+
+# Graph analysis (Module 2)
+networkx>=3.2,<4
+
+# Utilities
+python-dotenv>=1.0.1,<2.0
+python-multipart>=0.0.20,<1.0
+
+# Observability — Sentry SDK + integrations. The FastAPI + SQLAlchemy
+# integrations come in the base SDK; the Celery integration ships with
+# it too. Loaded lazily in app.main so an unconfigured SENTRY_DSN does
+# nothing.
+sentry-sdk[fastapi,sqlalchemy,celery]>=2.18.0,<3.0
+
+# OpenTelemetry — opt-in via OTEL_EXPORTER_OTLP_ENDPOINT. None of these
+# packages do anything at import time; init_otel() in app.observability
+# gates everything on the env var, so a default install never reaches
+# out to anything. Production OTel collectors (Honeycomb, Grafana,
+# Tempo, Datadog) all speak OTLP.
+opentelemetry-api>=1.27.0,<2.0
+opentelemetry-sdk>=1.27.0,<2.0
+opentelemetry-instrumentation-fastapi>=0.48b0,<1.0
+opentelemetry-instrumentation-sqlalchemy>=0.48b0,<1.0
+opentelemetry-instrumentation-celery>=0.48b0,<1.0
+opentelemetry-exporter-otlp>=1.27.0,<2.0

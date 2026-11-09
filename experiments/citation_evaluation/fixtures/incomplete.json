@@ -1,0 +1,17 @@
+{
+  "schema_version": "cite-eval-v1",
+  "synthetic_only": true,
+  "as_of": "2026-11-08",
+  "model_version": "fictional-model-v1",
+  "config_version": "fictional-config-v1",
+  "label_version": "fictional-label-incomplete-v1",
+  "evidence_version": "fictional-evidence-v1",
+  "labels_complete": false,
+  "review_budget": 2,
+  "rows": [
+    {"id": "fictional-a", "label": "confirmed_manipulation", "score": 0.9, "decision": "review"},
+    {"id": "fictional-b", "label": "unknown", "score": 0.8, "decision": "review"},
+    {"id": "fictional-c", "label": "other_retraction", "score": 0.7, "decision": "review"},
+    {"id": "fictional-d", "label": "anomaly", "score": null, "decision": "abstain"}
+  ]
+}

@@ -1,0 +1,32 @@
+# Crawler policy for ArtiProof.
+# The marketing surface (/, /pricing, /privacy, /terms, /about, /changelog)
+# is fully crawlable. The authenticated dashboard, the API, and the admin
+# panel are not — both because they require auth (a crawler will only ever
+# see redirects to /login) and because we don't want stale "your team's
+# work" URLs cached by search engines.
+
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /dashboard/
+Disallow: /settings
+Disallow: /settings/
+Disallow: /check
+Disallow: /check/
+Disallow: /researcher
+Disallow: /researcher/
+Disallow: /reports
+Disallow: /reports/
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify-email
+
+# Public read-only check view IS crawlable (the shared-link surface).
+Allow: /check/shared/
+
+Sitemap: https://artiproof.com/sitemap.xml

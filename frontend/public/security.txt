@@ -1,0 +1,8 @@
+# Legacy fallback — RFC 9116 prefers /.well-known/security.txt
+# This file mirrors that one for older crawlers and is kept identical.
+
+Contact: mailto:security@artiproof.com
+Expires: 2027-05-29T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://artiproof.com/.well-known/security.txt
+Policy: https://artiproof.com/security

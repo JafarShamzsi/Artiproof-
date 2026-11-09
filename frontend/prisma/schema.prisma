@@ -1,0 +1,302 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// === AUTH (keep for next-auth) ===
+
+enum UserRole {
+  researcher
+  faculty
+  admin
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  hashedPassword String?  @map("hashed_password")
+  fullName       String   @map("full_name")
+  institution    String?
+  role           UserRole @default(researcher)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  accounts           Account[]
+  sessions           Session[]
+  sourceChecks       SourceCheck[]
+  researcherProfiles ResearcherProfile[]
+  reports            Report[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// === MODULE 1: SOURCE VERIFICATION ===
+
+model SourceCheck {
+  id                     String    @id @default(cuid())
+  userId                 String    @map("user_id")
+  inputType              String    @map("input_type") // url, text, document
+  inputContent           String    @map("input_content")
+  inputTitle             String?   @map("input_title")
+  status                 String    @default("pending") // pending, processing, completed, failed
+  overallCredibilityScore Float?   @map("overall_credibility_score")
+  aiContentPercentage    Float?    @map("ai_content_percentage")
+  misinfoClaimsFound     Int?      @default(0) @map("misinfo_claims_found")
+  originalPdfPath        String?   @map("original_pdf_path")
+  annotatedPdfPath       String?   @map("annotated_pdf_path")
+  textPositionMap        Json?     @map("text_position_map")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  completedAt            DateTime? @map("completed_at")
+
+  user         User              @relation(fields: [userId], references: [id])
+  claims       ClaimAnalysis[]
+  aiDetections AIDetectionResult[]
+  citations    CitationCheck[]
+  reports      Report[]          @relation("SourceCheckReports")
+
+  @@index([userId, createdAt])
+  @@map("source_checks")
+}
+
+model ClaimAnalysis {
+  id             String   @id @default(cuid())
+  sourceCheckId  String   @map("source_check_id")
+  claimText      String   @map("claim_text")
+  verdict        String   // true, false, misleading, unverified, partially_true
+  confidence     Float
+  explanation    String
+  trueVersion    String?  @map("true_version")
+  sources        Json?
+  originTrace    Json?    @map("origin_trace")
+  positionInText Json?    @map("position_in_text")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  sourceCheck SourceCheck @relation(fields: [sourceCheckId], references: [id], onDelete: Cascade)
+
+  @@index([sourceCheckId])
+  @@map("claim_analyses")
+}
+
+model AIDetectionResult {
+  id              String   @id @default(cuid())
+  sourceCheckId   String   @map("source_check_id")
+  paragraphIndex  Int      @map("paragraph_index")
+  paragraphText   String   @map("paragraph_text")
+  aiProbability   Float    @map("ai_probability")
+  detectionMethod String   @map("detection_method")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  sourceCheck SourceCheck @relation(fields: [sourceCheckId], references: [id], onDelete: Cascade)
+
+  @@index([sourceCheckId])
+  @@map("ai_detection_results")
+}
+
+model CitationCheck {
+  id                   String   @id @default(cuid())
+  sourceCheckId        String   @map("source_check_id")
+  originalCitation     String   @map("original_citation")
+  citationUrl          String?  @map("citation_url")
+  isAccessible         Boolean  @default(true) @map("is_accessible")
+  isRetracted          Boolean  @default(false) @map("is_retracted")
+  credibilityScore     Float?   @map("credibility_score")
+  issues               Json?
+  suggestedAlternative String?  @map("suggested_alternative")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  sourceCheck SourceCheck @relation(fields: [sourceCheckId], references: [id], onDelete: Cascade)
+
+  @@index([sourceCheckId])
+  @@map("citation_checks")
+}
+
+// === MODULE 2: ACADEMIC INTEGRITY ===
+
+model ResearcherProfile {
+  id                    String    @id @default(cuid())
+  userId                String?   @map("user_id")
+  researcherName        String    @map("researcher_name")
+  scopusId              String?   @map("scopus_id")
+  googleScholarId       String?   @map("google_scholar_id")
+  googleScholarUrl      String?   @map("google_scholar_url")
+  orcid                 String?
+  semanticScholarId     String?   @map("semantic_scholar_id")
+  institution           String?
+  researchFields        Json?     @map("research_fields")
+  totalPublications     Int?      @map("total_publications")
+  i10Index              Int?      @map("i10_index")
+  officialHIndex        Int?      @map("official_h_index")
+  officialCitationCount Int?      @map("official_citation_count")
+  adjustedHIndex        Int?      @map("adjusted_h_index")
+  adjustedCitationCount Int?      @map("adjusted_citation_count")
+  integrityScore        Float?    @map("integrity_score")
+  selfCitationRate      Float?    @map("self_citation_rate")
+  citationRingFlags     Json?     @map("citation_ring_flags")
+  topicRelevanceScore   Float?    @map("topic_relevance_score")
+  analysisStatus        String    @default("pending") @map("analysis_status")
+  scrapeStatus          String    @default("pending") @map("scrape_status")
+  scrapeError           String?   @map("scrape_error")
+  lastScrapedAt         DateTime? @map("last_scraped_at")
+  lastAnalyzedAt        DateTime? @map("last_analyzed_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  user                 User?                @relation(fields: [userId], references: [id])
+  publications         PublicationAnalysis[]
+  scrapedPublications  ScrapedPublication[]
+  citationEdges        CitationEdge[]
+  coauthorRelations    CoAuthorRelation[]
+  reports              Report[]             @relation("ResearcherReports")
+
+  @@index([userId])
+  @@map("researcher_profiles")
+}
+
+model PublicationAnalysis {
+  id                   String   @id @default(cuid())
+  researcherProfileId  String   @map("researcher_profile_id")
+  title                String
+  journal              String?
+  year                 Int?
+  doi                  String?
+  citationCount        Int      @default(0) @map("citation_count")
+  suspiciousCitations  Int      @default(0) @map("suspicious_citations")
+  topicMatchScore      Float?   @map("topic_match_score")
+  isSelfCitedHeavily   Boolean  @default(false) @map("is_self_cited_heavily")
+  flags                Json?
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  researcherProfile ResearcherProfile @relation(fields: [researcherProfileId], references: [id], onDelete: Cascade)
+
+  @@index([researcherProfileId])
+  @@map("publication_analyses")
+}
+
+// === SCRAPED DATA (raw data from external APIs) ===
+
+model ScrapedPublication {
+  id                       String    @id @default(cuid())
+  researcherProfileId      String    @map("researcher_profile_id")
+  title                    String
+  doi                      String?
+  semanticScholarId        String?   @map("semantic_scholar_id")
+  googleScholarClusterId   String?   @map("google_scholar_cluster_id")
+  scopusEid                String?   @map("scopus_eid")
+  abstract                 String?
+  journalName              String?   @map("journal_name")
+  journalIssn              String?   @map("journal_issn")
+  venue                    String?
+  year                     Int?
+  publicationType          String?   @map("publication_type")
+  citationCount            Int       @default(0) @map("citation_count")
+  influentialCitationCount Int       @default(0) @map("influential_citation_count")
+  referenceCount           Int       @default(0) @map("reference_count")
+  authorsJson              Json?     @map("authors_json")
+  dataSource               String    @map("data_source")
+  rawData                  Json?     @map("raw_data")
+  scrapedAt                DateTime  @default(now()) @map("scraped_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+
+  researcherProfile ResearcherProfile @relation(fields: [researcherProfileId], references: [id], onDelete: Cascade)
+  citationEdges     CitationEdge[]
+
+  @@index([researcherProfileId])
+  @@map("scraped_publications")
+}
+
+model CitationEdge {
+  id                      String   @id @default(cuid())
+  researcherProfileId     String   @map("researcher_profile_id")
+  citedPaperId            String   @map("cited_paper_id")
+  citedPaperTitle         String   @map("cited_paper_title")
+  citingPaperTitle        String   @map("citing_paper_title")
+  citingPaperDoi          String?  @map("citing_paper_doi")
+  citingPaperSemanticId   String?  @map("citing_paper_semantic_id")
+  citingPaperYear         Int?     @map("citing_paper_year")
+  citingAuthorsJson       Json?    @map("citing_authors_json")
+  isSelfCitation          Boolean  @default(false) @map("is_self_citation")
+  isCoauthorCitation      Boolean  @default(false) @map("is_coauthor_citation")
+  isRingSuspected         Boolean  @default(false) @map("is_ring_suspected")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  researcherProfile ResearcherProfile @relation(fields: [researcherProfileId], references: [id], onDelete: Cascade)
+  citedPaper        ScrapedPublication @relation(fields: [citedPaperId], references: [id], onDelete: Cascade)
+
+  @@index([researcherProfileId])
+  @@index([citedPaperId])
+  @@map("citation_edges")
+}
+
+model CoAuthorRelation {
+  id                      String   @id @default(cuid())
+  researcherProfileId     String   @map("researcher_profile_id")
+  coauthorName            String   @map("coauthor_name")
+  coauthorSemanticId      String?  @map("coauthor_semantic_id")
+  coauthorScopusId        String?  @map("coauthor_scopus_id")
+  coauthorInstitution     String?  @map("coauthor_institution")
+  sharedPublicationCount  Int      @default(0) @map("shared_publication_count")
+  sharedPublicationIds    Json?    @map("shared_publication_ids")
+  mutualCitationCount     Int      @default(0) @map("mutual_citation_count")
+  suspicionScore          Float    @default(0.0) @map("suspicion_score")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  researcherProfile ResearcherProfile @relation(fields: [researcherProfileId], references: [id], onDelete: Cascade)
+
+  @@index([researcherProfileId])
+  @@map("coauthor_relations")
+}
+
+// === REPORTS ===
+
+model Report {
+  id                   String    @id @default(cuid())
+  userId               String    @map("user_id")
+  sourceCheckId        String?   @map("source_check_id")
+  researcherProfileId  String?   @map("researcher_profile_id")
+  reportType           String    @map("report_type") // source_verification, researcher_integrity
+  title                String
+  summary              String?
+  pdfPath              String?   @map("pdf_path")
+  shareToken           String    @unique @map("share_token")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  user              User               @relation(fields: [userId], references: [id])
+  sourceCheck       SourceCheck?       @relation("SourceCheckReports", fields: [sourceCheckId], references: [id], onDelete: SetNull)
+  researcherProfile ResearcherProfile? @relation("ResearcherReports", fields: [researcherProfileId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("reports")
+}

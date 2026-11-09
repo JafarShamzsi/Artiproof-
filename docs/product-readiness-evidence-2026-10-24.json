@@ -1,0 +1,76 @@
+{
+  "method": "AST-extracted pure production functions; dependencies and service wiring not exercised",
+  "empty_failed_analysis": [
+    100,
+    {
+      "base": 100.0,
+      "deductions": [],
+      "warnings": [
+        "claim_extraction_failed"
+      ],
+      "final": 100,
+      "confidence": 0.5,
+      "formula_version": "audit"
+    }
+  ],
+  "one_way_star_graph_ring_result": {
+    "suspicious_pairs": [],
+    "potential_rings": [
+      {
+        "members": [
+          {
+            "id": "0",
+            "name": "0",
+            "citations_to_target": 4
+          },
+          {
+            "id": "1",
+            "name": "1",
+            "citations_to_target": 4
+          },
+          {
+            "id": "2",
+            "name": "2",
+            "citations_to_target": 4
+          }
+        ],
+        "total_mutual_citations": 12,
+        "confidence": 0.54
+      }
+    ],
+    "self_citation_rate": 0.0,
+    "self_citation_status": "normal",
+    "citation_velocity_anomalies": [],
+    "flags": [
+      "Potential citation ring detected: 3 authors with 12 mutual citations"
+    ],
+    "field_used": "default",
+    "thresholds_used": {
+      "mutual_citation": 5,
+      "self_cite_warn": 0.15,
+      "self_cite_flag": 0.25
+    },
+    "total_citations_checked": 12
+  },
+  "graph_failure_researcher_result": {
+    "adjusted_h_index": 10,
+    "adjusted_citation_count": 200,
+    "integrity_score": 100,
+    "self_citation_rate": 0.0,
+    "topic_relevance_score": null,
+    "explanation": "No significant integrity issues detected",
+    "breakdown": {
+      "base": 100.0,
+      "adjustments": [],
+      "warnings": [],
+      "final": 100,
+      "confidence": 0.5,
+      "formula_version": "audit"
+    }
+  },
+  "fallback_rating_substring_examples": {
+    "incorrect": "true",
+    "mostly false": "false",
+    "not true": "true"
+  }
+}

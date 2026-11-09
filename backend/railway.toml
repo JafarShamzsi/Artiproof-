@@ -1,0 +1,28 @@
+# Railway config for the API service. The Celery worker + beat run as a
+# SEPARATE Railway service (same repo + Dockerfile, different startCommand)
+# configured via backend/railway-worker.toml. Without that second service
+# the scheduled-reports sweep + cleanup beat tasks never run.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Liveness probe — /health returns 200 unconditionally; /api/health includes
+# dependency status but should not gate restarts (a degraded Redis would loop).
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+# Apply pending Alembic migrations before starting the API. `alembic upgrade
+# head` is idempotent — if everything's applied it's a no-op — so this is
+# safe to run on every container restart, not just on release. Multiple
+# replicas booting simultaneously serialize via Postgres advisory locks
+# inside Alembic; only one wins the migration, the others observe an
+# already-up-to-date head and proceed.
+#
+# If a migration fails, the boot fails: better to keep the old code running
+# than to run new code against an old schema. The on_failure restart policy
+# below means Railway will retry up to 5 times, so a transient DB hiccup
+# self-heals; a real schema bug will surface as a stuck deploy.
+startCommand = "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

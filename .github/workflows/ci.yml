@@ -1,0 +1,220 @@
+name: CI
+
+# Keep backend/frontend IDs and names stable: these are required checks.
+# Coverage, required security integration and known gaps: docs/CI-RUNBOOK.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: artiproof
+          POSTGRES_PASSWORD: artiproof
+          POSTGRES_DB: artiproof
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U artiproof"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://artiproof:artiproof@localhost:5432/artiproof
+      DATABASE_URL_SYNC: postgresql://artiproof:artiproof@localhost:5432/artiproof
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-test-secret-not-for-production
+      ENVIRONMENT: test
+      ARTIPROOF_INTEGRATION_DATABASE_URL: postgresql+asyncpg://artiproof:artiproof@localhost:5432/artiproof
+      ARTIPROOF_INTEGRATION_REDIS_URL: redis://localhost:6379/14
+      # Never inject production/provider secrets into routine CI.
+      GEMINI_API_KEY: ""
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_FACTCHECK_API_KEY: ""
+      SCOPUS_API_KEY: ""
+      SEMANTIC_SCHOLAR_API_KEY: ""
+      RESEND_API_KEY: ""
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: System deps for WeasyPrint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-xlib-2.0-0 \
+            libffi-dev libcairo2 shared-mime-info
+
+      - name: Install Python deps
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install ruff pip-audit
+
+      - name: Ruff (errors only — no style enforcement yet)
+        working-directory: backend
+        run: ruff check --select E9,F63,F7,F82 app
+
+      - name: Block paid model endpoints in routine tests
+        run: |
+          echo '127.0.0.1 generativelanguage.googleapis.com api.openai.com api.anthropic.com' | sudo tee -a /etc/hosts
+          echo '::1 generativelanguage.googleapis.com api.openai.com api.anthropic.com' | sudo tee -a /etc/hosts
+
+      - name: pip-audit (advisory, all reported severities)
+        working-directory: backend
+        # Existing advisory policy; a green backend is NOT a clean audit.
+        run: |
+          mkdir -p test-results
+          if pip-audit --requirement requirements.txt --vulnerability-service osv > test-results/pip-audit.txt 2>&1; then
+            cat test-results/pip-audit.txt
+          else
+            cat test-results/pip-audit.txt
+            echo '::warning::pip-audit found vulnerabilities or could not complete; advisory only.'
+            echo 'pip-audit: findings or scanner failure (advisory; see log/artifact).' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Alembic upgrade head
+        working-directory: backend
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          alembic upgrade head 2>&1 | tee test-results/migrations.log
+
+      - name: Pytest
+        working-directory: backend
+        run: pytest --junitxml=test-results/unit.xml
+
+      - name: Durable analysis and security integration tests
+        working-directory: backend
+        run: |
+          pytest -m integration tests/test_analysis_runs_integration.py tests/test_artifact_migration_integration.py tests/test_team_consent_integration.py tests/test_report_scope_integration.py --junitxml=test-results/integration.xml
+          # Missing services must not turn the required real integration into skips.
+          python -c "import xml.etree.ElementTree as E; s=list(E.parse('test-results/integration.xml').iter('testsuite')); assert sum(int(x.get('tests', 0)) for x in s) > 0; assert not sum(int(x.get('skipped', 0)) for x in s), 'Integration tests skipped'"
+
+      - name: Backend failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backend/test-results/
+          retention-days: 7
+          if-no-files-found: warn
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci-only-public-test-secret-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm audit (high+critical only)
+        working-directory: frontend
+        # Existing advisory policy, not a completed release security gate.
+        run: |
+          mkdir -p test-results
+          if npm audit --audit-level=high > test-results/npm-audit.txt 2>&1; then
+            cat test-results/npm-audit.txt
+          else
+            cat test-results/npm-audit.txt
+            echo '::warning::npm audit found vulnerabilities or could not complete; advisory only.'
+            echo 'npm audit: findings or scanner failure (advisory; see log/artifact).' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: TypeScript check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Vitest (unit + component)
+        working-directory: frontend
+        # Runs the jsdom suite — fast, no browsers, no network. Sits
+        # between lint and Playwright so a broken render fails before we
+        # spend the CI minutes spinning up chromium.
+        run: npm run test:unit -- --reporter=default --reporter=junit --outputFile=test-results/unit.xml
+
+      - name: Production build (webpack)
+        working-directory: frontend
+        # Explicit supported bundler; do not bypass prerender/type failures.
+        run: |
+          set -o pipefail
+          npm run build -- --webpack 2>&1 | tee test-results/build.log
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        # --with-deps installs missing system libs for headless chromium
+        # on the pinned Playwright-supported Ubuntu 24.04 image.
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright smoke tests
+        working-directory: frontend
+        run: npm run test:smoke
+
+      - name: Frontend failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+          retention-days: 7
+          if-no-files-found: warn

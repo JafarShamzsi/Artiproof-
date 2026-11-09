@@ -1,0 +1,1062 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Inlined from `shadcn/tailwind.css` (the shadcn CLI's preset). The package
+   isn't in our package.json — only in package-lock.json — so Vercel's
+   resolver fails on the @import. Inlining the contents is the safe fix and
+   removes a runtime dependency on the CLI being installed at build time.
+   ─────────────────────────────────────────────────────────────────────────── */
+@theme inline {
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(
+        --radix-accordion-content-height,
+        var(--accordion-panel-height, auto)
+      );
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(
+        --radix-accordion-content-height,
+        var(--accordion-panel-height, auto)
+      );
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-selected {
+  &:where([data-selected="true"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  /* ArtiProof brand tokens — wine + amber palette, theme-aware via the
+     CSS variables defined in :root (light) and html.dark (dark). */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent-amber: var(--accent-amber);
+
+  --color-surface-base: var(--surface-base);
+  --color-surface-card: var(--surface-card);
+  --color-surface-elevated: var(--surface-elevated);
+
+  --color-fg-primary: var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-tertiary: var(--fg-tertiary);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  /* Font tokens — next/font/google writes `--font-sans` (Inter),
+     `--font-display` (Fraunces), `--font-editorial` (Newsreader), and
+     `--font-mono` (JetBrains Mono) at the body element. Tailwind 4 needs
+     these declared in @theme to expose the `font-{sans|display|editorial|mono}`
+     utilities; the body-level values override what we set here at element
+     level. The previous declaration was SELF-REFERENTIAL
+     (`--font-display: var(--font-display), …`) which never resolved on
+     cold reload — headings briefly rendered in Georgia/serif until
+     next/font injected the real value. Fixed: each token defaults to a
+     concrete fallback chain (no self-reference) so the cascade always
+     resolves to something legible. */
+  --font-sans: var(--font-sans, system-ui, sans-serif);
+  --font-mono: var(--font-mono, ui-monospace, "Cascadia Code", monospace);
+  --font-display: var(--font-display, Georgia, "Times New Roman", serif);
+  --font-editorial: var(--font-editorial, Georgia, "Times New Roman", serif);
+  --font-heading: var(--font-display, Georgia, serif);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* ArtiProof — light mode (cream + deep wine).
+     Light is not an inverted dark; it's tuned separately. */
+  --brand: #7C2828;          /* deeper oxblood */
+  --brand-hover: #5C1F1F;
+  --brand-fg: #7C2828;
+  --brand-soft: #F4E5E5;     /* wine tinted at 96% lightness */
+  --accent-amber: #C8901E;
+
+  --surface-base: #FBF7F3;   /* warm cream */
+  --surface-card: #FFFFFF;
+  --surface-elevated: #FFFFFFE6;
+
+  --fg-primary: #1A0808;     /* deep wine-black */
+  --fg-secondary: #6B5048;
+  --fg-tertiary: #9C7E72;
+
+  --border-subtle: #E5DBD09A;
+  --border-default: #D9CDBE;
+  --border-strong: #B79E89;
+
+  /* shadcn token bridge — wired through brand surfaces so Card / Button /
+     Dialog / Popover / DropdownMenu inherit the warm cream/wine palette
+     instead of the generic OKLCH grays the shadcn CLI ships. Without
+     this bridge a Dialog opens with `--popover: oklch(1 0 0)` (pure
+     white) on top of our cream backdrop and reads as a brand mismatch. */
+  --background: var(--surface-base);
+  --foreground: var(--fg-primary);
+  --card: var(--surface-card);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--surface-card);
+  --popover-foreground: var(--fg-primary);
+  --primary: var(--brand);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--surface-elevated);
+  --secondary-foreground: var(--fg-primary);
+  --muted: var(--border-subtle);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--brand-soft);
+  --accent-foreground: var(--brand);
+  --destructive: #C04040;
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--brand);
+  --chart-1: var(--brand);
+  --chart-2: var(--accent-amber);
+  --chart-3: var(--fg-secondary);
+  --chart-4: var(--border-strong);
+  --chart-5: var(--fg-tertiary);
+  --radius: 0.625rem;
+  --sidebar: var(--surface-base);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--brand-soft);
+  --sidebar-accent-foreground: var(--brand);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--brand);
+}
+
+.dark {
+  /* ArtiProof — dark mode (charcoal-wine + warm cream text). */
+  --brand: #A03434;          /* oxblood, brighter for dark contrast */
+  --brand-hover: #B84747;
+  --brand-fg: #D87979;       /* rose-tinged for body callouts */
+  --brand-soft: #2A1414;     /* wine tinted very dark */
+  --accent-amber: #E8AA42;
+
+  --surface-base: #15100F;
+  --surface-card: #1F1816;
+  --surface-elevated: #1F1816CC;
+
+  --fg-primary: #F5EBE5;     /* warm off-white */
+  --fg-secondary: #B8A89E;
+  --fg-tertiary: #8A7A70;
+
+  --border-subtle: #3A2D2A80;
+  --border-default: #3A2D2A;
+  --border-strong: #5C4641;
+
+  /* shadcn token bridge for dark mode — same intent as light: route
+     every shadcn-default component through the brand surface tokens
+     so Dialogs/Popovers/Cards land in charcoal-wine, not pure white. */
+  --background: var(--surface-base);
+  --foreground: var(--fg-primary);
+  --card: var(--surface-card);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--surface-card);
+  --popover-foreground: var(--fg-primary);
+  --primary: var(--brand);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--surface-elevated);
+  --secondary-foreground: var(--fg-primary);
+  --muted: var(--border-subtle);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--brand-soft);
+  --accent-foreground: var(--brand-fg);
+  --destructive: #D85050;
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --ring: var(--brand);
+  --chart-1: var(--brand-fg);
+  --chart-2: var(--accent-amber);
+  --chart-3: var(--fg-secondary);
+  --chart-4: var(--border-strong);
+  --chart-5: var(--fg-tertiary);
+  --sidebar: var(--surface-base);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--brand-soft);
+  --sidebar-accent-foreground: var(--brand-fg);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--brand);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+    scroll-behavior: smooth;
+  }
+  /* Honor user motion preference: stop smooth scroll if it has been
+     opted out of system-wide. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  /* Prevent the browser's CSS scroll-anchoring from re-positioning the
+     dashboard's scrollable main when its content reflows (e.g. theme
+     toggle changes a few CSS-var-driven sizes, cookie banner mounts /
+     unmounts, async-loaded sections collapse). Without this, the user
+     reported "changing theme throws me to the bottom blank area" —
+     scroll-anchor was tracking a far-down element after layout shifted.
+     Apply only on the scrollable main, not the whole doc, so anchor
+     links from the landing still work normally. */
+  #main-content {
+    overflow-anchor: none;
+  }
+
+  /* Standardize Lucide icon stroke weight site-wide. The default 2.0 is a
+     little punchy for our Nature-paper voice; 1.5 reads more refined.
+     CSS attribute presentation has lower specificity than the SVG attribute
+     value Lucide writes, so we explicitly target the .lucide class so this
+     wins over the inline default. Per-instance overrides via the
+     `strokeWidth` prop still work because React inlines them as attributes
+     after this rule cascades. */
+  .lucide {
+    stroke-width: 1.5;
+  }
+}
+
+/*
+ * Presentation contrast boost — projector-readability mode.
+ *
+ * Previously this block applied unconditionally and flattened
+ * text-zinc-300/400 to the same near-white value, killing the careful
+ * type hierarchy in the marketing landing. Now it's gated behind
+ * `[data-presentation="true"]` on <html> or <body>: pages that need
+ * projector readability (long-form reports shown on a faculty
+ * projector) opt in by setting the attribute; the landing leaves it
+ * unset so the design system's three text tiers stay distinct.
+ *
+ * Wrapped in @layer utilities so !important wins over Tailwind.
+ */
+@layer utilities {
+  /* ----- Zinc (body text) — pushed toward white ----- */
+  [data-presentation="true"] .text-zinc-300 { color: #f4f4f5 !important; } /* zinc-100 */
+  [data-presentation="true"] .text-zinc-400 { color: #f4f4f5 !important; } /* zinc-100 */
+  [data-presentation="true"] .text-zinc-500 { color: #e4e4e7 !important; } /* zinc-200 */
+  [data-presentation="true"] .text-zinc-600 { color: #d4d4d8 !important; } /* zinc-300 */
+  [data-presentation="true"] .text-zinc-700 { color: #d4d4d8 !important; } /* zinc-300 */
+
+  /* ----- Emerald / green (brand) — one tier brighter ----- */
+  [data-presentation="true"] .text-emerald-400 { color: #6ee7b7 !important; } /* emerald-300 */
+  [data-presentation="true"] .text-emerald-500 { color: #6ee7b7 !important; } /* emerald-300 */
+  [data-presentation="true"] .text-emerald-600 { color: #34d399 !important; } /* emerald-400 */
+  [data-presentation="true"] .text-green-400 { color: #86efac !important; } /* green-300 */
+  [data-presentation="true"] .text-green-500 { color: #86efac !important; } /* green-300 */
+
+  /* ----- Semantic accents — one tier brighter ----- */
+  [data-presentation="true"] .text-red-400 { color: #fca5a5 !important; } /* red-300 */
+  [data-presentation="true"] .text-red-500 { color: #fca5a5 !important; } /* red-300 */
+  [data-presentation="true"] .text-amber-400 { color: #fcd34d !important; } /* amber-300 */
+  [data-presentation="true"] .text-amber-500 { color: #fcd34d !important; } /* amber-300 */
+  [data-presentation="true"] .text-yellow-400 { color: #fde047 !important; } /* yellow-300 */
+  [data-presentation="true"] .text-yellow-500 { color: #fde047 !important; } /* yellow-300 */
+  [data-presentation="true"] .text-orange-400 { color: #fdba74 !important; } /* orange-300 */
+  [data-presentation="true"] .text-orange-500 { color: #fdba74 !important; } /* orange-300 */
+  [data-presentation="true"] .text-blue-400 { color: #93c5fd !important; } /* blue-300 */
+  [data-presentation="true"] .text-blue-500 { color: #93c5fd !important; } /* blue-300 */
+  [data-presentation="true"] .text-purple-400 { color: #d8b4fe !important; } /* purple-300 */
+  [data-presentation="true"] .text-purple-500 { color: #d8b4fe !important; } /* purple-300 */
+  [data-presentation="true"] .text-indigo-400 { color: #a5b4fc !important; } /* indigo-300 */
+  [data-presentation="true"] .text-teal-400 { color: #5eead4 !important; } /* teal-300 */
+  [data-presentation="true"] .text-cyan-400 { color: #67e8f9 !important; } /* cyan-300 */
+  [data-presentation="true"] .text-pink-400 { color: #f9a8d4 !important; } /* pink-300 */
+  [data-presentation="true"] .text-rose-400 { color: #fda4af !important; } /* rose-300 */
+  [data-presentation="true"] .text-sky-400 { color: #7dd3fc !important; } /* sky-300 */
+
+  /* ----- Light-bg card descendants — keep original darker values ----- */
+  .bg-white .text-zinc-300,
+  .bg-zinc-50 .text-zinc-300,
+  .bg-zinc-100 .text-zinc-300 { color: #d4d4d8 !important; }
+
+  .bg-white .text-zinc-400,
+  .bg-zinc-50 .text-zinc-400,
+  .bg-zinc-100 .text-zinc-400 { color: #a1a1aa !important; }
+
+  .bg-white .text-zinc-500,
+  .bg-zinc-50 .text-zinc-500,
+  .bg-zinc-100 .text-zinc-500 { color: #71717a !important; }
+
+  .bg-white .text-zinc-600,
+  .bg-zinc-50 .text-zinc-600,
+  .bg-zinc-100 .text-zinc-600 { color: #52525b !important; }
+
+  .bg-white .text-zinc-700,
+  .bg-zinc-50 .text-zinc-700,
+  .bg-zinc-100 .text-zinc-700 { color: #3f3f46 !important; }
+
+  .bg-white .text-emerald-400,
+  .bg-zinc-50 .text-emerald-400,
+  .bg-zinc-100 .text-emerald-400,
+  .bg-emerald-50 .text-emerald-400,
+  .bg-emerald-100 .text-emerald-400 { color: #10b981 !important; } /* emerald-500 */
+
+  .bg-white .text-emerald-500,
+  .bg-zinc-50 .text-emerald-500,
+  .bg-zinc-100 .text-emerald-500,
+  .bg-emerald-50 .text-emerald-500,
+  .bg-emerald-100 .text-emerald-500 { color: #059669 !important; } /* emerald-600 */
+
+  .bg-white .text-emerald-600,
+  .bg-zinc-50 .text-emerald-600,
+  .bg-zinc-100 .text-emerald-600,
+  .bg-emerald-50 .text-emerald-600,
+  .bg-emerald-100 .text-emerald-600 { color: #047857 !important; } /* emerald-700 */
+
+  .bg-white .text-red-400,
+  .bg-zinc-50 .text-red-400,
+  .bg-zinc-100 .text-red-400,
+  .bg-red-50 .text-red-400,
+  .bg-red-100 .text-red-400 { color: #ef4444 !important; } /* red-500 */
+
+  .bg-white .text-red-500,
+  .bg-zinc-50 .text-red-500,
+  .bg-zinc-100 .text-red-500,
+  .bg-red-50 .text-red-500,
+  .bg-red-100 .text-red-500 { color: #dc2626 !important; } /* red-600 */
+
+  .bg-white .text-amber-400,
+  .bg-zinc-50 .text-amber-400,
+  .bg-zinc-100 .text-amber-400,
+  .bg-amber-50 .text-amber-400,
+  .bg-amber-100 .text-amber-400 { color: #f59e0b !important; } /* amber-500 */
+
+  /* ----- Placeholder (presentation mode only) ----- */
+  [data-presentation="true"] .placeholder\:text-zinc-500::placeholder {
+    color: #e4e4e7 !important;
+    opacity: 1 !important;
+  }
+
+  .bg-white .placeholder\:text-zinc-500::placeholder,
+  .bg-zinc-50 .placeholder\:text-zinc-500::placeholder,
+  .bg-zinc-100 .placeholder\:text-zinc-500::placeholder {
+    color: #71717a !important;
+    opacity: 1 !important;
+  }
+}
+
+/*
+ * WCAG 2.1 AAA high-contrast mode
+ * Activated by data-high-contrast="true" on <html>.
+ * Palette: black bg, white text, #FFEB00 (success/brand), #00E5FF (info),
+ * #FF6B00 (destructive), 2px white borders.
+ *
+ * Cascade strategy:
+ *   1. shadcn CSS vars reset first.
+ *   2. Text color rules (so defaults set, can be overridden by bg-color rules that need black-on-bright).
+ *   3. Opacity-variant backgrounds kept as *semi-transparent tints* over black — preserves
+ *      visual hierarchy and lets nearby colored text stay readable.
+ *   4. Solid backgrounds LAST so their `color: #000 !important` wins over any text-color rule
+ *      on the same element (button with `bg-emerald-500 text-white` → yellow+black).
+ */
+
+/* ---------- 1. shadcn tokens ---------- */
+html[data-high-contrast="true"] {
+  --background: #000000;
+  --foreground: #FFFFFF;
+  --card: #0A0A0A;
+  --card-foreground: #FFFFFF;
+  --popover: #0A0A0A;
+  --popover-foreground: #FFFFFF;
+  --primary: #FFEB00;
+  --primary-foreground: #000000;
+  --secondary: #1A1A1A;
+  --secondary-foreground: #FFFFFF;
+  --muted: #1A1A1A;
+  --muted-foreground: #FFFFFF;
+  --accent: #FFEB00;
+  --accent-foreground: #000000;
+  --destructive: #FF6B00;
+  --border: #FFFFFF;
+  --input: #FFFFFF;
+  --ring: #FFEB00;
+  --sidebar: #000000;
+  --sidebar-foreground: #FFFFFF;
+  --sidebar-primary: #FFEB00;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #1A1A1A;
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: #FFFFFF;
+  --sidebar-ring: #FFEB00;
+}
+
+html[data-high-contrast="true"] body {
+  background: #000000 !important;
+  color: #FFFFFF !important;
+}
+
+/* ---------- 2. Text colors (apply first, may be overridden by solid-bg rules below) ---------- */
+html[data-high-contrast="true"] .text-white,
+html[data-high-contrast="true"] .text-zinc-50,
+html[data-high-contrast="true"] .text-zinc-200,
+html[data-high-contrast="true"] .text-zinc-300,
+html[data-high-contrast="true"] .text-zinc-400,
+html[data-high-contrast="true"] .text-zinc-500,
+html[data-high-contrast="true"] .text-zinc-600 {
+  color: #FFFFFF !important;
+}
+
+html[data-high-contrast="true"] .text-zinc-800 {
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .text-emerald-300,
+html[data-high-contrast="true"] .text-emerald-400,
+html[data-high-contrast="true"] .text-emerald-500,
+html[data-high-contrast="true"] .text-green-400 {
+  color: #FFEB00 !important;
+}
+
+html[data-high-contrast="true"] .text-blue-400,
+html[data-high-contrast="true"] .text-purple-400 {
+  color: #00E5FF !important;
+}
+
+html[data-high-contrast="true"] .text-red-400,
+html[data-high-contrast="true"] .text-orange-400,
+html[data-high-contrast="true"] .text-amber-400,
+html[data-high-contrast="true"] .text-yellow-400 {
+  color: #FF6B00 !important;
+}
+
+/* ---------- 3. Solid zinc backgrounds → black, keep text as whatever it was ----------
+ *
+ * Substring matchers so we hit both the bare utility (`bg-zinc-950`) and the
+ * dark-variant utility (`dark:bg-zinc-950`) — Tailwind 4 keeps the colon in
+ * the class name in markup, so a plain `.bg-zinc-950` selector misses the
+ * dark-prefixed form. */
+html[data-high-contrast="true"] [class*="bg-zinc-950"],
+html[data-high-contrast="true"] [class*="bg-zinc-900"],
+html[data-high-contrast="true"] .bg-black {
+  background-color: #000000 !important;
+}
+
+html[data-high-contrast="true"] [class*="bg-zinc-800"],
+html[data-high-contrast="true"] [class*="bg-zinc-700"] {
+  background-color: #1A1A1A !important;
+}
+
+html[data-high-contrast="true"] [class*="bg-zinc-600"],
+html[data-high-contrast="true"] [class*="bg-zinc-500"] {
+  background-color: #2A2A2A !important;
+}
+
+/* ---------- 4. Opacity-variant brand backgrounds → semi-transparent tints ---------- */
+/* These keep surrounding colored text readable. */
+html[data-high-contrast="true"] [class*="bg-emerald-500/"],
+html[data-high-contrast="true"] [class*="bg-emerald-400/"],
+html[data-high-contrast="true"] [class*="bg-emerald-300/"],
+html[data-high-contrast="true"] [class*="bg-green-500/"] {
+  background-color: rgba(255, 235, 0, 0.18) !important;
+}
+
+html[data-high-contrast="true"] [class*="bg-blue-500/"],
+html[data-high-contrast="true"] [class*="bg-blue-400/"],
+html[data-high-contrast="true"] [class*="bg-purple-500/"],
+html[data-high-contrast="true"] [class*="bg-purple-600/"] {
+  background-color: rgba(0, 229, 255, 0.18) !important;
+}
+
+html[data-high-contrast="true"] [class*="bg-red-500/"],
+html[data-high-contrast="true"] [class*="bg-red-400/"],
+html[data-high-contrast="true"] [class*="bg-orange-500/"],
+html[data-high-contrast="true"] [class*="bg-orange-400/"],
+html[data-high-contrast="true"] [class*="bg-amber-500/"],
+html[data-high-contrast="true"] [class*="bg-yellow-500/"],
+html[data-high-contrast="true"] [class*="bg-yellow-400/"] {
+  background-color: rgba(255, 107, 0, 0.22) !important;
+}
+
+/* ---------- 5. Borders — white 2px everywhere for visual separation ---------- */
+html[data-high-contrast="true"] [class*="border-zinc-"],
+html[data-high-contrast="true"] .border-white {
+  border-color: #FFFFFF !important;
+}
+
+html[data-high-contrast="true"] .border-emerald-400,
+html[data-high-contrast="true"] .border-emerald-500 {
+  border-color: #FFEB00 !important;
+}
+
+html[data-high-contrast="true"] .border-blue-500,
+html[data-high-contrast="true"] .border-purple-500 {
+  border-color: #00E5FF !important;
+}
+
+html[data-high-contrast="true"] .border-red-500,
+html[data-high-contrast="true"] .border-amber-500,
+html[data-high-contrast="true"] .border-yellow-500 {
+  border-color: #FF6B00 !important;
+}
+
+html[data-high-contrast="true"] .border,
+html[data-high-contrast="true"] .border-t,
+html[data-high-contrast="true"] .border-b,
+html[data-high-contrast="true"] .border-l,
+html[data-high-contrast="true"] .border-r,
+html[data-high-contrast="true"] .border-x,
+html[data-high-contrast="true"] .border-y {
+  border-width: 2px !important;
+}
+
+/* ---------- 6. Rings, focus, placeholders, gradients, shadows ---------- */
+html[data-high-contrast="true"] [class*="ring-emerald-"] {
+  --tw-ring-color: #FFEB00 !important;
+}
+
+html[data-high-contrast="true"] *:focus-visible {
+  outline: 3px solid #FFEB00 !important;
+  outline-offset: 2px !important;
+}
+
+html[data-high-contrast="true"] .placeholder-zinc-500::placeholder,
+html[data-high-contrast="true"] [class*="placeholder:text-zinc-"]::placeholder {
+  color: #CCCCCC !important;
+  opacity: 1 !important;
+}
+
+html[data-high-contrast="true"] [class*="from-emerald-"],
+html[data-high-contrast="true"] [class*="to-emerald-"],
+html[data-high-contrast="true"] [class*="via-zinc-"],
+html[data-high-contrast="true"] [class*="from-zinc-"],
+html[data-high-contrast="true"] [class*="to-zinc-"] {
+  --tw-gradient-from: transparent !important;
+  --tw-gradient-to: transparent !important;
+  --tw-gradient-via: transparent !important;
+  background-image: none !important;
+}
+
+html[data-high-contrast="true"] .stroke-zinc-700 {
+  stroke: #FFFFFF !important;
+}
+
+html[data-high-contrast="true"] [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+html[data-high-contrast="true"] [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+}
+
+html[data-high-contrast="true"] input:disabled {
+  opacity: 0.7 !important;
+  color: #FFFFFF !important;
+}
+
+/* ---------- 7. Solid brand backgrounds LAST — so their text-color override wins ---------- */
+html[data-high-contrast="true"] .bg-emerald-300,
+html[data-high-contrast="true"] .bg-emerald-400,
+html[data-high-contrast="true"] .bg-emerald-500,
+html[data-high-contrast="true"] .bg-emerald-600,
+html[data-high-contrast="true"] .bg-green-400,
+html[data-high-contrast="true"] .bg-green-500 {
+  background-color: #FFEB00 !important;
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .bg-blue-400,
+html[data-high-contrast="true"] .bg-blue-500,
+html[data-high-contrast="true"] .bg-purple-500,
+html[data-high-contrast="true"] .bg-purple-600 {
+  background-color: #00E5FF !important;
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .bg-red-400,
+html[data-high-contrast="true"] .bg-red-500,
+html[data-high-contrast="true"] .bg-orange-400,
+html[data-high-contrast="true"] .bg-orange-500,
+html[data-high-contrast="true"] .bg-amber-500,
+html[data-high-contrast="true"] .bg-yellow-400,
+html[data-high-contrast="true"] .bg-yellow-500 {
+  background-color: #FF6B00 !important;
+  color: #000000 !important;
+}
+
+html[data-high-contrast="true"] .bg-white {
+  background-color: #FFFFFF !important;
+  color: #000000 !important;
+}
+
+/* Icons inside solid-bg elements: inherit the element's color (black on bright bg) */
+html[data-high-contrast="true"] .bg-emerald-300 svg,
+html[data-high-contrast="true"] .bg-emerald-400 svg,
+html[data-high-contrast="true"] .bg-emerald-500 svg,
+html[data-high-contrast="true"] .bg-emerald-600 svg,
+html[data-high-contrast="true"] .bg-green-400 svg,
+html[data-high-contrast="true"] .bg-green-500 svg,
+html[data-high-contrast="true"] .bg-blue-400 svg,
+html[data-high-contrast="true"] .bg-blue-500 svg,
+html[data-high-contrast="true"] .bg-purple-500 svg,
+html[data-high-contrast="true"] .bg-purple-600 svg,
+html[data-high-contrast="true"] .bg-red-400 svg,
+html[data-high-contrast="true"] .bg-red-500 svg,
+html[data-high-contrast="true"] .bg-orange-400 svg,
+html[data-high-contrast="true"] .bg-orange-500 svg,
+html[data-high-contrast="true"] .bg-amber-500 svg,
+html[data-high-contrast="true"] .bg-yellow-400 svg,
+html[data-high-contrast="true"] .bg-yellow-500 svg,
+html[data-high-contrast="true"] .bg-white svg {
+  color: #000000 !important;
+}
+
+/* Direct children text overrides (e.g., <span class="text-white"> inside a <button class="bg-emerald-500">) */
+html[data-high-contrast="true"] .bg-emerald-500 > .text-white,
+html[data-high-contrast="true"] .bg-emerald-600 > .text-white,
+html[data-high-contrast="true"] .bg-emerald-400 > .text-white,
+html[data-high-contrast="true"] .bg-blue-500 > .text-white,
+html[data-high-contrast="true"] .bg-purple-500 > .text-white,
+html[data-high-contrast="true"] .bg-red-500 > .text-white,
+html[data-high-contrast="true"] .bg-orange-500 > .text-white,
+html[data-high-contrast="true"] .bg-amber-500 > .text-white,
+html[data-high-contrast="true"] .bg-yellow-500 > .text-white {
+  color: #000000 !important;
+}
+
+/* ─── Manuscript paper texture — fixed, pointer-events: none.
+       Two superimposed layers: a fine grain (legibility) and a low-frequency
+       paper-fiber map (organic warmth). Together they break the digital-flat
+       feel and ground the wine palette in a tactile substrate. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.1  0 0 0 0 0.05  0 0 0 0 0.03  0 0 0 0.55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+.dark body::before {
+  opacity: 0.08;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.9  0 0 0 0.6 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* Long-fibre paper map — extremely faint, gives a felt warmth without
+   showing a repeating tile. Only present in light mode. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.4  0 0 0 0 0.2  0 0 0 0 0.1  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23f)'/></svg>");
+}
+
+.dark body::after {
+  display: none;
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   HIGH-CONTRAST MODE — accessibility boost.
+
+   Triggered by Alt+H or the toggle in Settings → Theme. Sets
+   `data-high-contrast="true"` on <html>. This block layers ADDITIONAL
+   rules on top of the presentation-mode boost (which is also activated
+   so the existing text-zinc-* brightening applies — see ThemeContext).
+
+   What it does beyond presentation mode:
+     - Heavier visible borders on cards / inputs (not just tints)
+     - Higher-contrast focus rings (4px ring vs default 2px)
+     - Underlines all links explicitly
+     - Disables low-opacity decorative backgrounds (/10, /20 tints) so
+       text on those surfaces clears AA contrast unambiguously
+     ─────────────────────────────────────────────────────────────────── */
+[data-high-contrast="true"] {
+  /* Border tokens — pushed two tiers stronger so every Card / Dialog
+     edge is unambiguous. */
+  --border-subtle: var(--fg-secondary);
+  --border-default: var(--fg-secondary);
+  --border-strong: var(--fg-primary);
+}
+[data-high-contrast="true"] a:not([class*="ink-underline"]):not([role="button"]):not([class*="btn"]) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+[data-high-contrast="true"] :focus-visible {
+  outline: 3px solid var(--brand) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 1px var(--surface-base) !important;
+}
+[data-high-contrast="true"] button:not(:disabled),
+[data-high-contrast="true"] [role="button"]:not([aria-disabled="true"]) {
+  /* Add a visible 1px border to every interactive button — without
+     this, ghost / variant=link buttons look identical to surrounding
+     text in high-contrast mode and are unreachable to low-vision
+     users without a mouse. */
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--border-strong);
+}
+
+/* Glow halo behind primary CTA buttons. Sits behind the element via a
+   pseudo-element so it doesn't affect layout. Honors reduced-motion. */
+.cta-glow {
+  position: relative;
+  isolation: isolate;
+}
+.cta-glow::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--brand), var(--brand-hover));
+  filter: blur(14px);
+  opacity: 0.45;
+  z-index: -1;
+  transition: opacity 0.3s ease;
+}
+.cta-glow:hover::after,
+.cta-glow:focus-visible::after {
+  opacity: 0.7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cta-glow::after {
+    transition: none;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────
+   MANUSCRIPT — typographic primitives for the editorial landing page.
+   These mirror the conventions of a peer-reviewed paper: drop caps,
+   doubled hairline rules, marginal annotations, and rubber-stamp
+   verdict badges.
+   ─────────────────────────────────────────────────────────────────── */
+
+/* Drop cap — first letter of an editorial paragraph rendered in the
+   display face, oversized, leading-tight, and floated. Used at the
+   open of each chapter / hero body. */
+.drop-cap::first-letter {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 4.25em;
+  line-height: 0.78;
+  float: left;
+  margin: 0.04em 0.08em -0.04em 0;
+  color: var(--brand-fg);
+  font-feature-settings: "ss01", "lnum";
+}
+
+/* Doubled hairline rule — two 1px lines with a sliver of space, the
+   visual signature of a research-paper section break. */
+.rule-double {
+  border: 0;
+  height: 5px;
+  background:
+    linear-gradient(to bottom,
+      var(--border-strong) 0 1px,
+      transparent 1px 4px,
+      var(--border-strong) 4px 5px);
+}
+.rule-double-soft {
+  border: 0;
+  height: 4px;
+  background:
+    linear-gradient(to bottom,
+      var(--border-default) 0 1px,
+      transparent 1px 3px,
+      var(--border-default) 3px 4px);
+}
+
+/* Single hairline rule used inside cards and aligned with body text. */
+.rule-hair {
+  height: 1px;
+  background: var(--border-default);
+  border: 0;
+}
+
+/* Editorial small-caps label — used everywhere as a section eyebrow.
+   Tight tracking, uppercase, light-weight Inter for legibility. */
+.label-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+
+/* Italic editorial voice — Newsreader italic for marginalia and
+   captions. Slightly muted color, looser leading. */
+.editorial-italic {
+  font-family: var(--font-editorial);
+  font-style: italic;
+  color: var(--fg-secondary);
+  letter-spacing: -0.005em;
+}
+
+/* Stamp — verdict badge with a slight rotation, sepia-tinted fill,
+   double-ring border. The shape suggests a rubber-stamp imprint with
+   a faint ink-spread. */
+.stamp {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+  padding: 0.35em 0.7em;
+  border-radius: 2px;
+  transform: rotate(-3deg);
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in oklab, var(--brand) 8%, transparent), transparent 60%),
+    color-mix(in oklab, var(--brand-soft) 50%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--brand) 25%, transparent);
+}
+.stamp::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid color-mix(in oklab, var(--brand) 35%, transparent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Stamp-circle — round variant for credibility scores. */
+.stamp-circle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--brand);
+  border: 2.5px solid var(--brand);
+  border-radius: 9999px;
+  transform: rotate(-6deg);
+  background: radial-gradient(circle at 30% 30%, color-mix(in oklab, var(--brand-soft) 60%, transparent), transparent 70%);
+  box-shadow:
+    inset 0 0 0 4px color-mix(in oklab, var(--surface-base) 90%, transparent),
+    inset 0 0 0 5px color-mix(in oklab, var(--brand) 25%, transparent);
+}
+.stamp-circle::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 65% 35%, color-mix(in oklab, var(--brand) 6%, transparent), transparent 55%);
+  pointer-events: none;
+}
+
+/* Marginalia connector — a hand-drawn-style angled bracket connecting a
+   margin annotation to its body reference. Pure CSS to avoid SVG bloat
+   for many instances. */
+.connector-bracket {
+  position: relative;
+  width: 28px;
+  height: 1px;
+  background: var(--border-strong);
+}
+.connector-bracket::before,
+.connector-bracket::after {
+  content: "";
+  position: absolute;
+  width: 1px;
+  background: var(--border-strong);
+  height: 6px;
+}
+.connector-bracket::before {
+  left: 0;
+  top: -3px;
+}
+.connector-bracket::after {
+  right: 0;
+  top: -3px;
+}
+
+/* Footnote / catalog superscript — tiny tabular numerals raised to
+   shoulder height, used inline next to claims and stats. */
+.footnote-mark {
+  font-family: var(--font-mono);
+  font-size: 0.6em;
+  font-feature-settings: "tnum";
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 0.15em;
+  color: var(--brand-fg);
+  letter-spacing: 0;
+}
+
+/* Editorial chapter-numeral — large roman numerals printed faintly in
+   the margin next to each chapter heading. */
+.numeral-chapter {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-style: italic;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  line-height: 0.8;
+  color: color-mix(in oklab, var(--brand) 55%, var(--surface-base));
+  opacity: 0.45;
+  font-feature-settings: "lnum";
+}
+
+/* Inked underline — a lower-positioned thicker underline that suggests
+   a fountain-pen mark under a headline span. Used on emphasized terms. */
+.ink-underline {
+  background-image: linear-gradient(to right, var(--brand) 0 100%);
+  background-repeat: no-repeat;
+  background-position: 0 95%;
+  background-size: 100% 2px;
+  padding-bottom: 0.12em;
+}
+
+/* Side-by-side double rule (vertical) for the comparison-table column
+   gutter. */
+.rule-double-vertical {
+  width: 5px;
+  background:
+    linear-gradient(to right,
+      var(--border-strong) 0 1px,
+      transparent 1px 4px,
+      var(--border-strong) 4px 5px);
+}
+
+/* Editorial measure — caps body line length to comfortable reading
+   width (~62 characters), aligned to manuscript convention. */
+.measure {
+  max-width: 38rem;
+}
+.measure-narrow {
+  max-width: 28rem;
+}
+.measure-wide {
+  max-width: 48rem;
+}
+
+/* Tabular numerals helper — used everywhere precise numbers appear. */
+.tnum {
+  font-feature-settings: "tnum", "lnum";
+  font-variant-numeric: tabular-nums lining-nums;
+}

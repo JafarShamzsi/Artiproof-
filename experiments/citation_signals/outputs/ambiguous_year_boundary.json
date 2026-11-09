@@ -1,0 +1,217 @@
+{
+  "abstentions": [
+    {
+      "reason": "window_ambiguous",
+      "work_pair": [
+        "a1",
+        "b0"
+      ]
+    }
+  ],
+  "author_edges": [],
+  "candidate_annotation": "insufficient_evidence",
+  "coauthor_citation": {
+    "coauthored_work_support": [],
+    "denominator_work_pairs": 0,
+    "nonself_mass": "0",
+    "work_pairs": []
+  },
+  "concentration": [],
+  "counts": {
+    "abstained_work_pairs": 1,
+    "eligible_work_pairs": 0,
+    "observed_work_pairs": 2,
+    "outside_window_work_pairs": 1,
+    "reference_assertions": 2
+  },
+  "coverage": {
+    "absence_established": null,
+    "limitation": "Observed sample only; limits and direction do not establish population completeness.",
+    "population_denominator": null,
+    "runs": [
+      {
+        "as_of": "2024-02-01",
+        "direction": "both",
+        "id": "run1",
+        "lineage": "fictional-upstream",
+        "provider": "fictional-provider",
+        "reference_limit": 512,
+        "truncated": false,
+        "work_limit": 128
+      }
+    ]
+  },
+  "experiment_version": "citation-signals/1",
+  "features_sha256": "37c7ab1cb41c71c20db38ddd8739c38787ffdb55db197a116ec299a458de829a",
+  "fixture_version": 1,
+  "fraud_verdict": "not_assessed",
+  "identity_assertions": [
+    {
+      "id": "A",
+      "identifiers": [
+        "fictional:A"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "B",
+      "identifiers": [
+        "fictional:B"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    }
+  ],
+  "input_sha256": "9953d6df8389f05dbbd90f257914da9806ade9e33ae32bf3028e1c8f63dbd612",
+  "motifs": {
+    "absence_established": null,
+    "directed_three_author_cycles": [],
+    "enumeration_truncated": false,
+    "group_closure": "unavailable",
+    "status": "insufficient_evidence"
+  },
+  "outside_window": [
+    {
+      "reason": "outside_window",
+      "work_pair": [
+        "b1",
+        "a0"
+      ]
+    }
+  ],
+  "paper_evidence": [
+    {
+      "assertions": [
+        {
+          "cited": "b0",
+          "citing": "a1",
+          "id": "e0",
+          "observed_on": "2024-01-01",
+          "run": "run1",
+          "source_evidence_id": "source:0"
+        }
+      ],
+      "eligible": false,
+      "lineages": [
+        "fictional-upstream"
+      ],
+      "projection_supporting_assertion_ids": [],
+      "reason": "window_ambiguous",
+      "work_pair": [
+        "a1",
+        "b0"
+      ]
+    },
+    {
+      "assertions": [
+        {
+          "cited": "a0",
+          "citing": "b1",
+          "id": "e1",
+          "observed_on": "2024-01-01",
+          "run": "run1",
+          "source_evidence_id": "source:1"
+        }
+      ],
+      "eligible": false,
+      "lineages": [
+        "fictional-upstream"
+      ],
+      "projection_supporting_assertion_ids": [],
+      "reason": "outside_window",
+      "work_pair": [
+        "b1",
+        "a0"
+      ]
+    }
+  ],
+  "projection": "fractional_1_over_source_authors_times_target_authors",
+  "reciprocity": {
+    "absence_established": null,
+    "pairs": [],
+    "status": "insufficient_evidence"
+  },
+  "self_citation": {
+    "denominator_work_pairs": 0,
+    "mass": "0",
+    "share": null,
+    "work_pairs": []
+  },
+  "shared_author_overlap": {
+    "denominator_work_pairs": 0,
+    "work_pair_count": 0,
+    "work_pairs": []
+  },
+  "temporal_burst": {
+    "reason": "no_time_series_or_cohort_baseline",
+    "status": "unavailable"
+  },
+  "window": {
+    "as_of": "2024-02-01",
+    "end": "2023-01-01",
+    "start": "2022-06-01"
+  },
+  "work_assertions": [
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:a0:A",
+          "author_id": "A",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "a0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:a1:A",
+          "author_id": "A",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "a1",
+      "kind": "research",
+      "published": {
+        "precision": "year",
+        "value": "2022"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:b0:B",
+          "author_id": "B",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "b0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-02-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:b1:B",
+          "author_id": "B",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "b1",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2023-01-01"
+      }
+    }
+  ]
+}

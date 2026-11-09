@@ -1,0 +1,83 @@
+name: CodeQL
+
+# Private-repository CodeQL requires confirmed licensing. Do not enable as
+# an upload workaround: upload:false does not remove the license requirement.
+# Read-only SARIF artifacts; see docs/CI-RUNBOOK.md for entitlement and gaps.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
+  schedule:
+    # Mondays 06:00 UTC — same cadence as Dependabot so the security
+    # signal lands on one day not five.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  availability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Report licensed integration availability
+        env:
+          LICENSE_CONFIRMED: ${{ vars.CODEQL_LICENSE_CONFIRMED }}
+        run: |
+          if [ "$LICENSE_CONFIRMED" = true ]; then
+            echo 'CodeQL opted in: read-only SARIF analysis; no GitHub code-scanning upload.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '::warning::CodeQL NOT SCANNED: private-repository licensing/enablement is unconfirmed. See Security workflow and CI runbook; this is not a clean scan.'
+            echo 'CodeQL NOT SCANNED. Licensing/enablement unconfirmed; skipped analysis is NOT security clearance.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  analyze:
+    if: vars.CODEQL_LICENSE_CONFIRMED == 'true'
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: python
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
+          upload: false
+          output: sarif-results
+
+      - name: Preserve CodeQL evidence (not uploaded to code scanning)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-${{ matrix.language }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: sarif-results/
+          retention-days: 7
+          if-no-files-found: warn

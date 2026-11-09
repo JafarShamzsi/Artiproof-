@@ -1,0 +1,9 @@
+# RFC 9116 — security disclosure contact for ArtiProof.
+# Resolvable at https://artiproof.com/.well-known/security.txt
+# (and the legacy /security.txt path mirrored below for older crawlers).
+
+Contact: mailto:security@artiproof.com
+Expires: 2027-05-29T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://artiproof.com/.well-known/security.txt
+Policy: https://artiproof.com/security

@@ -1,0 +1,19 @@
+{
+  "schema_version": "cite-eval-v1",
+  "synthetic_only": true,
+  "as_of": "2026-11-08",
+  "model_version": "fictional-model-v1",
+  "config_version": "fictional-config-v1",
+  "label_version": "fictional-label-v1",
+  "evidence_version": "fictional-evidence-v1",
+  "labels_complete": true,
+  "review_budget": 3,
+  "rows": [
+    {"id": "fictional-a", "label": "confirmed_manipulation", "score": 0.9, "decision": "review"},
+    {"id": "fictional-b", "label": "confirmed_nonmanipulation", "score": 0.8, "decision": "review"},
+    {"id": "fictional-c", "label": "confirmed_manipulation", "score": 0.8, "decision": "review"},
+    {"id": "fictional-d", "label": "confirmed_nonmanipulation", "score": 0.4, "decision": "dismiss"},
+    {"id": "fictional-e", "label": "confirmed_manipulation", "score": 0.2, "decision": "dismiss"},
+    {"id": "fictional-f", "label": "confirmed_manipulation", "score": null, "decision": "abstain"}
+  ]
+}

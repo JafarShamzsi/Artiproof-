@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "records": [
+    {"id":"syn-1","kind":"membership","stored_scope":"syn-10","historical_scope":null,"scope_evidence":"unknown","current_user_org":"syn-10","origin":"migration_0013","consent":"unknown","consent_audit_bound":false,"inputs":[],"artifact":"none","share":"none","deleted":false},
+    {"id":"syn-2","kind":"source_check","stored_scope":"syn-10","historical_scope":null,"scope_evidence":"unknown","current_user_org":"syn-10","origin":"migration_0012","consent":"unknown","consent_audit_bound":false,"inputs":[],"artifact":"original_pdf","share":"active","deleted":false},
+    {"id":"syn-3","kind":"researcher_profile","stored_scope":"syn-20","historical_scope":"syn-10","scope_evidence":"creation_record","current_user_org":"syn-20","origin":"unknown","consent":"unknown","consent_audit_bound":false,"inputs":[],"artifact":"none","share":"none","deleted":false},
+    {"id":"syn-4","kind":"report","stored_scope":"syn-20","historical_scope":"syn-10","scope_evidence":"creation_record","current_user_org":"syn-20","origin":"unknown","consent":"unknown","consent_audit_bound":false,"inputs":["syn-2","syn-3"],"artifact":"cached_pdf","share":"expiry_unknown","deleted":false},
+    {"id":"syn-5","kind":"schedule","stored_scope":null,"historical_scope":null,"scope_evidence":"unknown","current_user_org":"syn-20","origin":"unknown","consent":"unknown","consent_audit_bound":false,"inputs":[],"artifact":"none","share":"none","deleted":false},
+    {"id":"syn-6","kind":"source_check","stored_scope":null,"historical_scope":null,"scope_evidence":"creation_record","current_user_org":"syn-20","origin":"native","consent":"unknown","consent_audit_bound":false,"inputs":[],"artifact":"none","share":"none","deleted":false}
+  ]
+}

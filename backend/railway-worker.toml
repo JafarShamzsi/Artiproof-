@@ -1,0 +1,22 @@
+# Railway service config for the Celery worker + beat.
+#
+# Set up as a SECOND Railway service in the same project:
+#   1. Railway dashboard → New Service → GitHub Repo (same repo)
+#   2. Service Settings → Root Directory: backend
+#   3. Service Settings → Config-as-code path: backend/railway-worker.toml
+#   4. Same environment variables as the API service (DATABASE_URL, REDIS_URL, etc.)
+#
+# Without this, the scheduled-reports sweep + cleanup beat tasks never
+# run. The API service keeps the existing railway.toml; this file is
+# read by the dedicated worker service.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# No HTTP listener — Celery workers don't expose a port. Railway will
+# treat the process exit as the health signal.
+startCommand = "celery -A app.tasks.celery_app worker --beat --loglevel=info"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

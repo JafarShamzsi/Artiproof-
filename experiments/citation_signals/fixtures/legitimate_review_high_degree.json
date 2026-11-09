@@ -1,0 +1,297 @@
+{
+  "authors": [
+    {
+      "id": "R",
+      "identifiers": [
+        "fictional:R"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "A",
+      "identifiers": [
+        "fictional:A"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "B",
+      "identifiers": [
+        "fictional:B"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "C",
+      "identifiers": [
+        "fictional:C"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "D",
+      "identifiers": [
+        "fictional:D"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "E",
+      "identifiers": [
+        "fictional:E"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "F",
+      "identifiers": [
+        "fictional:F"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "G",
+      "identifiers": [
+        "fictional:G"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    },
+    {
+      "id": "H",
+      "identifiers": [
+        "fictional:H"
+      ],
+      "resolution_version": "v1",
+      "status": "resolved"
+    }
+  ],
+  "references": [
+    {
+      "cited": "A0",
+      "citing": "review",
+      "id": "e0",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:0"
+    },
+    {
+      "cited": "B0",
+      "citing": "review",
+      "id": "e1",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:1"
+    },
+    {
+      "cited": "C0",
+      "citing": "review",
+      "id": "e2",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:2"
+    },
+    {
+      "cited": "D0",
+      "citing": "review",
+      "id": "e3",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:3"
+    },
+    {
+      "cited": "E0",
+      "citing": "review",
+      "id": "e4",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:4"
+    },
+    {
+      "cited": "F0",
+      "citing": "review",
+      "id": "e5",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:5"
+    },
+    {
+      "cited": "G0",
+      "citing": "review",
+      "id": "e6",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:6"
+    },
+    {
+      "cited": "H0",
+      "citing": "review",
+      "id": "e7",
+      "observed_on": "2024-01-01",
+      "run": "run1",
+      "source_evidence_id": "source:7"
+    }
+  ],
+  "runs": [
+    {
+      "as_of": "2024-02-01",
+      "direction": "both",
+      "id": "run1",
+      "lineage": "fictional-upstream",
+      "provider": "fictional-provider",
+      "reference_limit": 512,
+      "truncated": false,
+      "work_limit": 128
+    }
+  ],
+  "version": 1,
+  "window": {
+    "as_of": "2024-02-01",
+    "end": "2024-01-01",
+    "start": "2020-01-01"
+  },
+  "works": [
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:A0:A",
+          "author_id": "A",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "A0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:B0:B",
+          "author_id": "B",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "B0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:C0:C",
+          "author_id": "C",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "C0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:D0:D",
+          "author_id": "D",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "D0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:E0:E",
+          "author_id": "E",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "E0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:F0:F",
+          "author_id": "F",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "F0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:G0:G",
+          "author_id": "G",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "G0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:H0:H",
+          "author_id": "H",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "H0",
+      "kind": "research",
+      "published": {
+        "precision": "day",
+        "value": "2020-01-01"
+      }
+    },
+    {
+      "authorships": [
+        {
+          "assertion_id": "au:review:R",
+          "author_id": "R",
+          "resolution_version": "v1"
+        }
+      ],
+      "id": "review",
+      "kind": "review",
+      "published": {
+        "precision": "day",
+        "value": "2023-01-01"
+      }
+    }
+  ]
+}

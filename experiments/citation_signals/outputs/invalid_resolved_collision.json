@@ -1,0 +1,4 @@
+{
+  "error": "resolved identifier collision; mark all affected identities ambiguous",
+  "expected_exit_code": 2
+}
