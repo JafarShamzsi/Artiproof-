@@ -1,0 +1,113 @@
+name: Showcase source checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: showcase-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  NEXT_TELEMETRY_DISABLED: "1"
+  ENVIRONMENT: test
+  JWT_SECRET: showcase-synthetic-test-only-not-a-credential
+  GEMINI_API_KEY: ""
+  OPENAI_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+  GOOGLE_FACTCHECK_API_KEY: ""
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+  SCOPUS_API_KEY: ""
+  SEMANTIC_SCHOLAR_API_KEY: ""
+  RESEND_API_KEY: ""
+  SENTRY_DSN: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: showcase
+          POSTGRES_PASSWORD: showcase
+          POSTGRES_DB: showcase
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U showcase"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://showcase:showcase@localhost:5432/showcase
+      DATABASE_URL_SYNC: postgresql://showcase:showcase@localhost:5432/showcase
+      REDIS_URL: redis://localhost:6379/0
+      ARTIPROOF_INTEGRATION_DATABASE_URL: postgresql+asyncpg://showcase:showcase@localhost:5432/showcase
+      ARTIPROOF_INTEGRATION_REDIS_URL: redis://localhost:6379/14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        working-directory: backend
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt ruff
+      - name: Source export contract
+        run: python -m unittest discover -s showcase_tests -v
+      - name: Lint backend errors
+        working-directory: backend
+        run: ruff check --select E9,F63,F7,F82 app
+      - name: Unit and fixture tests
+        working-directory: backend
+        run: python -m pytest -q --junitxml=test-results/unit.xml
+      - name: Disposable schema setup
+        working-directory: backend
+        run: alembic upgrade head
+      - name: PostgreSQL and Redis integration (no skips)
+        working-directory: backend
+        run: |
+          python -m pytest -m integration tests/test_analysis_runs_integration.py tests/test_team_consent_integration.py tests/test_report_scope_integration.py --junitxml=test-results/integration.xml
+          python -c "import xml.etree.ElementTree as E; s=list(E.parse('test-results/integration.xml').iter('testsuite')); assert sum(int(x.get('tests',0)) for x in s)>0; assert sum(int(x.get('skipped',0)) for x in s)==0"
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: showcase-synthetic-session-test-only
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npx next typegen
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run test:unit
+        working-directory: frontend
+      - run: npm run build -- --webpack
+        working-directory: frontend
