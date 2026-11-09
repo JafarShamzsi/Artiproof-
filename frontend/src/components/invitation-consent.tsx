@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
@@ -10,12 +10,14 @@ type Invitation = { organization_id: string; name: string; role: string };
 
 export function InvitationConsent({ token }: { token: string }) {
   const { data: session, status, update } = useSession();
-  const accountId = session?.user?.id;
-  const active = useRef(true);
-  useEffect(() => {
+  const rawAccountId = session?.user?.id;
+  const accountId = typeof rawAccountId === "string" && rawAccountId.length > 0 ? rawAccountId : null;
+  const active = useRef(false);
+  useLayoutEffect(() => {
     active.current = true;
-    // The parent keys this instance by token/account. Obsolete requests may
-    // finish, but must not update its successor or start a session refresh.
+    // The parent keys by token/account. Invalidate during commit, not passive
+    // cleanup: queued Promise work must not start a refresh after replacement.
+    // Setup also reactivates the instance after StrictMode's effect replay.
     return () => { active.current = false; };
   }, []);
   const [invitation, setInvitation] = useState<Invitation | null>(null);
@@ -25,7 +27,7 @@ export function InvitationConsent({ token }: { token: string }) {
   const [enrolled, setEnrolled] = useState(false);
 
   async function submit(accept: boolean) {
-    if (status !== "authenticated" || !accountId || busy) return;
+    if (!active.current || status !== "authenticated" || !accountId || busy) return;
     setBusy(true);
     setMessage("");
     try {
@@ -59,6 +61,7 @@ export function InvitationConsent({ token }: { token: string }) {
   }
 
   async function synchronizeSession() {
+    if (!active.current) return;
     try {
       const refreshed = await update({ refreshAccount: true });
       if (!active.current) return;

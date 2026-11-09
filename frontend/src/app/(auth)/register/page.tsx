@@ -100,7 +100,9 @@ function RegisterPageInner() {
   const { data: session, status: sessionStatus } = useSession();
   // SessionProvider retains data during update() loading. Scope consent to the
   // server-held account ID, not organization metadata changed by enrollment.
-  const consentKey = JSON.stringify([inviteToken, session?.user?.id ?? null]);
+  const rawAccountId = session?.user?.id;
+  const accountId = typeof rawAccountId === "string" && rawAccountId.length > 0 ? rawAccountId : null;
+  const consentKey = JSON.stringify([inviteToken, accountId]);
   const callbackUrl = inviteToken ? `/register?invite=${encodeURIComponent(inviteToken)}` : "/dashboard";
 
   // On mount: prefer ?plan=, fall back to a previously-stored cookie,
