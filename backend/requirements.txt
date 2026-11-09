@@ -13,7 +13,7 @@ email-validator>=2.1.0,<3.0
 sqlalchemy[asyncio]>=2.0.36,<2.1
 asyncpg>=0.30.0,<1.0
 psycopg2-binary>=2.9.9,<3.0
-alembic>=1.14.1,<2.0
+alembic>=1.20.1,<2.0
 
 # Task queue
 # Review/upgrade this group together; bounded to the tested minor series.
