@@ -48,6 +48,7 @@ from app.schemas.auth import (
 )
 from app.utils.auth import (
     create_access_token,
+    decode_account_token,
     get_current_user,
     get_current_user_allow_deactivated,
 )
@@ -297,8 +298,20 @@ def _verify_totp_or_backup(user: User, code: str) -> bool:
 async def totp_status(current_user: User = Depends(get_current_user)):
     backup_remaining = len(current_user.totp_backup_codes or [])
     return TotpStatus(
-        enabled=bool(current_user.totp_enabled), backup_codes_remaining=backup_remaining
+        enabled=bool(current_user.totp_enabled), backup_codes_remaining=backup_remaining,
+        enrollment_available=bool(current_user.hashed_password),
+        enrollment_unavailable_reason=None if current_user.hashed_password else _TOTP_PASSWORD_REQUIRED,
     )
+
+
+_TOTP_PASSWORD_REQUIRED = (
+    "App two-factor enrollment requires password sign-in; Google-only TOTP completion and recovery are not supported."
+)
+
+
+def _require_totp_password_login(user: User):
+    if not user.hashed_password:
+        raise HTTPException(status_code=409, detail=_TOTP_PASSWORD_REQUIRED)
 
 
 @router.post("/me/2fa/setup", response_model=TotpSetupResponse)
@@ -312,6 +325,7 @@ async def begin_totp_setup(
     once /me/2fa/enable confirms the user can produce a valid code. Calling
     /setup twice replaces the previous unconfirmed setup.
     """
+    _require_totp_password_login(current_user)
     if current_user.totp_enabled:
         raise HTTPException(
             status_code=400,
@@ -344,6 +358,7 @@ async def enable_totp(
 ):
     """Activate 2FA after the user proves they can read codes from their
     authenticator. Verifies against the staged secret from /setup."""
+    _require_totp_password_login(current_user)
     if current_user.totp_enabled:
         raise HTTPException(status_code=400, detail="2FA is already enabled")
     if not current_user.totp_secret:
@@ -358,7 +373,8 @@ async def enable_totp(
     current_user.updated_at = datetime.now(timezone.utc)
     await db.commit()
     return TotpStatus(
-        enabled=True, backup_codes_remaining=len(current_user.totp_backup_codes or [])
+        enabled=True, backup_codes_remaining=len(current_user.totp_backup_codes or []),
+        enrollment_available=True,
     )
 
 
@@ -412,14 +428,7 @@ async def list_sessions(
     current_jti: str | None = None
     if auth_header.lower().startswith("bearer "):
         try:
-            from jose import jwt
-            from app.config import settings as cfg
-
-            payload = jwt.decode(
-                auth_header[7:],
-                cfg.JWT_SECRET,
-                algorithms=[cfg.JWT_ALGORITHM],
-            )
+            payload = decode_account_token(auth_header[7:])
             current_jti = payload.get("jti")
         except Exception:
             current_jti = None
@@ -463,14 +472,7 @@ async def revoke_all_other_sessions(
     current_jti: str | None = None
     if auth_header.lower().startswith("bearer "):
         try:
-            from jose import jwt
-            from app.config import settings as cfg
-
-            payload = jwt.decode(
-                auth_header[7:],
-                cfg.JWT_SECRET,
-                algorithms=[cfg.JWT_ALGORITHM],
-            )
+            payload = decode_account_token(auth_header[7:])
             current_jti = payload.get("jti")
         except Exception:
             current_jti = None

@@ -213,6 +213,8 @@ class TotpDisableRequest(BaseModel):
 class TotpStatus(BaseModel):
     enabled: bool
     backup_codes_remaining: int = 0
+    enrollment_available: bool = False
+    enrollment_unavailable_reason: Optional[str] = None
 
 
 class LoginTwoFactorRequest(BaseModel):

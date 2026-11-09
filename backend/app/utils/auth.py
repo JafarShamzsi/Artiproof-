@@ -49,6 +49,7 @@ def create_access_token(
         "sub": user_id,
         "email": email,
         "tier": tier,
+        "type": "access",
         "exp": expire,
     }
     if session_id:
@@ -63,9 +64,19 @@ def _decode_token(credentials: Optional[HTTPAuthorizationCredentials]) -> dict:
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    return decode_account_token(credentials.credentials)
+
+
+def decode_account_token(token: str) -> dict:
+    """Decode account auth only, never a resource capability.
+
+    Pre-purpose account JWTs with no `type`/jti remain deliberately supported
+    until their signed expiry. Known capability fields cannot use that legacy
+    path. Legacy tokens without jti still cannot be individually revoked.
+    """
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             settings.JWT_SECRET,
             algorithms=[settings.JWT_ALGORITHM],
         )
@@ -75,6 +86,9 @@ def _decode_token(credentials: Optional[HTTPAuthorizationCredentials]) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
     if not payload.get("sub"):
         raise HTTPException(status_code=401, detail="Invalid token payload")
+    if (('type' in payload and payload['type'] != 'access')
+            or any(key in payload for key in ('kind', 'rid', 'org_id', 'invited_by'))):
+        raise HTTPException(status_code=401, detail="Wrong token purpose")
     return payload
 
 
@@ -90,7 +104,7 @@ async def _validate_session(
     if not jti:
         return  # legacy token, skip
     session = await db.get(Session, jti)
-    if session is None:
+    if session is None or session.user_id != payload['sub']:
         raise HTTPException(status_code=401, detail="Session no longer exists")
     if session.revoked_at is not None:
         raise HTTPException(status_code=401, detail="Session was revoked")
@@ -286,20 +300,10 @@ async def get_current_user_optional(
     if not credentials:
         return None
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
-        if not payload.get("sub"):
-            return None
+        payload = _decode_token(credentials)
         # Best-effort session check — silently treat revoked tokens as
         # unauthenticated rather than 401 here, to match this dep's contract.
-        jti = payload.get("jti")
-        if jti:
-            session = await db.get(Session, jti)
-            if session is None or session.revoked_at is not None:
-                return None
+        await _validate_session(payload, db, request)
         return await db.get(User, payload["sub"])
-    except (ExpiredSignatureError, JWTError):
+    except HTTPException:
         return None

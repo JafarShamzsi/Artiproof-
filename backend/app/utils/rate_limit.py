@@ -35,13 +35,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Request
-from jose import JWTError, jwt
+from fastapi import HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.config import settings
 from app.constants import ANONYMOUS_RATE_LIMIT, TIER_RATE_LIMITS
+from app.utils.auth import decode_account_token
 
 _CTX_ATTR = "_rate_limit_ctx"
 
@@ -58,12 +57,8 @@ def _decode_token_silently(request: Request) -> Optional[dict]:
     if not token:
         return None
     try:
-        return jwt.decode(
-            token,
-            settings.JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
-    except JWTError:
+        return decode_account_token(token)
+    except HTTPException:
         return None
 
 

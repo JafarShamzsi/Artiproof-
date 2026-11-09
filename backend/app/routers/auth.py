@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import re
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -52,6 +53,7 @@ from app.schemas.auth import (
 )
 from app.utils.auth import (
     create_access_token,
+    decode_account_token,
     get_current_user,
     get_current_user_allow_deactivated,
 )
@@ -288,17 +290,8 @@ async def logout(
     auth_header = request.headers.get("authorization", "")
     if not auth_header.lower().startswith("bearer "):
         return
-    try:
-        from jose import jwt as _jwt
-
-        payload = _jwt.decode(
-            auth_header[7:],
-            settings.JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
-        jti = payload.get("jti")
-    except Exception:
-        return
+    payload = decode_account_token(auth_header[7:])
+    jti = payload.get("jti")
     if not jti:
         return
     from app.models.session import Session as _Session
@@ -329,17 +322,8 @@ async def refresh_token(
     auth_header = request.headers.get("authorization", "")
     session_id: Optional[str] = None
     if auth_header.lower().startswith("bearer "):
-        try:
-            from jose import jwt as _jwt
-
-            payload = _jwt.decode(
-                auth_header[7:],
-                settings.JWT_SECRET,
-                algorithms=[settings.JWT_ALGORITHM],
-            )
-            session_id = payload.get("jti")
-        except Exception:
-            session_id = None
+        payload = decode_account_token(auth_header[7:])
+        session_id = payload.get("jti")
 
     token = create_access_token(
         current_user.id,
@@ -376,6 +360,25 @@ def _google_identity(token: str) -> dict:
     return id_info
 
 
+def _google_controls_current_email(id_info: dict) -> bool:
+    """Subject authentication is not proof of a third-party mailbox's ownership.
+
+    Google is authoritative for Gmail and verified Workspace mail. Require a
+    well-formed, matching hosted domain conservatively; aliases/third-party mail
+    can still authenticate by subject but need the platform email challenge.
+    """
+    email = id_info.get('email', '')
+    if id_info.get('email_verified') is not True or not isinstance(email, str) or email.count('@') != 1:
+        return False
+    domain = email.rsplit('@', 1)[1].lower()
+    if domain == 'gmail.com':
+        return True
+    hosted = id_info.get('hd')
+    label = r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
+    return (isinstance(hosted, str) and len(hosted) <= 253 and hosted.lower() == domain
+            and re.fullmatch(r'(?:' + label + r'\.)+' + label, hosted.lower()) is not None)
+
+
 async def _lock_google_identities(db: AsyncSession):
     # JSON currently has no unique provider-sub constraint. Serialize Google
     # create/link/unlink transactions across API processes, not just this worker.
@@ -406,7 +409,7 @@ async def google_login(request: Request, data: GoogleLogin, db: AsyncSession = D
             hashed_password=None,
             full_name=id_info.get("name") or email.split("@", 1)[0],
             role="researcher",
-            email_verified_at=datetime.now(timezone.utc),
+            email_verified_at=datetime.now(timezone.utc) if _google_controls_current_email(id_info) else None,
             linked_providers={'google': {'sub': google_sub, 'email': email,
                                         'linked_at': datetime.now(timezone.utc).isoformat()}},
             updated_at=datetime.now(timezone.utc),
@@ -942,7 +945,8 @@ async def link_google_account(
         "linked_at": datetime.now(timezone.utc).isoformat(),
     }
     current_user.linked_providers = linked
-    current_user.email_verified_at = current_user.email_verified_at or datetime.now(timezone.utc)
+    if current_user.email_verified_at is None and _google_controls_current_email(id_info):
+        current_user.email_verified_at = datetime.now(timezone.utc)
     current_user.updated_at = datetime.now(timezone.utc)
     await db.commit()
 

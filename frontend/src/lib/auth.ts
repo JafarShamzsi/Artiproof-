@@ -167,6 +167,25 @@ export const authOptions: NextAuthOptions = {
         ]
       : []),
   ],
+  events: {
+    async signOut(message) {
+      if (!("token" in message)) return;
+      const accessToken = message.token?.accessToken;
+      if (typeof accessToken !== "string" || !accessToken) return;
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/auth/logout`, {
+          method: "POST", headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5000),
+        });
+        // 401 already means the signed bearer is no longer usable.
+        if (response.status !== 204 && response.status !== 401) throw new Error();
+      } catch {
+        // Always allow local cookie logout. No payload, bearer, URL or error
+        // chain in logs. A failed revoke can leave copies valid until expiry.
+        console.warn("Backend session revocation failed; local sign-out continues.");
+      }
+    },
+  },
   callbacks: {
     async jwt({ token, user, account, trigger }) {
       if (trigger === "update") {

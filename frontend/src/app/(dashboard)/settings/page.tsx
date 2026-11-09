@@ -124,6 +124,8 @@ interface EmailVerificationRequestResponse {
 interface TotpStatus {
   enabled: boolean;
   backup_codes_remaining: number;
+  enrollment_available?: boolean;
+  enrollment_unavailable_reason?: string | null;
 }
 
 interface TotpSetupResponse {
@@ -1898,6 +1900,7 @@ function TwoFactorSubsection() {
             <Button
               type="button"
               variant="destructive"
+              disabled={status?.enrollment_available !== true}
               onClick={() => setDisableOpen(true)}
             >
               Disable 2FA
@@ -1905,6 +1908,7 @@ function TwoFactorSubsection() {
           ) : (
             <Button
               type="button"
+              disabled={status?.enrollment_available !== true}
               onClick={() => setSetupOpen(true)}
               className="bg-brand text-white hover:bg-brand-hover"
             >
@@ -1912,6 +1916,11 @@ function TwoFactorSubsection() {
             </Button>
           ))}
       </div>
+      {!loading && status && status.enrollment_available !== true && (
+        <p role="status" className="text-xs text-zinc-600 dark:text-zinc-400">
+          {status.enrollment_unavailable_reason || "TOTP eligibility is unavailable. Refresh before enrolling."}
+        </p>
+      )}
       {error && <InlineError>{error}</InlineError>}
 
       <TotpSetupDialog
