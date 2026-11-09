@@ -6,7 +6,7 @@ pytest>=8.3.0,<9.0
 pytest-asyncio>=0.24.0,<1.0
 
 # Mocking + transport for FastAPI app testing
-respx>=0.21.1,<1.0          # Mocks httpx requests
+respx>=0.23.1,<1.0          # Mocks httpx requests
 asgi-lifespan>=2.1.0,<3.0   # Spin up lifespan for ASGI tests
 
 # Coverage (optional — enable with `pytest --cov`)
