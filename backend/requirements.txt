@@ -35,7 +35,7 @@ anthropic>=0.40.0,<1.0
 httpx>=0.28.1,<1.0
 httpcore>=1.0.9,<1.1  # Public network backend API for DNS-pinned untrusted fetches
 Pillow>=13.0,<14.0  # Decode/re-encode bounded raster report logos
-boto3>=1.43,<2.0  # Private shared PDF artifacts across API/worker instances
+boto3>=1.43.125,<2.0  # Private shared PDF artifacts across API/worker instances
 
 # Web scraping
 beautifulsoup4>=4.13.3,<5.0
