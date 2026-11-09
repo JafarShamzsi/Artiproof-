@@ -59,19 +59,14 @@ class OrgMemberInvite(BaseModel):
 
 
 class OrgMemberInviteResponse(BaseModel):
-    """Response shape for invite.
-
-    ``status='added'`` — a User with that email already existed and
-    has been attached immediately. They'll see the org's resources on
-    their next request.
-
-    ``status='invited'`` — no User yet; an invite email was sent. The
-    invitee follows the ``?invite=<token>`` link to sign up and auto-
-    attach.
-    """
+    """Same response for existing and new accounts; never attaches a user."""
 
     invited_email: EmailStr
-    status: Literal["added", "invited"]
+    status: Literal["invited"]
+
+
+class OrgInviteAccept(BaseModel):
+    token: str = Field(min_length=1, max_length=4096)
 
 
 class OrgMemberRoleUpdate(BaseModel):

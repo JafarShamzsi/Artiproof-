@@ -150,6 +150,20 @@ async def test_user_list_returns_paged_response(env_admin):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("old_org,new_org", [(None, "org-new"), ("org-old", "org-new"), ("org-old", "")])
+async def test_admin_patch_cannot_reassign_org_or_apply_partial_mutations(env_admin, old_org, new_org):
+    target = _user(id="recipient", organization_id=old_org, full_name="Recipient")
+    env_admin.db.users[target.id] = target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(f"/api/admin/users/{target.id}",
+                                      json={"organization_id": new_org, "tier": "pro"})
+    assert response.status_code == 400, response.text
+    assert target.organization_id == old_org
+    assert target.tier == "free"
+    env_admin.db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_patch_user_changes_tier(env_admin):
     target = _user(id="t1", tier="free", role="researcher")
     env_admin.db.users["t1"] = target

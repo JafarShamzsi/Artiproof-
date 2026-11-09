@@ -27,10 +27,8 @@ class UserRegister(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
     institution: Optional[str] = None
     role: UserRoleStr = "researcher"
-    # Optional org invite token. When present the register flow decodes
-    # it, validates that the signed email matches, and auto-attaches
-    # the new user as a member of the encoded org (with the encoded
-    # role). Surface comes from /api/organizations/{org}/members/invite.
+    # Optional invite validation only. Joining requires verified email
+    # and a separate authenticated recipient acceptance POST.
     invite_token: Optional[str] = None
     # Optional plan intent — captured by the frontend register page
     # from a ``?plan=`` query param. Stored as a tier_change_audits

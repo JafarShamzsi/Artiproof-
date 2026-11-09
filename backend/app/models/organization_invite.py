@@ -1,10 +1,9 @@
 """Persistent invite records for the org membership flow.
 
-The invite *email* itself carries a signed JWT (see
-``app.utils.auth.create_invite_token``) which is the stateless half of
-the equation — the new user clicks the link, the signup flow validates
-the token, and they're attached as a member. That alone is enough to
-make signup work.
+The email carries a signed JWT (``app.utils.auth.create_invite_token``).
+It is not sufficient on its own: acceptance requires this exact stored token,
+a live pending invitation, and an authenticated, email-verified recipient's
+explicit POST. Opening a link or registering never creates membership.
 
 This table is the **stateful** half. The ``/team`` workspace needs:
 
@@ -15,7 +14,8 @@ This table is the **stateful** half. The ``/team`` workspace needs:
 
 So we store the token alongside ``status ∈ {pending, accepted,
 revoked, expired}``. Signup checks the row: an accepted/revoked/expired
-row is rejected regardless of whether the JWT is otherwise valid.
+row cannot create membership regardless of whether the JWT is valid. An
+accepted row may only acknowledge the original recipient's idempotent replay.
 
 One *active* invite per (org, lower(email)) — multiple sends for the
 same address bump the existing row instead of creating duplicates.

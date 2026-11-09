@@ -42,6 +42,7 @@ from app.utils.auth import (
 )
 from app.utils.ownership import is_owner_or_org_admin
 from app.utils.quota import assert_quota, enforce_quota
+from app.deps.org import require_creation_membership
 from app.utils.rate_limit import limiter, tier_aware_limit_for_key
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ async def create_source_check(
     current_user: User = Depends(enforce_quota("source_checks")),
 ):
     """Submit a new source check (URL or text)."""
+    current_user = await require_creation_membership(db, current_user)
     user_id = current_user.id
     orchestrator = SourceVerificationOrchestrator(db)
     check_id = await orchestrator.create_check(
@@ -137,6 +139,7 @@ async def upload_pdf_source_check(
     current_user: User = Depends(enforce_quota("source_checks")),
 ):
     """Upload a PDF document for source checking."""
+    current_user = await require_creation_membership(db, current_user)
     user_id = current_user.id
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -526,6 +529,9 @@ async def create_bulk_source_checks(
     created: list[SourceCheck] = []
 
     for item in data.items:
+        # create_check commits each item: reacquire enrollment locks after
+        # every commit rather than assigning scope from a stale bulk user.
+        current_user = await require_creation_membership(db, current_user)
         check_id = await orchestrator.create_check(
             user_id=current_user.id,
             input_type=item.input_type,
@@ -573,6 +579,7 @@ async def rerun_source_check(
     new check is owned by the current user, has the same input_type +
     input_content + original_pdf_path (if any), and starts in status=pending.
     """
+    current_user = await require_creation_membership(db, current_user)
     src_q = await db.execute(
         select(SourceCheck).where(
             SourceCheck.id == check_id, SourceCheck.deleted_at.is_(None)

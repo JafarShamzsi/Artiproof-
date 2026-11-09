@@ -601,19 +601,17 @@ def _stamp_timestamps(obj):
 
 
 @pytest.mark.asyncio
-async def test_create_schedule_happy_path():
-    """POST /api/me/report-schedules/ — success returns 201 + the persisted row."""
+async def test_create_schedule_explicitly_disabled_without_writes(monkeypatch):
+    """Valid schedule creation fails explicitly, without querying or persisting."""
+    from unittest.mock import Mock
+
+    from app.services import email
+
+    send_email = AsyncMock()
+    monkeypatch.setattr(email, "send_email", send_email)
     db = AsyncMock()
-
-    # Count check: empty list → user is below the 5-schedule cap.
-    db.execute.return_value = SimpleNamespace(
-        scalars=lambda: SimpleNamespace(all=lambda: [])
-    )
-
-    async def _refresh(obj):
-        _stamp_timestamps(obj)
-
-    db.refresh.side_effect = _refresh
+    db.add = Mock()
+    db.add_all = Mock()
 
     async def _db():
         yield db
@@ -627,12 +625,18 @@ async def test_create_schedule_happy_path():
                 "/api/me/report-schedules/",
                 json={"frequency": "weekly", "template": "executive_summary"},
             )
-        assert r.status_code == 201, r.text
-        body = r.json()
-        assert body["frequency"] == "weekly"
-        assert body["template"] == "executive_summary"
-        assert body["active"] is True
-        assert body["user_id"] == "user-a"
+        assert r.status_code == 503, r.text
+        assert r.json() == {
+            "detail": "Scheduled reports disabled: durable original tenant scope is unavailable"
+        }
+        db.execute.assert_not_called()
+        db.get.assert_not_called()
+        db.add.assert_not_called()
+        db.add_all.assert_not_called()
+        db.flush.assert_not_called()
+        db.commit.assert_not_called()
+        db.refresh.assert_not_called()
+        send_email.assert_not_called()
     finally:
         app.dependency_overrides.clear()
 
@@ -841,18 +845,25 @@ async def test_annotations_put_happy_path():
 
 
 @pytest.mark.asyncio
-async def test_run_due_schedules_with_non_empty_input(monkeypatch):
-    """Sweep runs for an active overdue schedule and inserts a Report row.
-    Stubs PDF rendering since WeasyPrint isn't available in pure unit tests."""
+async def test_run_due_schedules_disabled_without_history_report_or_email(monkeypatch):
+    """Even overdue legacy rows cannot query history, create reports or deliver."""
+    from unittest.mock import Mock
+
+    from app.services import email
+    from app.services.report_engine import pdf_generator
     from app.tasks import scheduled_reports
 
-    # Stub PDF generation — we want to verify the orchestration, not the bytes.
-    monkeypatch.setattr(
-        scheduled_reports, "html_to_pdf", lambda html: (b"%PDF-stub", "weasyprint")
-    )
-    monkeypatch.setattr(
-        scheduled_reports, "save_pdf", lambda b: "/tmp/stub.pdf"
-    )
+    send_email = AsyncMock()
+    render_pdf = Mock(return_value=(b"%PDF-stub", "test"))
+    save_pdf = Mock(return_value="fixture.pdf")
+    monkeypatch.setattr(email, "send_email", send_email)
+    monkeypatch.setattr(pdf_generator, "html_to_pdf", render_pdf)
+    monkeypatch.setattr(pdf_generator, "save_pdf", save_pdf)
+    # Guard old task-local aliases too, so regressions cannot contact providers
+    # or write artifacts before the assertions fail. These exist only in tests.
+    monkeypatch.setattr(scheduled_reports, "send_email", send_email, raising=False)
+    monkeypatch.setattr(scheduled_reports, "html_to_pdf", render_pdf, raising=False)
+    monkeypatch.setattr(scheduled_reports, "save_pdf", save_pdf, raising=False)
 
     schedule = SimpleNamespace(
         id="s-1",
@@ -868,11 +879,12 @@ async def test_run_due_schedules_with_non_empty_input(monkeypatch):
         deactivated_at=None,
         deleted_at=None,
         tier="free",
-        organization_id=None,
+        organization_id="org-b",
     )
     check = SimpleNamespace(
         id="sc-1",
         user_id="user-a",
+        organization_id="org-a",
         status="completed",
         overall_credibility_score=80.0,
         ai_content_percentage=10.0,
@@ -881,30 +893,34 @@ async def test_run_due_schedules_with_non_empty_input(monkeypatch):
         deleted_at=None,
     )
 
-    call_count = {"n": 0}
-
-    def execute_side_effect(_q):
-        call_count["n"] += 1
-        if call_count["n"] == 1:  # active overdue schedules
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [schedule]))
-        if call_count["n"] == 2:  # checks in window
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [check]))
-        if call_count["n"] == 3:  # owner user lookup
-            return SimpleNamespace(scalar_one_or_none=lambda: user)
-        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
-
     db = AsyncMock()
-    db.execute.side_effect = execute_side_effect
+    db.execute.side_effect = [
+        SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [schedule])),
+        SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [check])),
+        SimpleNamespace(scalar_one_or_none=lambda: user),
+    ]
+    db.add = Mock()
+    db.add_all = Mock()
+    original_next_run = schedule.next_run_at
 
-    added: list = []
-    db.add = lambda obj: added.append(obj)
-
-    count = await scheduled_reports.run_due_schedules(db)
-    assert count == 1
-    # Schedule advanced past now so the next sweep doesn't re-fire.
-    assert schedule.last_run_at is not None
-    assert schedule.next_run_at > datetime.now(timezone.utc)
-    # A Report was queued for insertion.
-    from app.models import Report
-
-    assert any(isinstance(o, Report) for o in added)
+    reason = "Scheduled reports disabled: durable original tenant scope is unavailable"
+    with pytest.raises(RuntimeError) as disabled:
+        await scheduled_reports.run_due_schedules(db)
+    assert str(disabled.value) == reason
+    # Already-queued tasks also return an honest disabled status. Invoke locally,
+    # never publish to a broker or start a worker.
+    assert scheduled_reports.run_due_scheduled_reports_task.run() == {
+        "status": "disabled", "reason": reason, "generated": 0, "sent": 0,
+    }
+    db.execute.assert_not_called()
+    db.get.assert_not_called()
+    db.add.assert_not_called()
+    db.add_all.assert_not_called()
+    db.flush.assert_not_called()
+    db.commit.assert_not_called()
+    db.refresh.assert_not_called()
+    assert schedule.last_run_at is None
+    assert schedule.next_run_at == original_next_run
+    render_pdf.assert_not_called()
+    save_pdf.assert_not_called()
+    send_email.assert_not_called()

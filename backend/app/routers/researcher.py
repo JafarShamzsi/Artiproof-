@@ -45,6 +45,7 @@ from app.utils.auth import (
 )
 from app.utils.ownership import is_owner_or_org_admin
 from app.utils.quota import assert_quota, enforce_quota
+from app.deps.org import require_creation_membership
 from app.utils.rate_limit import limiter, tier_aware_limit_for_key
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ async def analyze_researcher(
     current_user: User = Depends(enforce_quota("researcher_analyses")),
 ):
     """Submit a researcher for analysis."""
+    current_user = await require_creation_membership(db, current_user)
     user_id = current_user.id
     if not any([data.researcher_name, data.scopus_id, data.google_scholar_id, data.orcid]):
         raise HTTPException(status_code=400, detail="Provide at least one identifier")
@@ -455,6 +457,7 @@ async def create_bulk_researcher_analyses(
     await assert_quota(db, current_user, "researcher_analyses", units=len(data.items))
 
     batch_id = str(uuid.uuid4())[:8]
+    current_user = await require_creation_membership(db, current_user)
     created: list[ResearcherProfile] = []
 
     for item in data.items:

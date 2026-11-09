@@ -94,6 +94,9 @@ def env(monkeypatch):
     from app.tasks import celery_app
 
     monkeypatch.setattr("app.routers.researcher.queue_run", AsyncMock())
+    # Enrollment query/locking decisions are covered separately; this fixture
+    # only models researcher-resource state.
+    monkeypatch.setattr("app.routers.researcher.require_creation_membership", AsyncMock(side_effect=lambda db, user: user))
     send_task = Mock()
     if celery_app is not None:
         monkeypatch.setattr(celery_app, "send_task", send_task)

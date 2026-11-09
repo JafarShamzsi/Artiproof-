@@ -75,51 +75,19 @@ def _user_to_response(user: User) -> UserResponse:
 async def register(request: Request, data: UserRegister, db: AsyncSession = Depends(get_db)):
     """Create a new user account and return a JWT so the client can authenticate immediately.
 
-    If ``invite_token`` is present in the body, it must decode cleanly
-    (signed by us, not expired, matching email). On success the new user
-    is auto-attached to the encoded organization with the encoded role.
+    An optional invite is validated, but NEVER joins an organization here.
+    New users verify their email and explicitly accept while authenticated,
+    through the same endpoint as existing users.
     """
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    # Validate the invite up-front so we don't half-create a user and
-    # then 400 on the attach. A bad invite token aborts before any row
-    # is inserted. The persistent ``organization_invites`` row is
-    # additionally checked so a revoked or expired invite refuses even
-    # if the JWT itself is still otherwise valid.
-    invite_payload: Optional[dict] = None
-    invite_row = None
+    # Validate before any account write. A JWT alone is never sufficient.
     if data.invite_token:
-        from app.utils.auth import decode_invite_token
-        from app.models.organization_invite import OrganizationInvite
+        from app.services.team_invites import validate_invite
 
-        invite_payload = decode_invite_token(data.invite_token)
-        if invite_payload["email"].lower() != data.email.lower():
-            raise HTTPException(
-                status_code=400,
-                detail="Invite was issued to a different email address.",
-            )
-
-        # Find the corresponding persistent row. Pending rows added by
-        # the new ``/invites`` flow get marked accepted below; older
-        # tokens issued before the row existed silently pass through
-        # (the JWT signature + exp check from decode_invite_token is
-        # the only line of defense for those — that's fine, the worst
-        # case is a pre-existing token doesn't get audited as "accepted"
-        # in the new table).
-        invite_row_q = await db.execute(
-            select(OrganizationInvite).where(
-                OrganizationInvite.organization_id == invite_payload["org_id"],
-                func.lower(OrganizationInvite.email) == data.email.lower(),
-            ).order_by(OrganizationInvite.created_at.desc())
-        )
-        invite_row = invite_row_q.scalars().first()
-        if invite_row is not None and invite_row.status != "pending":
-            raise HTTPException(
-                status_code=400,
-                detail=f"This invite is no longer valid ({invite_row.status}).",
-            )
+        await validate_invite(db, data.invite_token, data.email)
 
     # New users always start as researchers — admin is privileged and only assignable
     # by an existing admin via a separate admin tool. Ignore role from the public payload.
@@ -135,52 +103,6 @@ async def register(request: Request, data: UserRegister, db: AsyncSession = Depe
     db.add(user)
     await db.commit()
     await db.refresh(user)
-
-    # Attach to the inviting org if an invite was supplied. Done after
-    # the user row exists so the FK targets a real row.
-    if invite_payload is not None:
-        from app.models.organization_member import OrganizationMember
-
-        org_id = invite_payload["org_id"]
-        # Confirm the org still exists — invites are 7-day; theoretically
-        # the org could have been deleted in between. Treat as expired.
-        from app.models.organization import Organization
-
-        org = await db.get(Organization, org_id)
-        if org is None:
-            raise HTTPException(
-                status_code=400, detail="The inviting organization no longer exists."
-            )
-
-        member = OrganizationMember(
-            organization_id=org_id,
-            user_id=user.id,
-            role=invite_payload["role"],
-            invited_by=invite_payload["invited_by"],
-        )
-        db.add(member)
-        user.organization_id = org_id
-        # Mark the persistent invite row as accepted so the admin's
-        # Invites tab no longer shows it as pending and the audit trail
-        # records who closed the loop. Old tokens with no row skip this.
-        if invite_row is not None:
-            invite_row.status = "accepted"
-            invite_row.accepted_at = datetime.now(timezone.utc)
-            try:
-                from app.services.org_audit import record_org_action
-
-                await record_org_action(
-                    db=db,
-                    org_id=org_id,
-                    actor_user_id=user.id,
-                    action="member_added",
-                    target_user_id=user.id,
-                    payload={"email": user.email, "role": invite_payload["role"]},
-                )
-            except Exception:  # pragma: no cover — audit is best-effort
-                logger.exception("invite-accept audit write failed")
-        await db.commit()
-        await db.refresh(user)
 
     # Phase D: capture the plan the user arrived intending to buy. We
     # don't auto-upgrade — that happens after the processor confirms

@@ -22,6 +22,7 @@ from app.constants import (
 )
 from app.database import get_db
 from app.models.report import Report
+from app.models.organization_member import OrganizationMember
 from app.models.researcher import ResearcherProfile
 from app.models.source_check import CitationCheck, SourceCheck
 from app.models.user import User
@@ -193,10 +194,15 @@ async def get_team_activity(
             ),
         )
 
+    if getattr(current_user, "_org_role", None) not in ("admin", "member"):
+        raise HTTPException(status_code=403, detail="Organization membership required")
+
     # Members of the same org who chose to share. The current user always
     # appears in their own org list — they see their own activity too.
     members_q = await db.execute(
-        select(User.id, User.full_name, User.email).where(
+        select(User.id, User.full_name, User.email)
+        .join(OrganizationMember, OrganizationMember.user_id == User.id).where(
+            OrganizationMember.organization_id == current_user.organization_id,
             User.organization_id == current_user.organization_id,
             User.deleted_at.is_(None),
             User.share_activity_with_team.is_(True),
@@ -223,6 +229,7 @@ async def get_team_activity(
             SourceCheck.created_at,
         ).where(
             SourceCheck.user_id.in_(member_ids),
+            SourceCheck.organization_id == current_user.organization_id,
             SourceCheck.deleted_at.is_(None),
             SourceCheck.created_at >= cutoff,
         )
@@ -236,6 +243,7 @@ async def get_team_activity(
             ResearcherProfile.created_at,
         ).where(
             ResearcherProfile.user_id.in_(member_ids),
+            ResearcherProfile.organization_id == current_user.organization_id,
             ResearcherProfile.deleted_at.is_(None),
             ResearcherProfile.created_at >= cutoff,
         )
@@ -245,6 +253,7 @@ async def get_team_activity(
             Report.id, Report.user_id, Report.title, Report.report_type, Report.created_at
         ).where(
             Report.user_id.in_(member_ids),
+            Report.organization_id == current_user.organization_id,
             Report.deleted_at.is_(None),
             Report.created_at >= cutoff,
         )

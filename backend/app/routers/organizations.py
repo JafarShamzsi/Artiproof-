@@ -34,7 +34,7 @@ from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.database import get_db
-from app.deps.org import require_org_admin, require_org_member
+from app.deps.org import lock_and_require_org_admin, require_org_admin, require_org_member
 from app.models.organization import Organization
 from app.models.organization_audit_log import OrganizationAuditLog
 from app.models.organization_invite import OrganizationInvite
@@ -49,6 +49,7 @@ from app.schemas.org_member import (
     OrgMemberItem,
     OrgMemberListResponse,
     OrgMemberRoleUpdate,
+    OrgInviteAccept,
 )
 from app.schemas.organization import (
     OrgAuditLogItem,
@@ -62,7 +63,8 @@ from app.schemas.organization import (
 from app.schemas.report import OrganizationBranding, OrganizationBrandingResponse
 from app.services.email import render_org_invite, send_email
 from app.services.org_audit import record_org_action
-from app.utils.auth import create_invite_token, get_current_user
+from app.services.team_invites import accept_invite, lock_org, lock_user, validate_invite
+from app.utils.auth import create_invite_token, decode_invite_token, get_current_user
 from app.utils.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,23 @@ def _slugify(name: str) -> str:
 
 
 # ─── Org create / detail / settings ───────────────────────────────────────
+
+
+@router.post("/invites/preview")
+@limiter.limit("20/hour")
+async def preview_org_invite(
+    request: Request,
+    data: OrgInviteAccept,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Show the recipient what they would join. Never accepts or commits."""
+    payload = decode_invite_token(data.token)
+    if payload["email"].lower() != current_user.email.lower():
+        raise HTTPException(status_code=400, detail="Invalid or unavailable invitation")
+    org = await lock_org(db, payload["org_id"])
+    invite = await validate_invite(db, data.token, current_user.email, org.id, allow_accepted=True)
+    return {"organization_id": org.id, "name": org.name, "role": invite.role}
 
 
 async def _seat_used(db: AsyncSession, org_id: str) -> int:
@@ -151,7 +170,14 @@ async def create_organization(
         # short-circuited test could slip through.
         raise HTTPException(status_code=403, detail="Account not active")
 
-    if current_user.organization_id is not None:
+    current_user = await lock_user(db, current_user.id)
+    if current_user is None or current_user.deleted_at is not None or current_user.deactivated_at is not None:
+        raise HTTPException(status_code=403, detail="Account not active")
+
+    existing_memberships = (await db.execute(select(OrganizationMember).where(
+        OrganizationMember.user_id == current_user.id))).scalars().all()
+
+    if current_user.organization_id is not None or existing_memberships:
         raise HTTPException(
             status_code=409,
             detail="You already belong to an organization. Leave it before creating a new one.",
@@ -351,10 +377,11 @@ def _month_start_utc() -> datetime:
 
 
 async def _usage_for_member(
-    *, db: AsyncSession, user_id: str, month_start: datetime
+    *, db: AsyncSession, user_id: str, org_id: str, month_start: datetime
 ) -> tuple[int, int, int]:
     """Return ``(source_checks, researcher_analyses, reports)`` created
-    by ``user_id`` in the current calendar month, LIVE rows only.
+    by ``user_id`` owned by ``org_id`` in the current calendar month,
+    LIVE rows only. Personal/previous-organization resources never count.
 
     Three independent COUNTs because the tables are unrelated. Acceptable
     cost while orgs stay small (< few hundred members); denormalise to a
@@ -364,6 +391,7 @@ async def _usage_for_member(
         select(func.count(SourceCheck.id)).where(
             and_(
                 SourceCheck.user_id == user_id,
+                SourceCheck.organization_id == org_id,
                 SourceCheck.deleted_at.is_(None),
                 SourceCheck.created_at >= month_start,
             )
@@ -373,6 +401,7 @@ async def _usage_for_member(
         select(func.count(ResearcherProfile.id)).where(
             and_(
                 ResearcherProfile.user_id == user_id,
+                ResearcherProfile.organization_id == org_id,
                 ResearcherProfile.deleted_at.is_(None),
                 ResearcherProfile.created_at >= month_start,
             )
@@ -382,6 +411,7 @@ async def _usage_for_member(
         select(func.count(Report.id)).where(
             and_(
                 Report.user_id == user_id,
+                Report.organization_id == org_id,
                 Report.deleted_at.is_(None),
                 Report.created_at >= month_start,
             )
@@ -418,7 +448,7 @@ async def list_org_members(
     items: list[OrgMemberItem] = []
     for member, user in rows:
         sc, ra, rpt = await _usage_for_member(
-            db=db, user_id=user.id, month_start=month_start
+            db=db, user_id=user.id, org_id=org_id, month_start=month_start
         )
         items.append(
             OrgMemberItem(
@@ -442,14 +472,15 @@ async def _enforce_seat_capacity(
 ) -> None:
     """Refuse if adding ``additions`` more members would exceed the cap.
 
-    Used by both the invite endpoint (counts pending invites toward the
-    cap so an org can't over-invite their seats away) and the direct
-    attach path."""
+    Caller holds the organization row lock. Live pending invitations reserve
+    seats; acceptance exchanges its own reservation for one membership."""
     used = await _seat_used(db, org.id)
     pending_q = await db.execute(
         select(func.count(OrganizationInvite.id)).where(
             OrganizationInvite.organization_id == org.id,
             OrganizationInvite.status == "pending",
+            OrganizationInvite.revoked_at.is_(None),
+            OrganizationInvite.expires_at > datetime.now(timezone.utc),
         )
     )
     pending = pending_q.scalar() or 0
@@ -476,88 +507,20 @@ async def invite_org_member(
     db: AsyncSession = Depends(get_db),
     admin_membership: OrganizationMember = Depends(require_org_admin),
 ):
-    """Invite someone by email.
+    """Reserve a pending invitation, regardless of whether an account exists.
 
-    If a User exists with that email, they're attached as a member
-    immediately. Otherwise we persist a pending ``organization_invites``
-    row + email a signed link.
-
-    The seat cap is enforced before any write — pending invites count
-    toward the cap so an admin can't over-invite their way past the
-    limit. The admin's user_id is stamped as ``invited_by`` so the
-    audit trail survives even if the inviter later leaves the org.
+    Only an authenticated, verified recipient's explicit POST can join.
     """
     email_lower = data.email.lower()
-    org = await db.get(Organization, org_id)
+    org, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     # require_org_admin already 404'd if the org didn't exist, but the
     # name is needed for the email and we still need a defensive guard
     # against a TOCTOU between the dep and this query.
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    # Existing user path — attach immediately.
-    existing_q = await db.execute(select(User).where(func.lower(User.email) == email_lower))
-    existing = existing_q.scalar_one_or_none()
-    if existing is not None:
-        if existing.deleted_at is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="That account has been deleted — they need to re-register.",
-            )
-        # Already in some org?
-        if existing.organization_id is not None and existing.organization_id != org_id:
-            raise HTTPException(
-                status_code=409,
-                detail="That user already belongs to another organization.",
-            )
-        # Already a member of this org?
-        already_q = await db.execute(
-            select(OrganizationMember).where(
-                OrganizationMember.organization_id == org_id,
-                OrganizationMember.user_id == existing.id,
-            )
-        )
-        if already_q.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=409, detail="Already a member of this organization."
-            )
-
-        # Seat cap — direct attach also takes a seat.
-        await _enforce_seat_capacity(db=db, org=org, additions=1)
-
-        member = OrganizationMember(
-            organization_id=org_id,
-            user_id=existing.id,
-            role=data.role,
-            invited_by=admin_membership.user_id,
-        )
-        db.add(member)
-        # Sync the denormalised pointer.
-        existing.organization_id = org_id
-        await record_org_action(
-            db=db,
-            org_id=org_id,
-            actor_user_id=admin_membership.user_id,
-            action="member_added",
-            target_user_id=existing.id,
-            payload={"email": existing.email, "role": data.role},
-        )
-        await db.commit()
-
-        # Best-effort welcome email. The "they're now in the team" email
-        # uses the same invite template — the difference is purely the
-        # link (lands on /login since they have an account).
-        login_url = f"{settings.APP_URL}/login"
-        subject, html, text = render_org_invite(
-            org_name=org.name,
-            inviter_name="",
-            invite_url=login_url,
-            ttl_days=7,
-        )
-        await send_email(to=existing.email, subject=subject, html=html, text=text)
-        return OrgMemberInviteResponse(invited_email=existing.email, status="added")
-
-    # No existing user — write a pending invite row + email the signed
+    # Write a pending invite row + email the signed
     # link. Reject if there's already a live (status=pending) row for
     # this org+email so duplicate /invite clicks don't pile up rows.
     existing_invite_q = await db.execute(
@@ -565,6 +528,8 @@ async def invite_org_member(
             OrganizationInvite.organization_id == org_id,
             func.lower(OrganizationInvite.email) == email_lower,
             OrganizationInvite.status == "pending",
+            OrganizationInvite.revoked_at.is_(None),
+            OrganizationInvite.expires_at > datetime.now(timezone.utc),
         )
     )
     if existing_invite_q.scalar_one_or_none() is not None:
@@ -623,6 +588,21 @@ async def invite_org_member(
     return OrgMemberInviteResponse(invited_email=email_lower, status="invited")
 
 
+@router.post("/{org_id}/invites/accept")
+@limiter.limit("20/hour")
+async def accept_org_invite(
+    request: Request,
+    org_id: str,
+    data: OrgInviteAccept,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Explicit recipient consent; no membership is required before joining."""
+    await accept_invite(db, user_id=current_user.id, org_id=org_id, token=data.token)
+    await db.commit()
+    return {"organization_id": org_id, "status": "accepted"}
+
+
 # ─── Pending invites: list / resend / revoke ──────────────────────────────
 
 
@@ -638,28 +618,16 @@ async def list_org_invites(
     can already see the live member roster but not the pipeline of
     pending ones (intentionally less surface area for a leaver to
     snapshot)."""
-    # Mark expired rows as expired on read so the UI never shows a row
-    # whose token is past its `exp` claim. The route layer is the only
-    # writer for this transition; we don't run a sweep job.
+    # Reads never mutate invitations: a stale GET must not overwrite an
+    # acceptance/revocation committed by another transaction.
     now = datetime.now(timezone.utc)
-    expired_q = await db.execute(
-        select(OrganizationInvite).where(
-            OrganizationInvite.organization_id == org_id,
-            OrganizationInvite.status == "pending",
-            OrganizationInvite.expires_at < now,
-        )
-    )
-    expired_rows = list(expired_q.scalars())
-    for row in expired_rows:
-        row.status = "expired"
-    if expired_rows:
-        await db.commit()
-
     rows_q = await db.execute(
         select(OrganizationInvite)
         .where(
             OrganizationInvite.organization_id == org_id,
             OrganizationInvite.status == "pending",
+            OrganizationInvite.revoked_at.is_(None),
+            OrganizationInvite.expires_at > now,
         )
         .order_by(OrganizationInvite.created_at.desc())
     )
@@ -691,10 +659,13 @@ async def resend_org_invite(
     """Re-mail an existing pending invite. The token is NOT re-issued —
     the URL in the original email keeps working — so the user doesn't
     end up with two competing links."""
-    invite = await db.get(OrganizationInvite, invite_id)
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
+    invite = await db.get(OrganizationInvite, invite_id, populate_existing=True, with_for_update=True)
     if invite is None or invite.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Invite not found")
-    if invite.status != "pending":
+    if (invite.status != "pending" or invite.revoked_at is not None
+            or invite.expires_at <= datetime.now(timezone.utc)):
         raise HTTPException(
             status_code=400, detail=f"Cannot resend a {invite.status} invite"
         )
@@ -741,7 +712,9 @@ async def revoke_org_invite(
     """Revoke a pending invite. Flips status to ``revoked`` and stamps
     ``revoked_at``. The signup flow refuses any token whose backing row
     is not ``pending``, so a stolen link goes dead immediately."""
-    invite = await db.get(OrganizationInvite, invite_id)
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
+    invite = await db.get(OrganizationInvite, invite_id, populate_existing=True, with_for_update=True)
     if invite is None or invite.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Invite not found")
     if invite.status != "pending":
@@ -836,11 +809,13 @@ async def update_org_member_role(
     Refuses to demote the **last** admin so the org never ends up with
     no admins (mirror of the admin router's last-admin guard).
     """
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     mem_q = await db.execute(
         select(OrganizationMember).where(
             OrganizationMember.organization_id == org_id,
             OrganizationMember.user_id == user_id,
-        )
+        ).execution_options(populate_existing=True)
     )
     member = mem_q.scalar_one_or_none()
     if member is None:
@@ -877,7 +852,7 @@ async def update_org_member_role(
     if user is None:
         raise HTTPException(status_code=404, detail="Member user not found")
     sc, ra, rpt = await _usage_for_member(
-        db=db, user_id=user.id, month_start=_month_start_utc()
+        db=db, user_id=user.id, org_id=org_id, month_start=_month_start_utc()
     )
     return OrgMemberItem(
         user_id=user.id,
@@ -905,11 +880,14 @@ async def remove_org_member(
     can't remove themselves either — they have to promote someone else
     first.
     """
+    await lock_user(db, user_id)
+    _, admin_membership = await lock_and_require_org_admin(
+        db=db, org_id=org_id, actor_user_id=admin_membership.user_id)
     mem_q = await db.execute(
         select(OrganizationMember).where(
             OrganizationMember.organization_id == org_id,
             OrganizationMember.user_id == user_id,
-        )
+        ).execution_options(populate_existing=True)
     )
     member = mem_q.scalar_one_or_none()
     if member is None:

@@ -200,7 +200,7 @@ class _TeamDb:
         elif isinstance(obj, OrganizationInvite):
             self.invites = [i for i in self.invites if i.id != obj.id]
 
-    async def get(self, model, pk):
+    async def get(self, model, pk, **kwargs):
         from app.models.organization import Organization
         from app.models.organization_invite import OrganizationInvite
         from app.models.user import User as UserModel
@@ -279,7 +279,7 @@ class _TeamDb:
                 return _rows_result(
                     [m for m in self.memberships if m.user_id == target_user_id]
                 )
-            if "users" in compiled and "join" in compiled:
+            if len(q.column_descriptions) > 1:
                 return _tuples_result(
                     [
                         (m, self.users.get(m.user_id))
@@ -293,6 +293,10 @@ class _TeamDb:
                 [(r, None, None) for r in self.audit_rows]
             )
         if primary is UserModel:
+            user_id = _bind_param(q, "id")
+            if user_id is not None:
+                user = self.users.get(user_id)
+                return _rows_result([user] if user else [])
             for u in self.users.values():
                 if u.email.lower() in compiled or u.id in compiled:
                     return _rows_result([u])
