@@ -1,174 +1,96 @@
-"""Deep readiness probe — ``/api/health/deep``.
-
-Five probes (DB, Redis, Gemini, CrossRef, OpenAlex) run in parallel
-behind a 2s timeout each. We don't reach the real external services in
-unit tests; the contract being pinned is:
-
-- Probe wrapper turns success into ``"ok"`` and exceptions into
-  ``"error: <ExceptionName>"`` — never propagates.
-- Aggregate ``ok`` flag flips False as soon as any probe is non-ok.
-- Non-ok → response.status_code = 503 (so an external uptime monitor
-  pages on the right level).
-- All five probes run concurrently; one slow probe doesn't serialise
-  the others.
-"""
+"""Public deep health checks infrastructure, never external providers."""
 
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
-
-from app.routers.health import (
-    _PROBE_TIMEOUT_S,
-    _probe,
-    deep_health,
-)
-
-
-def _stub_response():
-    return SimpleNamespace(status_code=200)
-
-
-# ─── _probe wrapper contract ───────────────────────────────────────────────
+from app.routers import health
+from fastapi import FastAPI, Response
+from google import genai
 
 
 @pytest.mark.asyncio
 async def test_probe_returns_ok_when_inner_succeeds():
-    async def ok():
-        return None
-
-    assert await _probe("x", ok) == ("x", "ok")
+    assert await health._probe("x", AsyncMock()) == ("x", "ok")
 
 
 @pytest.mark.asyncio
-async def test_probe_surfaces_exception_type_name():
-    async def fail():
-        raise ValueError("nope")
-
-    name, status = await _probe("x", fail)
-    assert name == "x"
-    assert status == "error: ValueError"
+async def test_probe_surfaces_only_exception_type():
+    probe = AsyncMock(side_effect=ValueError("synthetic private detail"))
+    assert await health._probe("x", probe) == ("x", "error: ValueError")
 
 
 @pytest.mark.asyncio
-async def test_probe_handles_timeout():
+async def test_probe_handles_timeout(monkeypatch):
+    monkeypatch.setattr(health, "_PROBE_TIMEOUT_S", 0.01)
+
     async def slow():
-        await asyncio.sleep(_PROBE_TIMEOUT_S + 1.0)
+        await asyncio.sleep(1)
 
-    name, status = await _probe("x", slow)
-    assert name == "x"
-    assert status == "error: TimeoutError"
-
-
-# ─── Aggregate route behaviour ────────────────────────────────────────────
+    assert await health._probe("x", slow) == ("x", "error: TimeoutError")
 
 
 @pytest.mark.asyncio
-async def test_deep_health_all_ok(monkeypatch):
-    """When every probe succeeds, aggregate ok=True and status stays 200."""
-    async def noop(*_a, **_kw):
-        return None
-
-    monkeypatch.setattr("app.routers.health._probe_redis", noop)
-    monkeypatch.setattr("app.routers.health._probe_gemini", noop)
-    monkeypatch.setattr("app.routers.health._probe_crossref", noop)
-    monkeypatch.setattr("app.routers.health._probe_openalex", noop)
-
-    stub_db = AsyncMock()
-    stub_db.execute.return_value = None
-
-    response = _stub_response()
-    out = await deep_health(response=response, db=stub_db)
-
-    assert out["ok"] is True
-    assert response.status_code == 200
-    assert set(out["services"]) == {
-        "database", "redis", "gemini", "crossref", "openalex",
-    }
-    assert all(v == "ok" for v in out["services"].values())
-
-
-@pytest.mark.asyncio
-async def test_deep_health_one_failure_yields_503(monkeypatch):
-    """Any non-ok probe trips the 503 — partial degradation pages oncall."""
-    async def noop(*_a, **_kw):
-        return None
-
-    async def fail():
-        raise RuntimeError("kaboom")
-
-    monkeypatch.setattr("app.routers.health._probe_redis", noop)
-    monkeypatch.setattr("app.routers.health._probe_gemini", fail)
-    monkeypatch.setattr("app.routers.health._probe_crossref", noop)
-    monkeypatch.setattr("app.routers.health._probe_openalex", noop)
-
-    stub_db = AsyncMock()
-    stub_db.execute.return_value = None
-
-    response = _stub_response()
-    out = await deep_health(response=response, db=stub_db)
-
-    assert out["ok"] is False
-    assert response.status_code == 503
-    assert out["services"]["gemini"] == "error: RuntimeError"
-    # The other probes still report ok so an operator can see the
-    # blast radius at a glance instead of a single opaque "degraded".
-    assert out["services"]["database"] == "ok"
-    assert out["services"]["crossref"] == "ok"
-
-
-@pytest.mark.asyncio
-async def test_deep_health_db_failure_marks_503(monkeypatch):
-    """DB is the cheapest probe; if even it's down, definitely 503."""
-    async def noop(*_a, **_kw):
-        return None
-
-    monkeypatch.setattr("app.routers.health._probe_redis", noop)
-    monkeypatch.setattr("app.routers.health._probe_gemini", noop)
-    monkeypatch.setattr("app.routers.health._probe_crossref", noop)
-    monkeypatch.setattr("app.routers.health._probe_openalex", noop)
-
-    failing_db = AsyncMock()
-    failing_db.execute.side_effect = RuntimeError("conn refused")
-
-    response = _stub_response()
-    out = await deep_health(response=response, db=failing_db)
-
-    assert out["ok"] is False
-    assert response.status_code == 503
-    assert out["services"]["database"].startswith("error:")
-
-
-@pytest.mark.asyncio
-async def test_deep_health_probes_run_concurrently(monkeypatch):
-    """Five probes × 1s sleep each should finish under ~1.5s if concurrent,
-    over ~5s if serialised. Wall-clock isn't a great oracle for this but
-    asyncio's primitives make the difference > 2x."""
-    delay = 0.4
-
-    async def slow_probe():
-        await asyncio.sleep(delay)
-
-    monkeypatch.setattr("app.routers.health._probe_redis", slow_probe)
-    monkeypatch.setattr("app.routers.health._probe_gemini", slow_probe)
-    monkeypatch.setattr("app.routers.health._probe_crossref", slow_probe)
-    monkeypatch.setattr("app.routers.health._probe_openalex", slow_probe)
-
-    # DB stub is instant
-    stub_db = AsyncMock()
-    stub_db.execute.return_value = None
-
-    import time
-    response = _stub_response()
-    start = time.perf_counter()
-    out = await deep_health(response=response, db=stub_db)
-    elapsed = time.perf_counter() - start
-
-    assert out["ok"] is True
-    # Concurrent: ~delay; serialised would be ~4*delay. 2× headroom.
-    assert elapsed < delay * 2.0, (
-        f"probes appear serialised: {elapsed:.2f}s for 4 × {delay}s sleeps"
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("failure", [None, "database", "redis"])
+async def test_public_deep_health_never_constructs_or_calls_providers(
+    monkeypatch, configured, failure,
+):
+    # Keep the real HTTP test client before trapping external client constructors.
+    test_client = httpx.AsyncClient
+    provider = Mock(side_effect=AssertionError("external provider constructed"))
+    monkeypatch.setattr(genai, "Client", provider)
+    monkeypatch.setattr(httpx, "AsyncClient", provider)
+    monkeypatch.setattr(httpx, "Client", provider)
+    monkeypatch.setattr(
+        health.settings, "GEMINI_API_KEY", "synthetic-key-not-real" if configured else "",
     )
+    db = AsyncMock()
+    redis = AsyncMock()
+    if failure == "database":
+        db.execute.side_effect = RuntimeError("synthetic private detail")
+    elif failure == "redis":
+        redis.side_effect = RuntimeError("synthetic private detail")
+    monkeypatch.setattr(health, "_probe_redis", redis)
+    app = FastAPI()
+    app.include_router(health.router)
+    app.dependency_overrides[health.get_db] = lambda: db
+    async with test_client(
+        transport=httpx.ASGITransport(app=app), base_url="http://test",
+    ) as client:
+        response = await client.get("/api/health/deep")  # no authentication
+    assert provider.call_count == 0
+    assert response.status_code == (503 if failure else 200)
+    body = response.json()
+    assert body["ok"] is (failure is None)
+    assert body["service"] == "artiproof-api"
+    assert body["services"] == {
+        "database": "error: RuntimeError" if failure == "database" else "ok",
+        "redis": "error: RuntimeError" if failure == "redis" else "ok",
+        "gemini": "disabled: not tested",
+        "crossref": "disabled: not tested",
+        "openalex": "disabled: not tested",
+    }
+    db.execute.assert_awaited_once()
+    redis.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_infrastructure_probes_run_concurrently(monkeypatch):
+    started = set()
+    both_started = asyncio.Event()
+
+    async def probe(name):
+        started.add(name)
+        if len(started) == 2:
+            both_started.set()
+        await asyncio.wait_for(both_started.wait(), timeout=0.2)
+
+    monkeypatch.setattr(health, "_probe_db", lambda _db: probe("database"))
+    monkeypatch.setattr(health, "_probe_redis", lambda: probe("redis"))
+    result = await health.deep_health(response=Response(), db=AsyncMock())
+    assert result["ok"] is True
+    assert started == {"database", "redis"}

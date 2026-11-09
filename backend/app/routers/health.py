@@ -1,22 +1,9 @@
-"""Deep readiness probes — opt-in route for an external uptime monitor.
+"""Public infrastructure readiness; external provider probes are disabled.
 
-``/api/health`` (in ``main.py``) stays shallow: DB + Redis only, because
-local service's readiness gate fires it on every restart and a single slow
-Gemini blip shouldn't flap the API into restart loops.
-
-``/api/health/deep`` is the **opt-in** probe. It hits every external
-dependency in parallel with a tight 2-second timeout each — DB, Redis,
-Gemini, CrossRef, OpenAlex — and surfaces ``503`` if any one fails.
-Used by an external uptime monitor / on-call dashboard. Not in the
-local service probe path.
-
-Each probe is wrapped to convert the result into one of:
-  - ``"ok"`` — succeeded under timeout.
-  - ``"error: <ExceptionName>"`` — failed (timeout, 4xx, network).
-
-The wrapper keeps individual probe failures from poisoning the
-``asyncio.gather`` (we use ``return_exceptions=True``) so the response
-shape stays predictable even when half of the dependencies are down.
+DB and Redis run concurrently under individual two-second deadlines. External
+services are explicitly not tested, even when server credentials are configured.
+An infrastructure-only ``ok`` is not a provider-availability assertion.
+The shallow ``/api/health`` in ``main.py`` remains unchanged.
 """
 
 from __future__ import annotations
@@ -25,7 +12,6 @@ import asyncio
 import logging
 from typing import Any, Callable, Coroutine
 
-import httpx
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,65 +65,22 @@ async def _probe_redis() -> None:
         await r.aclose()
 
 
-async def _probe_gemini() -> None:
-    # Verify the key is set AND a cheap Gemini call succeeds. ``models.list``
-    # is the lightest call the SDK supports — no token cost, no quota burn.
-    # If the key is empty we report "skipped" via the wrapper's exception
-    # path rather than passing silently.
-    if not settings.GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY not set")
-    try:
-        from google import genai  # type: ignore
-
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        # The SDK's list endpoint is sync-only; offload to thread.
-        await asyncio.to_thread(lambda: list(client.models.list()))
-    except ImportError as e:
-        raise RuntimeError(f"google-genai not installed: {e}") from e
-
-
-async def _probe_crossref() -> None:
-    async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_S) as client:
-        resp = await client.get(
-            "https://api.crossref.org/works",
-            params={"rows": 1},
-            headers={"User-Agent": "ArtiProof Health/1.0"},
-        )
-        resp.raise_for_status()
-
-
-async def _probe_openalex() -> None:
-    async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT_S) as client:
-        resp = await client.get(
-            "https://api.openalex.org/works",
-            params={"per_page": 1},
-            headers={"User-Agent": "ArtiProof Health/1.0"},
-        )
-        resp.raise_for_status()
-
-
 # ─── Route ─────────────────────────────────────────────────────────────────
 
 
 @router.get("/deep")
 async def deep_health(response: Response, db: AsyncSession = Depends(get_db)) -> dict:
-    """Run every external probe in parallel; return 503 if any fails.
-
-    Probes run with ``return_exceptions=True`` so a single timeout doesn't
-    short-circuit the whole gather; each probe's status is surfaced in
-    ``services``. The aggregate ``ok`` flag flips to False as soon as any
-    probe reports a non-``"ok"`` string.
-    """
+    """Return 503 for DB/Redis failure; providers remain disabled/not tested."""
     results = await asyncio.gather(
         _probe("database", lambda: _probe_db(db)),
         _probe("redis", _probe_redis),
-        _probe("gemini", _probe_gemini),
-        _probe("crossref", _probe_crossref),
-        _probe("openalex", _probe_openalex),
         return_exceptions=False,  # _probe already swallows
     )
     services: dict[str, str] = dict(results)
     ok = all(status == "ok" for status in services.values())
+    services.update({name: "disabled: not tested" for name in (
+        "gemini", "crossref", "openalex",
+    )})
 
     if not ok:
         response.status_code = 503
