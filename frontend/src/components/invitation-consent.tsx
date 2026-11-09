@@ -79,6 +79,8 @@ export function InvitationConsent({ token }: { token: string }) {
             )}
           </>
         )
+      ) : status === "loading" ? (
+        <p role="status">Checking session…</p>
       ) : (
         <p>Create an account below, or <Link href="/login">sign in</Link> to your existing account. After signing in and verifying your email, reopen this invitation link to review and accept it.</p>
       )}

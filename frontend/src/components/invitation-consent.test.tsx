@@ -70,14 +70,15 @@ it("does not offer acceptance after a failed review", async () => {
   expect(apiFetch).toHaveBeenCalledTimes(1);
 });
 
-it("shows verification errors without claiming success", async () => {
+it.each(["Verify your email before accepting an invitation", "Invitation email does not match your account"])("shows acceptance errors without claiming success (%s)", async (detail) => {
   apiFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ organization_id: "org", name: "Test Lab", role: "member" }) });
-  apiFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ detail: "Verify your email before accepting an invitation" }) });
+  apiFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ detail }) });
   render(<RegisterPage />);
   fireEvent.click(screen.getByRole("button", { name: "Review invitation" }));
   fireEvent.click(await screen.findByRole("button", { name: "Accept invitation and join team" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Verify your email");
+  expect(await screen.findByRole("alert")).toHaveTextContent(detail);
   expect(screen.queryByText(/Invitation accepted/)).not.toBeInTheDocument();
+  expect(update).not.toHaveBeenCalled();
 });
 
 it("keeps registration available and requires sign-in before invitation review", () => {

@@ -169,7 +169,10 @@ function RegisterPageInner() {
     }
   };
 
-  if (inviteToken && sessionStatus === "authenticated") {
+  // NextAuth update() temporarily reports loading. Keep the same consent
+  // instance through that refresh; it still gates actions on authentication.
+  // Actual auth loss returns to signup and discards the prior consent state.
+  if (inviteToken && sessionStatus !== "unauthenticated") {
     return <InvitationConsent key={inviteToken} token={inviteToken} />;
   }
 
