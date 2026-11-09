@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
@@ -20,7 +21,7 @@ const faces = [
   ["jetbrains", "JetBrainsMono.ttf", "JetBrains Mono", "normal", "400 500", "--font-mono"],
 ] as const;
 
-describe("Local font contract", () => {
+describe("BUILD-02 production font contract", () => {
   it("uses only the supported local loader, never Google CSS or remote font sources", () => {
     expect(layout).not.toMatch(/next\/font\/google|fonts\.(googleapis|gstatic)\.com/);
     expect(layout).toContain('import localFont from "next/font/local"');
@@ -29,7 +30,8 @@ describe("Local font contract", () => {
         : /\.(tsx?|css)$/.test(entry.name) ? [path.join(dir, entry.name)] : []);
     for (const file of sourceFiles(path.resolve("src"))) {
       if (file === path.resolve("src/app/font-build.contract.test.ts")) continue;
-      expect(readFileSync(file, "utf8"), file).not.toMatch(/next\/font\/google|https?:\/\/fonts\.(googleapis|gstatic)\.com/);
+      const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      expect(code, file).not.toMatch(/next\/font\/google|https?:\/\/fonts\.(googleapis|gstatic)\.com/);
     }
   });
 
@@ -61,7 +63,7 @@ describe("Local font contract", () => {
     expect(options?.src).toEqual(expect.arrayContaining([{ path: `./fonts/${file}`, weight, style }]));
     const buffer = readFileSync(path.join(app, "fonts", file));
     const font = parseFont(buffer);
-    expect(font.familyName).toBe(family);
+    expect(font.name.records.preferredFamily?.en || font.familyName).toBe(family);
     expect(Boolean(font.italicAngle)).toBe(style === "italic");
     const [min, max] = weight.split(" ").map(Number);
     expect(font.variationAxes.wght.min).toBeLessThanOrEqual(min);
@@ -73,4 +75,56 @@ describe("Local font contract", () => {
     expect(provenance).toContain(createHash("sha256").update(buffer).digest("hex"));
     expect(layout).toContain(`${binding}.variable`);
   });
+
+  // Explicit opt-in: this performs a real production build, not a unit mock.
+  // Run separately from other builds; they all own the same .next directory.
+  it.skipIf(process.env.BUILD02_NETWORK_BUILD !== "1")("builds webpack with Node network permission denied", () => {
+    const env = {
+      ...process.env,
+      NEXT_TELEMETRY_DISABLED: "1",
+      NODE_OPTIONS: "--permission --allow-fs-read=* --allow-fs-write=* --allow-child-process --allow-worker --allow-addons",
+    };
+    // OS socket/DNS operations are denied by Node's real permission system.
+    // No response fixtures, DNS substitution, proxy, or machine-wide changes.
+    const probe = spawnSync(process.execPath, ["-e", `
+      Promise.all(['https://fonts.googleapis.com/css2?family=Inter',
+        'https://fonts.gstatic.com/'].map(async url => {
+        try { await fetch(url); process.exitCode = 1; }
+        catch (error) {
+          if (error.cause?.code !== 'ERR_ACCESS_DENIED') throw error;
+          console.log('ERR_ACCESS_DENIED ' + url);
+        }
+      })).catch(error => { console.error(error); process.exitCode = 1; });
+    `], { env, encoding: "utf8", timeout: 30_000 });
+    console.log(probe.stdout, probe.stderr);
+    expect(probe.status).toBe(0);
+    expect(probe.stdout).toContain("ERR_ACCESS_DENIED https://fonts.googleapis.com");
+    expect(probe.stdout).toContain("ERR_ACCESS_DENIED https://fonts.gstatic.com");
+    const build = spawnSync(process.execPath, ["node_modules/next/dist/bin/next", "build", "--webpack"], {
+      env, encoding: "utf8", timeout: 240_000, maxBuffer: 16 * 1024 * 1024,
+    });
+    console.log(build.stdout, build.stderr);
+    expect(build.error).toBeUndefined();
+    expect(build.status).toBe(0);
+    expect(build.stdout).toContain("Generating static pages");
+    const media = path.resolve(".next/static/media");
+    const emittedHashes = readdirSync(media).filter((file) => file.endsWith(".ttf"))
+      .map((file) => createHash("sha256").update(readFileSync(path.join(media, file))).digest("hex"));
+    for (const [, file] of faces) {
+      expect(emittedHashes).toContain(createHash("sha256")
+        .update(readFileSync(path.join(app, "fonts", file))).digest("hex"));
+    }
+    const cssDir = path.resolve(".next/static/css");
+    const css = readdirSync(cssDir).filter((file) => file.endsWith(".css"))
+      .map((file) => readFileSync(path.join(cssDir, file), "utf8")).join("\n");
+    expect(css).not.toMatch(/https?:\/\/fonts\.(googleapis|gstatic)\.com/);
+    for (const [binding, , , style, weight] of faces) {
+      const face = [...css.matchAll(/@font-face\{([^}]+)\}/g)]
+        .map((match) => match[1]).find((rule) => rule.includes(`font-family:${binding};`)
+          && rule.includes(`font-style:${style}`));
+      expect(face).toContain(`font-weight:${weight}`);
+      expect(face).toContain("font-display:swap");
+      expect(face).toContain("/_next/static/media/");
+    }
+  }, 280_000);
 });
