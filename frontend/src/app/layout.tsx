@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Fraunces, JetBrains_Mono, Newsreader } from "next/font/google";
+import localFont from "next/font/local";
 import { Toaster } from "sonner";
 import "./globals.css";
 import SessionProvider from "@/components/shared/SessionProvider";
@@ -8,41 +8,45 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { ColorModeProvider } from "@/contexts/ColorModeContext";
 import { CookieBanner } from "@/components/cookie-banner";
 
-const inter = Inter({
+const inter = localFont({
+  src: [{ path: "./fonts/Inter.ttf", weight: "100 900", style: "normal" }],
   variable: "--font-sans",
-  subsets: ["latin"],
+  display: "swap",
 });
 
-const fraunces = Fraunces({
+const fraunces = localFont({
+  src: [
+    { path: "./fonts/Fraunces.ttf", weight: "400 800", style: "normal" },
+    { path: "./fonts/Fraunces-Italic.ttf", weight: "400 800", style: "italic" },
+  ],
   variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  style: ["normal", "italic"],
+  display: "swap",
+  adjustFontFallback: "Times New Roman",
 });
 
 /** Newsreader (italic) is the editorial / marginalia voice — softer, more
  *  literary than Fraunces, used for figure captions, footnotes, marginal
  *  annotations, and pull-quotes. The pairing reads as "research paper". */
-const newsreader = Newsreader({
+const newsreader = localFont({
+  src: [{ path: "./fonts/Newsreader-Italic.ttf", weight: "400 500", style: "italic" }],
   variable: "--font-editorial",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  style: ["italic"],
+  display: "swap",
+  adjustFontFallback: "Times New Roman",
 });
 
-const jetbrains = JetBrains_Mono({
+const jetbrains = localFont({
+  src: [{ path: "./fonts/JetBrainsMono.ttf", weight: "400 500", style: "normal" }],
   variable: "--font-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "ArtiProof — Research integrity, automated",
+  title: "ArtiProof — Review showcase",
   description:
     "Review source claims, citation links and AI style estimates. Explore researcher publication metrics in a separate lookup, with findings and coverage for human review.",
   metadataBase: new URL("https://example.invalid"),
   openGraph: {
-    title: "ArtiProof — Research integrity, automated",
+    title: "ArtiProof — Review showcase",
     description:
       "Source claim review, citation checks and separate researcher lookups, with coverage and limitations alongside the findings.",
     url: "https://example.invalid",
@@ -52,14 +56,14 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "ArtiProof — Research integrity, automated",
+    title: "ArtiProof — Review showcase",
     description:
       "Source checks and researcher analysis to support human review.",
   },
   robots: {
-    index: true,
-    follow: true,
-    googleBot: { index: true, follow: true, "max-image-preview": "large" },
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false, "max-image-preview": "large" },
   },
 };
 
@@ -91,6 +95,7 @@ export default function RootLayout({
         >
           Skip to main content
         </a>
+        <aside className="bg-amber-100 px-4 py-2 text-center text-sm text-zinc-900">Source showcase for review — synthetic data only; not the production service.</aside>
         <SessionProvider>
           <ColorModeProvider>
             <ThemeProvider>
