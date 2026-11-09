@@ -56,6 +56,34 @@ describe("CookieBanner", () => {
     expect(stored.marketing).toBe(true);
   });
 
+  it("keeps essentials pinned and saves only explicitly selected preferences", async () => {
+    const user = userEvent.setup();
+    render(<CookieBanner />);
+
+    await user.click(await screen.findByRole("button", { name: "Customise" }));
+    expect(screen.getByRole("checkbox", { name: /^Essential/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /^Essential/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /^Analytics/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /^Marketing/ })).not.toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: /^Analytics/ }));
+    await user.click(screen.getByRole("button", { name: "Save preferences" }));
+
+    expect(getStoredConsent()).toEqual({ essential: true, analytics: true, marketing: false });
+    expect(screen.queryByRole("dialog", { name: /cookies/i })).toBeNull();
+  });
+
+  it("saving unchanged preferences denies optional cookies and stays dismissed on remount", async () => {
+    const user = userEvent.setup();
+    const first = render(<CookieBanner />);
+    await user.click(await screen.findByRole("button", { name: "Customise" }));
+    await user.click(screen.getByRole("button", { name: "Save preferences" }));
+
+    expect(getStoredConsent()).toEqual({ essential: true, analytics: false, marketing: false });
+    first.unmount();
+    render(<CookieBanner />);
+    expect(screen.queryByRole("dialog", { name: /cookies/i })).toBeNull();
+  });
+
   it("honours Global Privacy Control: no banner, auto-deny", () => {
     Object.defineProperty(window.navigator, "globalPrivacyControl", {
       value: true,
