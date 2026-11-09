@@ -65,7 +65,7 @@ jobs:
       RESEND_API_KEY: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -149,7 +149,7 @@ jobs:
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: ci-only-public-test-secret-not-for-production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
