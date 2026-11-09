@@ -206,7 +206,7 @@ export function CookieBanner() {
       role="dialog"
       aria-modal="false"
       aria-labelledby="cookie-banner-title"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-700 bg-zinc-900/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-zinc-900/80"
+      className="fixed inset-x-0 bottom-0 z-50 max-h-[100dvh] overflow-y-auto border-t border-zinc-700 bg-zinc-900/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-zinc-900/80"
     >
       <div className="mx-auto flex max-w-5xl flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex-1">
@@ -216,7 +216,7 @@ export function CookieBanner() {
           >
             Cookies
           </h2>
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-xs text-zinc-300">
             We use a small set of essential cookies to keep you signed in.
             Analytics and marketing cookies are off by default. See our{" "}
             <Link
@@ -328,7 +328,7 @@ function ConsentRow({
       />
       <span>
         <span className="font-medium text-white">{label}</span>
-        <span className="ml-1 text-zinc-500">— {description}</span>
+        <span className="ml-1 text-zinc-400">— {description}</span>
       </span>
     </label>
   );
