@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { StrictMode, useEffect, useLayoutEffect } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SessionProvider, useSession } from "next-auth/react";
@@ -144,10 +144,13 @@ it.each(["preview", "accept", "refresh", "old-account-refresh"])("ignores A's de
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
-it.each([false, true])("retains same-account state through installed update loading (retry: %s)", async (fails) => {
+it.each([
+  { fails: false, strict: false }, { fails: true, strict: false },
+  { fails: false, strict: true }, { fails: true, strict: true },
+])("retains same-account state through installed update loading (retry: $fails, StrictMode: $strict)", async ({ fails, strict }) => {
   const pending = deferred<Response>();
   refresh = () => pending.promise;
-  render(tree());
+  render(strict ? <StrictMode>{tree()}</StrictMode> : tree());
   await accept();
   await screen.findByText("Checking session…");
   expect(screen.getByTestId("session")).toHaveTextContent("loading:A:personal");
@@ -224,4 +227,86 @@ it("does not expose consent actions during initial SessionProvider loading", asy
   await act(async () => { pending.resolve(response(account("A"))); });
   freshConsent();
   expect(calls("/api/organizations/invites/preview")).toHaveLength(0);
+});
+
+it.each([
+  { strict: false, phase: "accept" }, { strict: true, phase: "accept" },
+  { strict: false, phase: "preview" }, { strict: true, phase: "preview" },
+])("ignores A's $phase released during B commit (StrictMode: $strict)", async ({ strict, phase }) => {
+  const pending = deferred<Response>();
+  const committed = deferred<void>();
+  const passive = deferred<void>();
+  const events: string[] = [];
+  if (phase === "accept") enrollment = () => pending.promise;
+  else preview = () => pending.promise;
+  function CommitProbe() {
+    const { data } = useSession();
+    const id = data?.user.id;
+    useLayoutEffect(() => {
+      if (id === "B") {
+        events.push("B layout: release A result");
+        pending.resolve(response(phase === "accept" ? { status: "accepted" }
+          : { organization_id: "org", name: "Test Lab", role: "member" }));
+        committed.resolve();
+      }
+    }, [id]);
+    useEffect(() => {
+      if (id === "B") {
+        events.push("B passive");
+        passive.resolve();
+      }
+    }, [id]);
+    return null;
+  }
+  const original = http.getMockImplementation()!;
+  http.mockImplementation((url: string, options?: RequestInit) => {
+    const path = new URL(url, "http://localhost").pathname;
+    if (path === "/api/auth/csrf" || (path === "/api/auth/session" && options?.method === "POST")) {
+      events.push(`${options?.method ?? "GET"} ${path}`);
+    }
+    return original(url, options);
+  });
+  const content = <SessionProvider session={account("A")} refetchOnWindowFocus={false}>
+    <RegisterPage /><SessionProbe /><CommitProbe />
+  </SessionProvider>;
+  render(strict ? <StrictMode>{content}</StrictMode> : content);
+  if (phase === "accept") await accept();
+  else fireEvent.click(screen.getByRole("button", { name: "Review invitation" }));
+  await waitFor(() => expect(calls(phase === "accept"
+    ? "/api/organizations/org/invites/accept" : "/api/organizations/invites/preview")).toHaveLength(1));
+
+  // Deliberately let the installed React scheduler commit B OUTSIDE act.
+  // Awaited act/waitFor would flush A's passive cleanup before Promise work,
+  // concealing the reviewed commit-to-passive window. No React hooks are mocked.
+  const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const wasActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT;
+  environment.IS_REACT_ACT_ENVIRONMENT = false;
+  try {
+    serverSession = account("B");
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "nextauth.message",
+      newValue: JSON.stringify({ event: "session", data: { trigger: "getSession" }, timestamp: Date.now() }),
+    }));
+    await committed.promise;
+    await passive.promise;
+    // Drain already-enqueued continuation work without forcing a React flush.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    environment.IS_REACT_ACT_ENVIRONMENT = wasActEnvironment;
+  }
+  expect(events, "no NEW update/CSRF/session POST may occur after B's commit").toEqual([
+    "B layout: release A result", "B passive",
+  ]);
+  expect(calls("/api/auth/csrf", "GET")).toHaveLength(0);
+  expect(calls("/api/auth/session")).toHaveLength(0);
+  freshConsent();
+});
+
+it.each([42, true, {}, [], null, undefined, ""])("fails closed for runtime invalid/empty identity %j", (id) => {
+  const malformed = { ...account("A"), user: { id, role: "researcher" } } as Session;
+  render(tree(malformed));
+  expect(screen.queryByRole("button", { name: "Review invitation" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Continue to team" })).not.toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("Could not identify your account");
+  expect(http).not.toHaveBeenCalled();
 });
