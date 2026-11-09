@@ -2582,12 +2582,8 @@ function ConnectedAccountsSection() {
                     Disconnect
                   </Button>
                 ) : (
-                  // TODO: wire client-side Google Identity Services to obtain
-                  // an id_token and POST /api/auth/me/connections/google.
-                  // Until then the simplest path is to instruct the user to
-                  // sign in with Google from a fresh session.
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Sign out and sign in with Google to link.
+                    Google linking is not available in this screen yet. Keep using your existing sign-in method.
                   </span>
                 )}
               </li>

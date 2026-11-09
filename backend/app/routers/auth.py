@@ -8,10 +8,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from passlib.hash import bcrypt
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -348,69 +350,81 @@ async def refresh_token(
     return TokenResponse(access_token=token, user=_user_to_response(current_user))
 
 
-@router.post("/google", response_model=TokenResponse)
-@limiter.limit("10/minute")
-async def google_login(request: Request, data: GoogleLogin, db: AsyncSession = Depends(get_db)):
-    """Verify a Google ID token, then create or return the matching platform user."""
+def _google_identity(token: str) -> dict:
+    """Verify signature, issuer, audience and expiry with Google's library."""
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google sign-in is not configured")
-
     try:
         id_info = google_id_token.verify_oauth2_token(
-            data.id_token,
+            token,
             google_requests.Request(),
             settings.GOOGLE_CLIENT_ID,
         )
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid Google token")
+    except google_auth_exceptions.TransportError:
+        raise HTTPException(status_code=503, detail="Google verification unavailable") from None
+    except (ValueError, google_auth_exceptions.GoogleAuthError):
+        raise HTTPException(status_code=401, detail="Invalid Google token") from None
+    except Exception:
+        # SDK/network exceptions can contain tokens or request URLs. Never echo.
+        raise HTTPException(status_code=503, detail="Google verification unavailable") from None
 
     email = id_info.get("email")
-    email_verified = id_info.get("email_verified")
-    if not email or email_verified is not True:
-        raise HTTPException(status_code=401, detail="Google email is not verified")
+    sub = id_info.get("sub")
+    if (not isinstance(email, str) or not email or id_info.get("email_verified") is not True
+            or not isinstance(sub, str) or not sub or len(sub) > 255):
+        raise HTTPException(status_code=401, detail="Google identity is incomplete or unverified")
+    return id_info
 
-    google_sub = id_info.get("sub")
-    result = await db.execute(select(User).where(User.email == email))
+
+async def _lock_google_identities(db: AsyncSession):
+    # JSON currently has no unique provider-sub constraint. Serialize Google
+    # create/link/unlink transactions across API processes, not just this worker.
+    # This lock is transaction-scoped and released on commit/rollback.
+    await db.execute(text("SELECT pg_advisory_xact_lock(6733904952)"))
+
+
+@router.post("/google", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def google_login(request: Request, data: GoogleLogin, db: AsyncSession = Depends(get_db)):
+    """Sign in by immutable subject; never silently link an email collision."""
+    id_info = _google_identity(data.id_token)
+    email, google_sub = id_info['email'], id_info['sub']
+    await _lock_google_identities(db)
+    result = await db.execute(select(User).where(
+        User.linked_providers['google']['sub'].as_string() == google_sub))
     user = result.scalar_one_or_none()
-
+    # Also fail closed on legacy ambiguous/mismatched records (no replacement).
+    if user and (user.linked_providers or {}).get('google', {}).get('sub') != google_sub:
+        raise HTTPException(status_code=409, detail="Use your existing sign-in method; Google requires explicit authenticated linking")
     if not user:
+        existing = await db.execute(select(User).where(func.lower(User.email) == email.lower()).limit(1))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Use your existing sign-in method; Google requires explicit authenticated linking")
         user = User(
             id=str(uuid.uuid4()),
             email=email,
             hashed_password=None,
             full_name=id_info.get("name") or email.split("@", 1)[0],
             role="researcher",
+            email_verified_at=datetime.now(timezone.utc),
+            linked_providers={'google': {'sub': google_sub, 'email': email,
+                                        'linked_at': datetime.now(timezone.utc).isoformat()}},
             updated_at=datetime.now(timezone.utc),
         )
         db.add(user)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="Account already exists; sign in again") from None
         await db.refresh(user)
 
-    # Record / refresh the linked provider so the Settings UI can show "linked".
-    if google_sub:
-        linked = dict(user.linked_providers or {})
-        linked["google"] = {
-            "sub": google_sub,
-            "email": email,
-            "linked_at": (linked.get("google") or {}).get("linked_at")
-            or datetime.now(timezone.utc).isoformat(),
-        }
-        user.linked_providers = linked
-        await db.commit()
-
+    if user.deleted_at is not None or user.deactivated_at is not None:
+        raise HTTPException(status_code=403, detail="Account is not active")
     if user.totp_enabled:
-        from app.models.auth_token import AuthToken
-        from datetime import timedelta as _td
-
-        challenge = AuthToken(
-            user_id=user.id,
-            kind="2fa_challenge",
-            expires_at=datetime.now(timezone.utc) + _td(minutes=10),
-        )
-        db.add(challenge)
-        await db.commit()
-        await db.refresh(challenge)
-        return LoginChallengeResponse(challenge_token=challenge.id)
+        # NextAuth's OAuth callback cannot complete the credentials TOTP flow.
+        # Never mint a half-authenticated session or bypass the second factor.
+        raise HTTPException(status_code=403, detail="Use password sign-in with your second factor; Google TOTP sign-in is not supported")
 
     token, _ = await issue_login_token(db, user, request)
     return TokenResponse(access_token=token, user=_user_to_response(user))
@@ -892,23 +906,26 @@ async def link_google_account(
     """Link the current user to a Google identity. Verifies the ID token
     against GOOGLE_CLIENT_ID. Refuses if the Google account is already
     linked to a different ArtiProof user."""
-    if not settings.GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
-    try:
-        id_info = google_id_token.verify_oauth2_token(
-            data.id_token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
-        )
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid Google token")
+    id_info = _google_identity(data.id_token)
 
     google_sub = id_info.get("sub")
     google_email = id_info.get("email")
     if not google_sub:
         raise HTTPException(status_code=400, detail="Google token missing 'sub' claim")
 
-    # Check no other user already has this google sub linked.
+    await _lock_google_identities(db)
+    await db.refresh(current_user)
+    if current_user.deleted_at is not None or current_user.deactivated_at is not None:
+        raise HTTPException(status_code=403, detail="Account is not active")
+    if google_email.lower() != current_user.email.lower():
+        raise HTTPException(status_code=409, detail="Google email must match this account")
+    previous = (current_user.linked_providers or {}).get('google')
+    if previous and previous.get('sub') != google_sub:
+        raise HTTPException(status_code=409, detail="Unlink the existing Google identity first")
+    # Check no other user already has this Google subject, including inactive users.
     other_q = await db.execute(
-        select(User).where(User.id != current_user.id)
+        select(User).where(User.id != current_user.id,
+                           User.linked_providers['google']['sub'].as_string() == google_sub)
     )
     for u in other_q.scalars().all():
         existing = (u.linked_providers or {}).get("google") if u.linked_providers else None
@@ -925,6 +942,7 @@ async def link_google_account(
         "linked_at": datetime.now(timezone.utc).isoformat(),
     }
     current_user.linked_providers = linked
+    current_user.email_verified_at = current_user.email_verified_at or datetime.now(timezone.utc)
     current_user.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
@@ -947,6 +965,8 @@ async def unlink_connection(
     if provider != "google":
         raise HTTPException(status_code=404, detail="Unknown provider")
 
+    await _lock_google_identities(db)
+    await db.refresh(current_user)
     linked = dict(current_user.linked_providers or {})
     if "google" not in linked:
         raise HTTPException(status_code=404, detail="Google is not linked")

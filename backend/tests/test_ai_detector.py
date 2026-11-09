@@ -78,6 +78,20 @@ class TestHeuristicDetection:
 
 class TestDetectAIContent:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize('payload', ['[]', '[null]', '[{"index": -1, "ai_probability": 1}]',
+                                         '[{"index": 0, "ai_probability": "NaN"}]'])
+    async def test_missing_or_invalid_model_rows_are_not_invented_assessments(self, monkeypatch, payload):
+        from unittest.mock import AsyncMock
+        monkeypatch.setattr(ai_detector.settings, 'GEMINI_API_KEY', 'synthetic-only')
+        monkeypatch.setattr(ai_detector, '_call_gemini', AsyncMock(return_value=payload))
+        warnings = []
+        result = await ai_detector.detect_ai_content('Synthetic paragraph long enough to pass the filter. ' * 5,
+                                                     warnings=warnings)
+        assert len(result) == 1
+        assert result[0]['detection_method'] == 'heuristic-fallback'
+        assert any(w['type'] == 'fallback_heuristic' for w in warnings)
+
+    @pytest.mark.asyncio
     async def test_empty_text_returns_empty_list(self):
         out = await ai_detector.detect_ai_content("")
         assert out == []

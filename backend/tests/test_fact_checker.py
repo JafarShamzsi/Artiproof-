@@ -68,3 +68,20 @@ async def test_non_string_model_verdict_abstains(monkeypatch):
     result = await fc.verify_claim("A submitted claim")
     assert result["verdict"] == "unverified"
     assert result["confidence"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('generated_sources', [[], [{'name': 'Invented', 'url': 'https://example.com/model-only'}]])
+async def test_model_only_verdict_remains_advisory(monkeypatch, generated_sources):
+    monkeypatch.setattr(fc.settings, 'GEMINI_API_KEY', 'synthetic-only')
+    monkeypatch.setattr(fc, 'check_with_google_factcheck', AsyncMock(return_value=[]))
+    monkeypatch.setattr(fc, '_call_gemini_verify', AsyncMock(return_value=json.dumps({
+        'verdict': 'true', 'confidence': 1, 'explanation': 'Synthetic model opinion',
+        'sources': generated_sources, 'true_version': 'Synthetic correction',
+    })))
+    result = await fc.verify_claim('Synthetic claim')
+    assert result['verdict'] == 'unverified'
+    assert result['confidence'] == 0
+    assert result['sources'] == []
+    assert result['true_version'] is None
+    assert 'advisory' in result['explanation'].lower()

@@ -162,6 +162,7 @@ export const authOptions: NextAuthOptions = {
           GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID!,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+            checks: ["pkce", "state", "nonce"],
           }),
         ]
       : []),
@@ -177,6 +178,38 @@ export const authOptions: NextAuthOptions = {
           return { ...token, accountRefreshError: "ACCOUNT_REFRESH_FAILED" };
         }
       }
+      if (account?.provider === "google") {
+        try {
+          if (!account.id_token) throw new Error();
+          const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id_token: account.id_token }),
+            cache: "no-store",
+          });
+          if (!res.ok) throw new Error();
+          const data = (await res.json()) as BackendTokenResponse;
+          if (typeof data?.access_token !== "string" || !data.access_token
+              || typeof data.user?.id !== "string" || !data.user.id
+              || typeof data.user.email !== "string" || !data.user.email
+              || typeof data.user.full_name !== "string"
+              || !["researcher", "faculty", "admin"].includes(data.user.role)
+              || !["free", "pro", "team"].includes(data.user.tier)
+              || !(data.user.institution === null || typeof data.user.institution === "string")
+              || !(data.user.organization_id === null || typeof data.user.organization_id === "string")) {
+            throw new Error();
+          }
+          // No partial mutation, Google subject masquerading as platform ID,
+          // or second-factor challenge masquerading as an authenticated session.
+          return { ...token, id: data.user.id, name: data.user.full_name,
+            email: data.user.email, role: data.user.role,
+            institution: data.user.institution, tier: data.user.tier,
+            organizationId: data.user.organization_id, accessToken: data.access_token };
+        } catch {
+          // Never leak provider payloads, ID tokens or transport errors to logs/UI.
+          throw new Error("Google sign-in failed");
+        }
+      }
       if (user) {
         token.id = user.id as string;
         token.role = (user as { role?: string }).role || "researcher";
@@ -187,25 +220,6 @@ export const authOptions: NextAuthOptions = {
         token.accessToken = (user as { accessToken?: string }).accessToken;
       }
 
-      if (account?.provider === "google" && account.id_token) {
-        const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id_token: account.id_token }),
-        });
-
-        if (!res.ok) {
-          throw new Error("Google sign-in failed");
-        }
-
-        const data = (await res.json()) as BackendTokenResponse;
-        token.id = data.user.id;
-        token.role = data.user.role || "researcher";
-        token.institution = data.user.institution ?? null;
-        token.tier = data.user.tier ?? "free";
-        token.organizationId = data.user.organization_id ?? null;
-        token.accessToken = data.access_token;
-      }
       return token;
     },
     async session({ session, token }) {

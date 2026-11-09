@@ -11,7 +11,7 @@ import logging
 from typing import Optional
 
 from app.config import settings
-from app.services.llm.base import LLMProvider, LLMResponse
+from app.services.llm.base import LLMProvider, LLMProviderError, LLMResponse
 from app.services.llm.factory import register_provider
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,10 @@ class GeminiProvider(LLMProvider):
         max_output_tokens: int = 4096,
         model: Optional[str] = None,
     ) -> LLMResponse:
-        client = _gemini_client()
+        try:
+            client = _gemini_client()
+        except Exception as exc:
+            raise LLMProviderError(f"Gemini initialization failed ({type(exc).__name__})") from None
         if client is None:
             # Unreachable in practice — the factory guards with
             # is_configured() before calling — but we keep the safety
@@ -54,14 +57,19 @@ class GeminiProvider(LLMProvider):
         from google.genai import types  # local import — keep startup light
 
         effective_model = model or self.default_model
-        response = await client.aio.models.generate_content(
-            model=effective_model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=max_output_tokens,
-            ),
-        )
+        try:
+            response = await client.aio.models.generate_content(
+                model=effective_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=temperature,
+                    max_output_tokens=max_output_tokens,
+                ),
+            )
+        except Exception as exc:
+            # Downstream engines may log exception chains. SDK messages can
+            # contain request URLs/keys; preserve only the nonsecret class name.
+            raise LLMProviderError(f"Gemini request failed ({type(exc).__name__})") from None
         usage = getattr(response, "usage_metadata", None)
         return LLMResponse(
             text=(response.text or "").strip(),
@@ -83,8 +91,13 @@ def _gemini_client():
     global _client
     if _client is None and settings.GEMINI_API_KEY:
         from google import genai
+        from google.genai import types
 
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        _client = genai.Client(
+            api_key=settings.GEMINI_API_KEY, vertexai=False,
+            http_options=types.HttpOptions(timeout=20000,
+                                          retry_options=types.HttpRetryOptions(attempts=1)),
+        )
     return _client
 
 

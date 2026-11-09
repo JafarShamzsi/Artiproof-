@@ -197,32 +197,15 @@ async def verify_claim(claim_text: str, article_context: str = "") -> dict:
             "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results],
         }
 
-    sources = result.get("sources", [])
-    if isinstance(sources, list):
-        normalized = []
-        for s in sources:
-            if isinstance(s, str):
-                normalized.append({"name": s, "url": ""})
-            elif isinstance(s, dict):
-                normalized.append(s)
-        sources = normalized
-    else:
-        sources = []
-    for r in factcheck_results:
-        sources.append({"name": r["publisher"], "url": r["url"]})
-
-    valid_verdicts = {"true", "false", "misleading", "unverified", "partially_true"}
-    verdict = result.get("verdict", "unverified")
-    if not isinstance(verdict, str) or verdict not in valid_verdicts:
-        verdict = "unverified"
-        confidence = 0.0
-
+    # Generated verdicts, confidence and URLs are not retrieved evidence. Even
+    # FactCheck search results concern *similar* claims, not a validated match.
+    # Preserve suggestions as advisory prose without unlocking a credibility score.
     return {
-        "verdict": verdict,
-        "confidence": max(0.0, min(1.0, confidence)),
-        "explanation": str(result.get("explanation", "Analysis completed.")),
-        "true_version": result.get("true_version"),
-        "sources": sources[:10],
+        "verdict": "unverified",
+        "confidence": 0.0,
+        "explanation": "Advisory model analysis; not verified evidence. " + str(result.get("explanation", "Manual review required.")),
+        "true_version": None,
+        "sources": [{"name": r["publisher"], "url": r["url"]} for r in factcheck_results][:10],
     }
 
 

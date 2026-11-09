@@ -4,6 +4,7 @@ AI content detector — analyzes each paragraph for probability of being AI-gene
 
 import json
 import logging
+import math
 import re
 from typing import Optional
 
@@ -114,29 +115,40 @@ async def detect_ai_content(text: str, warnings: Optional[list] = None) -> list[
             warnings.append({"type": "invalid_json", "module": "ai_detector"})
         return _heuristic_detection(capped)
 
-    if not isinstance(results_raw, list):
-        return _heuristic_detection(capped)
-
     results = []
-    for item in results_raw:
-        idx = item.get("index", 0)
-        if idx < len(capped):
+    try:
+        if not isinstance(results_raw, list):
+            raise ValueError
+        seen = set()
+        for item in results_raw:
+            if not isinstance(item, dict):
+                raise ValueError
+            idx = item.get('index')
+            probability = item.get('ai_probability')
+            if (type(idx) is not int or not 0 <= idx < len(capped) or idx in seen
+                    or type(probability) not in (float, int) or not math.isfinite(probability)
+                    or not 0 <= probability <= 1):
+                raise ValueError
+            seen.add(idx)
             results.append({
                 "paragraph_index": idx,
                 "paragraph_text": capped[idx],
-                "ai_probability": max(0.0, min(1.0, float(item.get("ai_probability", 0.5)))),
+                "ai_probability": float(probability),
                 "detection_method": "gemini-analysis",
             })
+    except (TypeError, ValueError):
+        if warnings is not None:
+            warnings.append({'type': 'fallback_heuristic', 'module': 'ai_detector',
+                             'reason': 'invalid_model_rows'})
+        return _heuristic_detection(capped)
 
     covered = {r["paragraph_index"] for r in results}
-    for i, p in enumerate(capped):
+    if len(covered) != len(capped) and warnings is not None:
+        warnings.append({'type': 'fallback_heuristic', 'module': 'ai_detector',
+                         'reason': 'missing_model_rows'})
+    for i, fallback in enumerate(_heuristic_detection(capped)):
         if i not in covered:
-            results.append({
-                "paragraph_index": i,
-                "paragraph_text": p,
-                "ai_probability": 0.5,
-                "detection_method": "gemini-analysis",
-            })
+            results.append(fallback)
 
     results.sort(key=lambda r: r["paragraph_index"])
     return results

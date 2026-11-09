@@ -24,7 +24,11 @@ def _gemini_client() -> "genai.Client | None":
     """Lazy module-level singleton — one Client per process, not per call."""
     global _client
     if _client is None and settings.GEMINI_API_KEY:
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        _client = genai.Client(
+            api_key=settings.GEMINI_API_KEY, vertexai=False,
+            http_options=types.HttpOptions(timeout=20000,
+                                          retry_options=types.HttpRetryOptions(attempts=1)),
+        )
     return _client
 
 
@@ -45,11 +49,10 @@ async def _suggest_alternative_via_gemini(citation_text: str, issue: str) -> str
     if not settings.GEMINI_API_KEY or not citation_text:
         return None
 
-    client = _gemini_client()
-    if client is None:
-        return None
-
     try:
+        client = _gemini_client()
+        if client is None:
+            return None
         response = await client.aio.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=_SUGGEST_ALTERNATIVE_PROMPT.format(
@@ -67,8 +70,8 @@ async def _suggest_alternative_via_gemini(citation_text: str, issue: str) -> str
         if text.startswith(("\"", "'")) and text.endswith(("\"", "'")):
             text = text[1:-1].strip()
         return text[:240] or None
-    except Exception:
-        logger.debug("Alternative-citation suggestion failed", exc_info=True)
+    except Exception as exc:
+        logger.debug("Alternative-citation suggestion failed: %s", type(exc).__name__)
         return None
 
 # Known high-credibility domains

@@ -144,7 +144,8 @@ async def _generate(prompt: str) -> str:
         # An empty string here means GEMINI_API_KEY was unset or the
         # API returned no text — both surface as the same operator-facing
         # message rather than the empty narrative.
-        return text or "Report narrative unavailable — AI service not configured."
-    except Exception:
-        logger.exception("Narrative generation failed")
+        return ("Advisory AI-generated summary; not verified evidence.\n\n" + text
+                if text else "Report narrative unavailable — AI service returned no text.")
+    except Exception as exc:
+        logger.error("Narrative generation failed: %s", type(exc).__name__)
         return "Report narrative generation encountered an error."

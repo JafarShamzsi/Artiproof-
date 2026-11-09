@@ -104,6 +104,8 @@ PROVIDER_PRICING: dict[str, dict[str, dict[str, float]]] = {
     "gemini": {
         # Source: ai.google.dev/pricing
         "gemini-2.0-flash": {"input_per_1m": 0.10, "output_per_1m": 0.40},
+        # Standard text-only rate, verified 2026-11-09; not a billing entitlement.
+        "gemini-2.5-flash-lite": {"input_per_1m": 0.10, "output_per_1m": 0.40},
         "gemini-2.0-flash-lite": {"input_per_1m": 0.075, "output_per_1m": 0.30},
         "gemini-1.5-flash": {"input_per_1m": 0.075, "output_per_1m": 0.30},
         "gemini-1.5-flash-8b": {"input_per_1m": 0.0375, "output_per_1m": 0.15},
