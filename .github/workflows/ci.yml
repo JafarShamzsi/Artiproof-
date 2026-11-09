@@ -133,7 +133,7 @@ jobs:
 
       - name: Backend failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: backend/test-results/
@@ -210,7 +210,7 @@ jobs:
 
       - name: Frontend failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
