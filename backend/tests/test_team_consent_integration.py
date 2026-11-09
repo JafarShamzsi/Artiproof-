@@ -26,10 +26,13 @@ from app.models.source_check import SourceCheck
 from app.models.user import User
 from app.routers.analytics import get_team_activity
 from app.routers.organizations import _usage_for_member
-from app.services.team_invites import accept_invite, lock_org
+from app.services.team_invites import accept_invite, lock_org, lock_user
 from app.utils.auth import create_invite_token
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+
+# Shared by both parametrized invite races and a default-suite schema check.
+INVITE_RACE_EMAIL = "consent-race-new@example.com"
 
 
 @pytest.fixture
@@ -39,7 +42,11 @@ async def team_database():
         pytest.skip("Set ARTIPROOF_INTEGRATION_DATABASE_URL to a dedicated migrated PostgreSQL database")
     if not url.startswith("postgresql+asyncpg://"):
         pytest.fail("Consent tests require PostgreSQL via asyncpg; no SQLite substitution")
-    engine = create_async_engine(url, poolclass=NullPool, isolation_level="READ COMMITTED")
+    engine = create_async_engine(url, poolclass=NullPool, isolation_level="READ COMMITTED",
+                                 connect_args={"server_settings": {
+                                     "lock_timeout": "10000", "statement_timeout": "15000",
+                                     "idle_in_transaction_session_timeout": "20000",
+                                 }})
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     users = [str(uuid.uuid4()) for _ in range(4)]
     orgs = [str(uuid.uuid4()) for _ in range(2)]
@@ -107,6 +114,20 @@ async def wait_for_block(observer, task, waiter_pid, blocker_pid=None):
                 pytest.fail("Operation completed without the expected PostgreSQL lock wait")
 
 
+async def cancel_tasks(tasks):
+    """Bounded teardown even when a regression leaves SQL waiting on a lock."""
+    if not tasks:
+        return
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    done, pending_tasks = await asyncio.wait(tasks, timeout=5)
+    for task in done:
+        if not task.cancelled():
+            task.exception()  # consume failures without replacing the test's error
+    assert not pending_tasks, "Race task did not terminate within cancellation budget"
+
+
 async def contended_accepts(sessions, locked_org_id, cases):
     tasks = []
     pids = asyncio.Queue()
@@ -133,10 +154,7 @@ async def contended_accepts(sessions, locked_org_id, cases):
             await blocker.commit()
             return await asyncio.wait_for(asyncio.gather(*tasks), timeout=10)
     finally:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await cancel_tasks(tasks)
 
 
 async def test_concurrent_last_seat_is_never_oversubscribed(team_database):
@@ -205,9 +223,7 @@ async def test_revocation_committed_before_accept_lock_prevents_join(team_databa
             await revoker.commit()
             assert await asyncio.wait_for(task, timeout=10) == 400
         finally:
-            if not task.done():
-                task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            await cancel_tasks([task])
 
 
 @pytest.mark.parametrize("defect", ["wrong_user", "wrong_org", "expired", "revoked", "missing", "role", "unverified", "other_org"])
@@ -378,7 +394,7 @@ async def test_http_actor_reauthorized_after_observed_lock_wait(team_database, c
         return cached
     app.dependency_overrides[require_org_admin] = early_dependency
     paths = {
-        "invite": ("POST", f"/api/organizations/{orgs[0]}/members/invite", {"email": "new@integration.invalid"}),
+        "invite": ("POST", f"/api/organizations/{orgs[0]}/members/invite", {"email": INVITE_RACE_EMAIL}),
         "resend": ("POST", f"/api/organizations/{orgs[0]}/invites/{invite_id}/resend", None),
         "revoke": ("DELETE", f"/api/organizations/{orgs[0]}/invites/{invite_id}", None),
         "role": ("PATCH", f"/api/organizations/{orgs[0]}/members/{users[2]}", {"role": "admin"}),
@@ -389,7 +405,7 @@ async def test_http_actor_reauthorized_after_observed_lock_wait(team_database, c
         async with sessions() as blocker:
             # Removal uses user -> org ordering in production; acquiring the
             # actor user first here respects that order too.
-            await blocker.get(User, users[0], with_for_update=True)
+            await lock_user(blocker, users[0])
             await lock_org(blocker, orgs[0])
             blocker_pid = await blocker.scalar(sa.text("SELECT pg_backend_pid()"))
             task = asyncio.create_task(client.request(method, path, json=body, headers=bearer(users[0])))
@@ -411,9 +427,7 @@ async def test_http_actor_reauthorized_after_observed_lock_wait(team_database, c
                     response = await task
                 assert response.status_code == 403, response.text
             finally:
-                if not task.done():
-                    task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+                await cancel_tasks([task])
     async with sessions() as db:
         assert await db.scalar(sa.select(sa.func.count()).select_from(OrganizationInvite).where(
             OrganizationInvite.organization_id == orgs[0])) == 1
@@ -463,3 +477,138 @@ async def test_http_creation_requires_matching_membership(team_database, consent
             assert await db.scalar(sa.select(sa.func.count()).select_from(SourceCheck).where(SourceCheck.user_id == users[2])) == 1
             assert await db.scalar(sa.select(sa.func.count()).select_from(ResearcherProfile).where(ResearcherProfile.user_id == users[2])) == 0
             assert (await db.get(SourceCheck, original_id)).organization_id is None
+
+
+@pytest.mark.parametrize("parent", ["user", "organization"])
+async def test_parent_lock_allows_real_audit_fk_but_serializes_other_writers(team_database, parent):
+    """Test both halves: FK compatibility must not weaken writer exclusion."""
+    from app.services.org_audit import record_org_action
+    sessions, users, orgs = team_database
+    helper, row_id = (lock_user, users[2]) if parent == "user" else (lock_org, orgs[0])
+    tasks = []
+    async with sessions() as holder, sessions() as observer:
+        await helper(holder, row_id)
+        holder_pid = await holder.scalar(sa.text("SELECT pg_backend_pid()"))
+        async def insert_fk():
+            async with sessions() as db:
+                await record_org_action(db=db, org_id=orgs[0], actor_user_id=users[2],
+                                        target_user_id=users[2], action="org_settings_changed",
+                                        payload={"synthetic_lock_probe": True})
+                await db.commit()
+        writer = asyncio.create_task(insert_fk())
+        tasks.append(writer)
+        try:
+            # Complete a real FK insert while the parent's explicit lock is
+            # still held. A FOR UPDATE parent incorrectly blocks this insert.
+            await asyncio.wait_for(asyncio.shield(writer), timeout=5)
+            pids = asyncio.Queue()
+            async def competing_writer():
+                async with sessions() as db:
+                    await pids.put(await db.scalar(sa.text("SELECT pg_backend_pid()")))
+                    await helper(db, row_id)
+                    await db.commit()
+            waiter = asyncio.create_task(competing_writer())
+            tasks.append(waiter)
+            waiter_pid = await asyncio.wait_for(pids.get(), timeout=5)
+            await wait_for_block(observer, waiter, waiter_pid, holder_pid)
+            await holder.commit()
+            await asyncio.wait_for(asyncio.shield(waiter), timeout=5)
+        finally:
+            await cancel_tasks(tasks)
+    async with sessions() as db:
+        assert await db.scalar(sa.select(sa.func.count()).select_from(OrganizationAuditLog).where(
+            OrganizationAuditLog.organization_id == orgs[0])) == 1
+
+
+@pytest.mark.parametrize("mutation", ["role", "invite", "remove"])
+@pytest.mark.parametrize("creation", ["source", "researcher"])
+async def test_http_creation_waiting_on_org_does_not_block_mutation_audit_fk(
+    team_database, consent_http, monkeypatch, mutation, creation,
+):
+    """Arrange the reviewed FK cycle through real HTTP routes and dependencies.
+
+    Mutation holds org; creation has locked the audit-referenced user and is
+    observed waiting for that org. Mutation must commit its FK/audit exactly
+    once, then creation must proceed exactly once, without deadlock/retry.
+    """
+    import httpx
+    from app.models.analysis_run import AnalysisRun, AnalysisRunEvent
+    from app.routers import organizations
+
+    sessions, users, orgs = team_database
+    app, pids = consent_http
+    async with sessions() as db:
+        (await db.get(User, users[2])).organization_id = orgs[0]
+        db.add(OrganizationMember(organization_id=orgs[0], user_id=users[2], role="member"))
+        (await db.get(Organization, orgs[0])).seat_limit = 10
+        await db.commit()
+    org_locked, proceed = asyncio.Event(), asyncio.Event()
+    original = organizations.lock_and_require_org_admin
+    async def hold_after_fresh_authorization(**kwargs):
+        result = await original(**kwargs)
+        org_locked.set()
+        await asyncio.wait_for(proceed.wait(), timeout=10)
+        return result
+    monkeypatch.setattr(organizations, "lock_and_require_org_admin", hold_after_fresh_authorization)
+
+    # Role audit references its target; invitation/removal reference the actor.
+    creator = users[2] if mutation == "role" else users[0]
+    calls = {
+        "role": ("PATCH", f"/api/organizations/{orgs[0]}/members/{users[2]}", {"role": "admin"}, 200, "role_changed"),
+        "invite": ("POST", f"/api/organizations/{orgs[0]}/members/invite", {"email": INVITE_RACE_EMAIL}, 201, "invite_sent"),
+        "remove": ("DELETE", f"/api/organizations/{orgs[0]}/members/{users[2]}", None, 204, "member_removed"),
+    }
+    method, path, payload, expected_status, action = calls[mutation]
+    creation_path, creation_body = (
+        ("/api/source-check/", {"input_type": "text", "input_content": "Synthetic FK lock race content"})
+        if creation == "source" else ("/api/researcher/analyze", {"researcher_name": "Synthetic FK lock race"})
+    )
+    tasks = []
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+                                base_url="http://consent-test") as client:
+        mutation_task = asyncio.create_task(client.request(method, path, json=payload, headers=bearer(users[0])))
+        tasks.append(mutation_task)
+        try:
+            async with asyncio.timeout(15):
+                await org_locked.wait()
+                mutation_pid = await pids.get()
+                creation_task = asyncio.create_task(client.post(creation_path, json=creation_body, headers=bearer(creator)))
+                tasks.append(creation_task)
+                creation_pid = await pids.get()
+                async with sessions() as observer:
+                    await wait_for_block(observer, creation_task, creation_pid, mutation_pid)
+                proceed.set()
+                # No retries. The old FOR UPDATE cycle yields an aborted HTTP
+                # request or a timeout; neither may masquerade as success.
+                results = await asyncio.gather(mutation_task, creation_task)
+            assert results[0].status_code == expected_status, results[0].text
+            assert results[1].status_code == 201, results[1].text
+        finally:
+            proceed.set()
+            await cancel_tasks(tasks)
+
+    model = SourceCheck if creation == "source" else ResearcherProfile
+    async with sessions() as db:
+        resources = list((await db.execute(sa.select(model).where(model.user_id == creator))).scalars())
+        assert len(resources) == 1
+        assert resources[0].organization_id == orgs[0]
+        runs = list((await db.execute(sa.select(AnalysisRun).where(AnalysisRun.user_id == creator))).scalars())
+        assert len(runs) == 1 and runs[0].resource_id == resources[0].id and runs[0].status == "queued"
+        assert await db.scalar(sa.select(sa.func.count()).select_from(AnalysisRunEvent).where(
+            AnalysisRunEvent.run_id == runs[0].id, AnalysisRunEvent.event_type == "queued")) == 1
+        logs = list((await db.execute(sa.select(OrganizationAuditLog).where(
+            OrganizationAuditLog.organization_id == orgs[0]))).scalars())
+        assert len(logs) == 1 and logs[0].action == action and logs[0].actor_user_id == users[0]
+        invites = list((await db.execute(sa.select(OrganizationInvite).where(
+            OrganizationInvite.organization_id == orgs[0]))).scalars())
+        if mutation == "invite":
+            assert len(invites) == 1 and invites[0].status == "pending" and invites[0].email == INVITE_RACE_EMAIL
+            organizations.send_email.assert_awaited_once()
+        else:
+            assert invites == []
+            organizations.send_email.assert_not_awaited()
+        member = await db.get(OrganizationMember, (orgs[0], users[2]))
+        if mutation == "remove":
+            assert member is None and (await db.get(User, users[2])).organization_id is None
+        else:
+            assert member.role == ("admin" if mutation == "role" else "member")

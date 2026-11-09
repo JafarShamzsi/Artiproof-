@@ -1,7 +1,11 @@
 """Recipient consent. Caller owns commit/rollback; no GET may call acceptance.
 
-Membership writers lock user -> organization -> invite, in that order. The
-organization lock serializes seat allocation, including pending reservations.
+Membership writers lock user -> organization -> invite, in that order. User
+and organization serialization uses FOR NO KEY UPDATE: exclusive against other
+writers, but compatible with FK checks' KEY SHARE on these parent rows. Using
+FOR UPDATE would let an org mutation's audit FK wait on a user whose creation
+request is already waiting on that org, forming an implicit-lock deadlock.
+These paths do not modify user/org keys. Invitations retain FOR UPDATE.
 Use READ COMMITTED (the application's PostgreSQL default).
 """
 
@@ -27,13 +31,17 @@ def invalid_invite():
 async def lock_user(db: AsyncSession, user_id: str) -> User:
     # Auth may have already loaded the row: refresh it *after* acquiring the
     # lock, or a concurrent acceptance can leave a stale organization pointer.
+    # PostgreSQL: key_share=True WITHOUT read=True emits NO KEY UPDATE, NOT
+    # KEY SHARE. Keep writer exclusion while allowing audit/membership FKs.
     return (await db.execute(select(User).where(User.id == user_id)
-                            .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+                            .with_for_update(key_share=True).execution_options(populate_existing=True))).scalar_one_or_none()
 
 
 async def lock_org(db: AsyncSession, org_id: str) -> Organization:
+    # Same parent-row mode as lock_user; remains a seat/membership mutex while
+    # permitting FKs referencing the org. Do not change keys through this lock.
     org = (await db.execute(select(Organization).where(Organization.id == org_id)
-                           .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+                           .with_for_update(key_share=True).execution_options(populate_existing=True))).scalar_one_or_none()
     if org is None:
         raise invalid_invite()
     return org

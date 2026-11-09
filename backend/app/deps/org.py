@@ -35,6 +35,8 @@ async def lock_and_require_org_admin(*, db: AsyncSession, org_id: str, actor_use
     Do not lock the actor user after the org: acceptance/removal lock users
     first. The membership and account subquery are fresh READ COMMITTED reads.
     All organization role/removal writers hold the same org lock.
+    Parent locks are NO KEY UPDATE (not UPDATE), so audit FK KEY SHARE does
+    not wait on a creation/enrollment user that is waiting for this org.
     """
     from app.services.team_invites import lock_org
 
