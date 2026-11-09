@@ -27,6 +27,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { apiFetch, backendUrl } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error-message";
 import { explainCredibility } from "@/lib/scoreExplanation";
 import { ScoreLabel } from "@/components/ui/score-explanation";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,6 +54,27 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
+// Match Python str.strip()/len() used by the text pipeline, including its
+// extra whitespace characters and Unicode codepoints rather than UTF-16 units.
+function trimText(value: string) {
+  return value.replace(/^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/gu, "");
+}
+
+function validCheckId(value: unknown): value is string {
+  if (typeof value !== "string" || !value || value === "." || value === ".." || /[\s/\\?#%\u0000-\u001f\u007f]/u.test(value)) return false;
+  try { encodeURIComponent(value); return true; } catch { return false; }
+}
+
+function fileError(file: File): string | null {
+  // Mirrors backend constants.py and source_check.py; MIME is not authoritative.
+  if (!file.name.toLowerCase().endsWith(".pdf")) return "Only PDF files are supported.";
+  if (file.size > 50 * 1024 * 1024) return "File too large (max 50 MiB).";
+  if (file.size < 100) return "File is empty or too small to be a PDF (minimum 100 bytes).";
+  return null;
+}
+
+const UNKNOWN_ACCEPTANCE = "Submission could not be confirmed. Check past checks/history before manually submitting again; it may have been saved.";
+
 export default function CheckSourcePage() {
   return (
     // Suspense boundary required because the inner client tree calls
@@ -66,8 +88,9 @@ export default function CheckSourcePage() {
 
 function CheckSourcePageInner() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("url");
+  const [activeTab, setActiveTab] = useState("text");
   const [inputValue, setInputValue] = useState("");
+  const [urlInput, setUrlInput] = useState("");
   const [bulkInput, setBulkInput] = useState("");
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -75,21 +98,37 @@ function CheckSourcePageInner() {
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<ProgressEvent[]>([]);
   const [progress, setProgress] = useState(0);
+  const [acceptedId, setAcceptedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Hold the active EventSource so unmount can close it.
   const eventSourceRef = useRef<EventSource | null>(null);
+  const busyRef = useRef(false);
+  const mountedRef = useRef(false);
+  const operationRef = useRef(0);
 
   // Clean up any in-flight SSE stream when this component unmounts.
   // Without this the connection keeps streaming events into a detached
   // setEvents and eventually leaks memory + holds an HTTP connection open.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      operationRef.current += 1;
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
     };
   }, []);
 
-  const startSSE = useCallback(async (checkId: string) => {
+  const startSSE = useCallback(async (checkId: string, operation: number) => {
+    const current = () => mountedRef.current && operationRef.current === operation;
+    const path = `/check/${encodeURIComponent(checkId)}`;
+    const recover = (message: string) => {
+      if (!current()) return;
+      busyRef.current = false;
+      setLoading(false);
+      setError(message);
+      router.push(path);
+    };
     // If a previous run is still streaming, close it first
     eventSourceRef.current?.close();
     // EventSource can't carry an Authorization header, so we trade the
@@ -97,36 +136,53 @@ function CheckSourcePageInner() {
     let ticket: string;
     try {
       const ticketRes = await apiFetch(
-        `/api/source-check/${checkId}/stream-ticket`,
+        `/api/source-check/${encodeURIComponent(checkId)}/stream-ticket`,
         { method: "POST" },
       );
-      if (!ticketRes.ok) {
-        setLoading(false);
-        router.push(`/check/${checkId}`);
-        return;
-      }
-      ticket = ((await ticketRes.json()) as { ticket: string }).ticket;
+      if (!current()) return;
+      if (!ticketRes.ok) throw new Error("Ticket unavailable");
+      const body = await ticketRes.json();
+      if (!current()) return;
+      if (typeof body?.ticket !== "string" || !body.ticket.trim()) throw new Error("Invalid ticket");
+      ticket = body.ticket;
     } catch {
-      setLoading(false);
-      router.push(`/check/${checkId}`);
+      recover("Live progress unavailable. Opening the saved check to refresh its status.");
       return;
     }
-    const es = new EventSource(
-      backendUrl(`/api/source-check/${checkId}/stream?ticket=${encodeURIComponent(ticket)}`),
-    );
+    if (!current()) return;
+    let es: EventSource;
+    try {
+      es = new EventSource(
+        backendUrl(`/api/source-check/${encodeURIComponent(checkId)}/stream?ticket=${encodeURIComponent(ticket)}`),
+      );
+    } catch {
+      recover("Live progress unavailable. Opening the saved check to refresh its status.");
+      return;
+    }
     eventSourceRef.current = es;
+    const active = () => current() && eventSourceRef.current === es;
+    const close = () => {
+      es.close();
+      es.onmessage = null;
+      es.onerror = null;
+      eventSourceRef.current = null;
+    };
 
     es.onmessage = (e) => {
+      if (!active()) return;
       try {
         const event = JSON.parse(e.data) as ProgressEvent;
-        setEvents((prev) => [...prev, event]);
+        if (!event || typeof event.detail !== "string" || typeof event.status !== "string" ||
+          typeof event.progress !== "number" || !Number.isFinite(event.progress) || event.progress < 0 || event.progress > 1) return;
+        setEvents((prev) => [...prev.slice(-99), event]);
         setProgress(event.progress);
 
         if (event.status === "completed" || event.status === "failed") {
-          es.close();
-          eventSourceRef.current = null;
+          close();
+          busyRef.current = false;
           setLoading(false);
-          router.push(`/check/${checkId}`);
+          if (event.status === "failed") setError("The saved check reported failure. Open it to review its status and available findings.");
+          router.push(path);
         }
       } catch {
         // Malformed event — ignore
@@ -134,6 +190,7 @@ function CheckSourcePageInner() {
     };
 
     es.onerror = () => {
+      if (!active()) return;
       // EventSource may fire onerror for two reasons:
       //   - normal stream end (readyState === CLOSED) — the server
       //     finished pushing events and closed the connection. Navigate
@@ -142,84 +199,73 @@ function CheckSourcePageInner() {
       //     the user needs to know the live progress was interrupted,
       //     otherwise they'll wait on a stale spinner.
       const wasCleanClose = es.readyState === EventSource.CLOSED;
-      es.close();
-      eventSourceRef.current = null;
+      close();
+      busyRef.current = false;
       setLoading(false);
       if (!wasCleanClose) {
         toast.error(
-          "Live progress disconnected. Opening the result page — your analysis is still running."
+          "Live progress disconnected. Opening the saved check to refresh its status."
         );
       }
-      router.push(`/check/${checkId}`);
+      setError("Live updates ended. Open the saved check to refresh its status.");
+      router.push(path);
     };
   }, [router]);
 
   const handleSubmit = useCallback(async () => {
+    if (busyRef.current || activeTab === "bulk") return;
     setError(null);
+    const content = activeTab === "text" ? trimText(inputValue) : urlInput.trim();
     if (activeTab === "document") {
       if (!selectedFile) return;
-      setLoading(true);
-      setEvents([]);
-      setProgress(0);
-
-      try {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-
-        const res = await apiFetch("/api/source-check/upload", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: "Upload failed" }));
-          setError(err.detail || `Upload failed (HTTP ${res.status})`);
-          setLoading(false);
-          return;
-        }
-
-        const data = await res.json();
-        await startSSE(data.id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Upload failed");
-        setLoading(false);
-      }
-    } else {
-      if (!inputValue.trim()) return;
-      setLoading(true);
-      setEvents([]);
-      setProgress(0);
-
-      try {
-        const res = await apiFetch("/api/source-check/", {
-          method: "POST",
-          body: JSON.stringify({
-            input_type: activeTab,
-            input_content: inputValue.trim(),
-          }),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-          setError(err.detail || "Failed to start analysis");
-          setLoading(false);
-          return;
-        }
-
-        const data = await res.json();
-        await startSSE(data.id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to start analysis");
-        setLoading(false);
-      }
+      const invalid = fileError(selectedFile);
+      if (invalid) { setError(invalid); return; }
+    } else if (!content || (activeTab === "text" && Array.from(content).length < 50)) {
+      setError(activeTab === "text" ? "Enter at least 50 trimmed characters of article text." : "Enter an article URL.");
+      return;
     }
-  }, [inputValue, activeTab, selectedFile, startSSE]);
+    busyRef.current = true;
+    const operation = ++operationRef.current;
+    const current = () => mountedRef.current && operationRef.current === operation;
+    setAcceptedId(null);
+    setLoading(true);
+    setEvents([]);
+    setProgress(0);
+    try {
+      const formData = new FormData();
+      if (selectedFile) formData.append("file", selectedFile);
+      const res = await apiFetch(activeTab === "document" ? "/api/source-check/upload" : "/api/source-check/", {
+        method: "POST",
+        body: activeTab === "document" ? formData : JSON.stringify({ input_type: activeTab, input_content: content }),
+      });
+      if (!current()) return;
+      if (!res.ok) {
+        const body: unknown = await res.json().catch(() => null);
+        if (!current()) return;
+        setError(apiErrorMessage(body, `Submission failed (HTTP ${res.status})`));
+        busyRef.current = false;
+        setLoading(false);
+        return;
+      }
+      const data = await res.json();
+      if (!current()) return;
+      if (!validCheckId(data?.id)) throw new Error("Invalid accepted ID");
+      setAcceptedId(data.id);
+      await startSSE(data.id, operation);
+    } catch {
+      if (!current()) return;
+      setError(UNKNOWN_ACCEPTANCE);
+      busyRef.current = false;
+      setLoading(false);
+    }
+  }, [inputValue, urlInput, activeTab, selectedFile, startSSE]);
 
   // ─── Bulk submission ───
   // Splits the textarea on newlines, filters empties, classifies each line as
   // url vs text by regex, then POSTs to /api/source-check/bulk and routes to
   // the batch-progress page with the new check ids in the query string.
   const handleBulkSubmit = useCallback(async () => {
+    if (busyRef.current) return;
     setError(null);
     const lines = bulkInput
       .split(/\r?\n/)
@@ -237,34 +283,49 @@ function CheckSourcePageInner() {
       input_type: /^https?:\/\//i.test(line) ? "url" : "text",
       input_content: line,
     }));
+    busyRef.current = true;
+    const operation = ++operationRef.current;
+    const current = () => mountedRef.current && operationRef.current === operation;
+    setAcceptedId(null);
     setBulkSubmitting(true);
     try {
       const res = await apiFetch("/api/source-check/bulk", {
         method: "POST",
         body: JSON.stringify({ items }),
       });
+      if (!current()) return;
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        const msg = err.detail || `Bulk submit failed (HTTP ${res.status})`;
+        if (!current()) return;
+        const msg = apiErrorMessage(err, `Bulk submit failed (HTTP ${res.status})`);
         setError(msg);
         toast.error(msg);
         return;
       }
       const body = (await res.json()) as BulkSourceCheckResponse;
+      if (!current()) return;
+      if (!validCheckId(body?.batch_id) || !Array.isArray(body.items) || body.items.length === 0 ||
+        !body.items.every((item) => validCheckId(item?.id))) throw new Error("Invalid accepted IDs");
       const ids = body.items.map((i) => i.id).join(",");
       toast.success(`Started ${body.items.length} check${body.items.length === 1 ? "" : "s"}`);
-      router.push(`/check/batch/${body.batch_id}?ids=${encodeURIComponent(ids)}`);
+      router.push(`/check/batch/${encodeURIComponent(body.batch_id)}?ids=${encodeURIComponent(ids)}`);
     } catch {
-      const msg = "Network error — please try again";
+      if (!current()) return;
+      const msg = UNKNOWN_ACCEPTANCE;
       setError(msg);
       toast.error(msg);
     } finally {
-      setBulkSubmitting(false);
+      if (current()) {
+        busyRef.current = false;
+        setBulkSubmitting(false);
+      }
     }
   }, [bulkInput, router]);
 
   const canSubmit =
-    activeTab === "document" ? !!selectedFile : !!inputValue.trim();
+    activeTab === "document" ? !!selectedFile : activeTab === "text"
+      ? Array.from(trimText(inputValue)).length >= 50 : !!urlInput.trim();
+  const busy = loading || bulkSubmitting;
 
   return (
     <div className="space-y-6">
@@ -280,9 +341,8 @@ function CheckSourcePageInner() {
           <Tabs
             value={activeTab}
             onValueChange={(v) => {
+              if (busyRef.current) return;
               setActiveTab(v);
-              setInputValue("");
-              setSelectedFile(null);
               setError(null);
             }}
           >
@@ -294,24 +354,28 @@ function CheckSourcePageInner() {
               <TabsList className="bg-zinc-100 dark:bg-zinc-800">
                 <TabsTrigger
                   value="url"
+                  disabled={busy}
                   className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
                 >
                   <Link2 className="mr-2 h-4 w-4" /> Paste URL
                 </TabsTrigger>
                 <TabsTrigger
                   value="text"
+                  disabled={busy}
                   className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
                 >
                   <FileText className="mr-2 h-4 w-4" /> Paste Text
                 </TabsTrigger>
                 <TabsTrigger
                   value="document"
+                  disabled={busy}
                   className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
                 >
                   <Upload className="mr-2 h-4 w-4" /> Upload PDF
                 </TabsTrigger>
                 <TabsTrigger
                   value="bulk"
+                  disabled={busy}
                   className="whitespace-nowrap data-[state=active]:bg-brand/15 data-[state=active]:text-brand dark:data-[state=active]:text-brand-fg"
                 >
                   <Layers className="mr-2 h-4 w-4" /> Bulk
@@ -320,35 +384,53 @@ function CheckSourcePageInner() {
             </div>
 
             <TabsContent value="url">
+              <label htmlFor="source-url">Article URL</label>
               <Input
+                id="source-url"
+                aria-describedby={`source-url-help${error ? " submission-error" : ""}`}
+                aria-invalid={!!error}
                 placeholder="https://example.com/article..."
-                value={activeTab === "url" ? inputValue : ""}
-                onChange={(e) => setInputValue(e.target.value)}
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                 className="border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
-                disabled={loading}
+                disabled={busy}
               />
+              <p id="source-url-help" className="mt-2 text-xs text-zinc-500">Enter a public article URL. Extraction may be unavailable; review the saved check for coverage.</p>
             </TabsContent>
 
             <TabsContent value="text">
+              <label htmlFor="source-text">Article text</label>
               <Textarea
+                id="source-text"
+                aria-describedby={`source-text-help${error ? " submission-error" : ""}`}
+                aria-invalid={!!error}
                 placeholder="Paste the article text here..."
                 value={activeTab === "text" ? inputValue : ""}
                 onChange={(e) => setInputValue(e.target.value)}
                 className="min-h-[200px] border-zinc-300 bg-white text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
-                disabled={loading}
+                disabled={busy}
               />
+              <p id="source-text-help" className="mt-2 text-xs text-zinc-500">At least 50 trimmed characters required ({Array.from(trimText(inputValue)).length} entered). Text bibliography extraction is unsupported. Findings require human verification.</p>
             </TabsContent>
 
             <TabsContent value="document">
+              <label htmlFor="source-pdf">PDF document</label>
+              <p id="source-pdf-help" className="mb-2 text-xs text-zinc-500">PDF, 100 bytes to 50 MiB. PDF bibliography extraction is unsupported. The server validates PDF contents; selecting a file does not upload it.</p>
               <input
+                id="source-pdf"
+                aria-describedby={`source-pdf-help${error ? " submission-error" : ""}`}
+                aria-invalid={!!error}
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) setSelectedFile(file);
+                  if (file) {
+                    setSelectedFile(file);
+                    setError(fileError(file));
+                  }
                 }}
                 disabled={loading}
               />
@@ -369,6 +451,7 @@ function CheckSourcePageInner() {
                     size="sm"
                     onClick={() => {
                       setSelectedFile(null);
+                      setError(null);
                       if (fileInputRef.current) fileInputRef.current.value = "";
                     }}
                     aria-label="Remove selected file"
@@ -383,6 +466,7 @@ function CheckSourcePageInner() {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   aria-label="Upload PDF file"
+                  aria-describedby={`source-pdf-help${error ? " submission-error" : ""}`}
                   className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 py-12 transition hover:border-brand/50 focus-visible:border-brand/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 dark:border-zinc-700"
                   disabled={loading}
                 >
@@ -391,7 +475,7 @@ function CheckSourcePageInner() {
                     Click to select a PDF file
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
-                    PDF files up to 50MB
+                    PDF files up to 50 MiB
                   </p>
                 </button>
               )}
@@ -399,20 +483,25 @@ function CheckSourcePageInner() {
 
             <TabsContent value="bulk">
               <div className="space-y-3">
+                <label htmlFor="source-bulk">URLs or text, one item per line</label>
                 <Textarea
+                  id="source-bulk"
+                  aria-describedby={`source-bulk-help${error ? " submission-error" : ""}`}
+                  aria-invalid={!!error}
                   placeholder={
                     "https://example.com/article-1\nhttps://example.com/article-2\nA piece of text to fact-check, one item per line"
                   }
                   value={bulkInput}
                   onChange={(e) => setBulkInput(e.target.value)}
                   className="min-h-[200px] border-zinc-300 bg-white font-mono text-xs text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500"
-                  disabled={bulkSubmitting}
+                  disabled={busy}
                 />
-                <p className="text-xs text-zinc-500">
+                <p id="source-bulk-help" className="text-xs text-zinc-500">
                   Paste up to 50 URLs or pieces of text, one per line. Lines starting with{" "}
                   <code className="rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-800">http://</code>{" "}
                   or <code className="rounded bg-zinc-100 px-1 py-0.5 dark:bg-zinc-800">https://</code>{" "}
                   are treated as URLs; everything else is analyzed as text.
+                  {" "}Text items need at least 50 trimmed characters; text bibliography extraction is unsupported.
                 </p>
                 <p className="text-xs text-zinc-500">
                   PDF bulk upload coming next — for now use the Upload PDF tab one at a time.
@@ -424,7 +513,7 @@ function CheckSourcePageInner() {
           {activeTab === "bulk" ? (
             <Button
               onClick={handleBulkSubmit}
-              disabled={bulkSubmitting || !bulkInput.trim()}
+              disabled={busy || !bulkInput.trim()}
               className="mt-4 w-full bg-brand text-white hover:bg-brand-hover"
             >
               {bulkSubmitting ? (
@@ -440,12 +529,12 @@ function CheckSourcePageInner() {
           ) : (
             <Button
               onClick={handleSubmit}
-              disabled={loading || !canSubmit}
+              disabled={busy || !canSubmit}
               className="mt-4 w-full bg-brand text-white hover:bg-brand-hover"
             >
               {loading ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing...
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {acceptedId ? events.length > 0 ? "Receiving live progress..." : "Waiting for live progress..." : activeTab === "document" ? "Uploading..." : "Submitting..."}
                 </>
               ) : (
                 <>
@@ -455,8 +544,16 @@ function CheckSourcePageInner() {
             </Button>
           )}
 
+          {acceptedId && (
+            <div role="status" className="mt-4 break-all text-sm">
+              Saved check: {acceptedId}. This confirms submission, not completion or verified findings.{" "}
+              <a className="underline" href={`/check/${encodeURIComponent(acceptedId)}`}>Open saved check</a>
+            </div>
+          )}
+
           {error && (
             <div
+              id="submission-error"
               role="alert"
               className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-700 dark:text-red-300"
             >

@@ -97,7 +97,12 @@ function RegisterPageInner() {
 
   const searchParams = useSearchParams();
   const inviteToken = searchParams?.get("invite");
-  const { status: sessionStatus } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  // SessionProvider retains data during update() loading. Scope consent to the
+  // server-held account ID, not organization metadata changed by enrollment.
+  const rawAccountId = session?.user?.id;
+  const accountId = typeof rawAccountId === "string" && rawAccountId.length > 0 ? rawAccountId : null;
+  const consentKey = JSON.stringify([inviteToken, accountId]);
   const callbackUrl = inviteToken ? `/register?invite=${encodeURIComponent(inviteToken)}` : "/dashboard";
 
   // On mount: prefer ?plan=, fall back to a previously-stored cookie,
@@ -169,8 +174,11 @@ function RegisterPageInner() {
     }
   };
 
-  if (inviteToken && sessionStatus === "authenticated") {
-    return <InvitationConsent key={inviteToken} token={inviteToken} />;
+  // NextAuth update() temporarily reports loading. Keep the same consent
+  // instance through that refresh; it still gates actions on authentication.
+  // Actual auth loss returns to signup and discards the prior consent state.
+  if (inviteToken && sessionStatus !== "unauthenticated") {
+    return <InvitationConsent key={consentKey} token={inviteToken} />;
   }
 
   return (
@@ -187,7 +195,7 @@ function RegisterPageInner() {
 
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
-          {inviteToken && <InvitationConsent key={inviteToken} token={inviteToken} />}
+          {inviteToken && <InvitationConsent key={consentKey} token={inviteToken} />}
           {error && (
             <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400">
               {error}
